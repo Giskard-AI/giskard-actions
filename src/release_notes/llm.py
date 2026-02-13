@@ -23,37 +23,33 @@ LOG = logging.getLogger("release_notes.llm")
 _PROMPTS_DIR = Path(__file__).parent / "prompts"
 
 
-def _load_template(name: str) -> jinja2.Template:
-    env = jinja2.Environment(
-        loader=jinja2.FileSystemLoader(str(_PROMPTS_DIR)),
-        autoescape=False,
-        undefined=jinja2.StrictUndefined,
-    )
-    return env.get_template(name)
-
-
 def _render_messages(template_name: str, **kwargs: str) -> list[dict[str, str]]:
-    """Render a Jinja2 prompt template into a list of chat messages.
+    """Render a prompt template into a list of chat messages.
 
-    Templates use {% message role %} ... {% endmessage %} blocks.
-    We parse these into [{"role": ..., "content": ...}, ...].
+    Templates use {% message role %} ... {% endmessage %} blocks to delimit
+    chat messages.  We first split on these markers (which are NOT real Jinja2
+    tags), then render each block's content through Jinja2 for variable
+    substitution.
     """
-    tmpl = _load_template(template_name)
-    raw = tmpl.render(**kwargs)
-
-    messages: list[dict[str, str]] = []
     import re
 
-    # Split on message tags
+    raw = (_PROMPTS_DIR / template_name).read_text(encoding="utf-8")
+
+    env = jinja2.Environment(autoescape=False, undefined=jinja2.StrictUndefined)
+
+    messages: list[dict[str, str]] = []
+    # Split on {% message <role> %} markers
     parts = re.split(r"\{%\s*message\s+(\w+)\s*%\}", raw)
     # parts[0] = before first message (usually empty)
-    # parts[1] = role, parts[2] = content (up to endmessage), etc.
+    # parts[1] = role, parts[2] = content, parts[3] = role, ...
     i = 1
     while i < len(parts):
         role = parts[i].strip()
         content_raw = parts[i + 1] if i + 1 < len(parts) else ""
-        # Remove endmessage tags
-        content = re.sub(r"\{%\s*endmessage\s*%\}", "", content_raw).strip()
+        # Remove {% endmessage %} tags
+        content_raw = re.sub(r"\{%\s*endmessage\s*%\}", "", content_raw)
+        # Render Jinja2 variables ({{ var }}) and conditionals ({% if %})
+        content = env.from_string(content_raw).render(**kwargs).strip()
         if content:
             messages.append({"role": role, "content": content})
         i += 2

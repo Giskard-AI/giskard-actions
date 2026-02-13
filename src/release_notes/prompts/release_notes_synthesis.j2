@@ -2,7 +2,7 @@
 You generate release notes for a software repository.
 
 Input:
-- You are given consolidated descriptions per commit.
+- You are given consolidated descriptions per commit, each with a category (feature, fix, ux, api, infra, upgrade, other).
 
 Constraints:
 - You MUST not invent changes beyond what is described.
@@ -21,17 +21,33 @@ Rules:
 - Do not mention tools, prompts, or the existence of this input.
 - Keep wording concise and professional.
 - Do NOT include file paths or 'Evidence:' in the text.
-- Do NOT include long dependency version lists in Summary/Features/Fixes/Upgrade notes; dependency bumps will be tracked separately.
+- Do NOT include long dependency version lists in any section; dependency bumps will be tracked separately.
 - Upgrade notes must be limited to helm/config/deploy-impact items only.
 
-Summary format:
+## Section roles
+
+**summary** (3-6 items):
+- The highlight reel. Pick the most impactful, user-visible changes.
 - short_name: 2-6 words.
 - description: 2-4 sentences answering: what can a user do now, what does it bring.
   - MUST include an explicit benefit/outcome sentence.
 
-Features items:
-- short_name + 1-2 sentence description focused on user-visible behavior.
-  - MUST include an explicit benefit/outcome sentence.
+**"What changed" sub-sections** (features, fixes, ux_frontend, api_backend, infra_deps):
+- These are the exhaustive, categorized breakdown. Every meaningful change should appear here.
+- There MUST be MORE items across these sections than in summary — summary is a subset, not a superset.
+- Use the commit's `category` field to guide placement:
+  - category=feature → features
+  - category=fix → fixes
+  - category=ux → ux_frontend
+  - category=api → api_backend
+  - category=infra → infra_deps
+  - category=other → place in the most fitting section
+- Group related commits into a single bullet when they address the same feature/fix.
+- short_name + 1-2 sentence description focused on what changed and why it matters.
+
+**upgrade_notes**:
+- Only items that require user action on upgrade (migrations, config changes, breaking API changes).
+- Leave empty if none detected.
 
 <CONSOLIDATED_COMMITS>
 {{ consolidations_text }}

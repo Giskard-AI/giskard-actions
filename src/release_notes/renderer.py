@@ -150,23 +150,22 @@ def render_markdown(
             w.bullet("No explicit upgrade notes detected from the diff digest.")
             w.blank()
 
+    # Dependencies (deterministic, not LLM-driven)
+    if "deps" in enabled and dependency_bumps:
+        w.h2(config.section_title("deps"))
+        by_manifest: dict[str, list[DependencyUpdate]] = {}
+        for b in dependency_bumps:
+            by_manifest.setdefault(b.manifest_path, []).append(b)
+        for mp in sorted(by_manifest):
+            w.h3(f"`{mp}`")
+            for b in sorted(by_manifest[mp], key=lambda x: x.name.lower()):
+                note = f" — {b.note.strip()}" if b.note and b.note.strip() else ""
+                w.bullet(f"{b.name}: {b.from_version} → {b.to_version}{note}")
+            w.blank()
+
     # Appendix
     if "appendix" in enabled:
         w.h2(config.section_title("appendix"))
-
-        # Dependencies sub-section
-        if "deps" in enabled and dependency_bumps:
-            w.h3(config.section_title("deps"))
-            by_manifest: dict[str, list[DependencyUpdate]] = {}
-            for b in dependency_bumps:
-                by_manifest.setdefault(b.manifest_path, []).append(b)
-            for mp in sorted(by_manifest):
-                w.raw(f"#### `{mp}`")
-                w.blank()
-                for b in sorted(by_manifest[mp], key=lambda x: x.name.lower()):
-                    note = f" — {b.note.strip()}" if b.note and b.note.strip() else ""
-                    w.bullet(f"{b.name}: {b.from_version} → {b.to_version}{note}")
-                w.blank()
 
         w.h3("Diff stats")
         w.codeblock("", (diff_stat.rstrip() or "<empty>"))
