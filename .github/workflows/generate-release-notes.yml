@@ -1,0 +1,157 @@
+name: Generate release notes (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "Release version (e.g., 2.3.0)"
+        required: true
+        type: string
+      previous_tag:
+        description: "Override previous tag (auto-detect if empty)"
+        required: false
+        default: ""
+        type: string
+      model:
+        description: "LiteLLM model name"
+        required: false
+        default: "azure_ai/gpt-4.1"
+        type: string
+      dry_run:
+        description: "Skip LLM calls, produce debug output"
+        required: false
+        default: false
+        type: boolean
+      output_path:
+        description: "Output markdown path (relative to repo root)"
+        required: false
+        default: ""
+        type: string
+      create_pr:
+        description: "Create a PR with the generated notes"
+        required: false
+        default: false
+        type: boolean
+      base_branch:
+        description: "Target branch for the PR"
+        required: false
+        default: "main"
+        type: string
+      tool_ref:
+        description: "Git ref of giskard-release-notes to install"
+        required: false
+        default: "main"
+        type: string
+    secrets:
+      AZURE_AI_API_KEY:
+        required: true
+      AZURE_AI_API_BASE:
+        required: true
+      LINEAR_API_KEY:
+        required: false
+      VENDOR_PAT_TOKEN:
+        required: false
+    outputs:
+      notes_path:
+        description: "Path to the generated markdown file"
+        value: ${{ jobs.generate.outputs.notes_path }}
+      summary:
+        description: "Short summary of the release"
+        value: ${{ jobs.generate.outputs.summary }}
+      compare_url:
+        description: "GitHub compare URL for the tag range"
+        value: ${{ jobs.generate.outputs.compare_url }}
+
+jobs:
+  generate:
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    outputs:
+      notes_path: ${{ steps.meta.outputs.notes_path }}
+      summary: ${{ steps.meta.outputs.summary }}
+      compare_url: ${{ steps.meta.outputs.compare_url }}
+    steps:
+      - name: Checkout calling repo
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          token: ${{ secrets.VENDOR_PAT_TOKEN != '' && secrets.VENDOR_PAT_TOKEN || github.token }}
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Setup Python 3.12 + uv
+        uses: astral-sh/setup-uv@803947b9bd8e9f986429fa0c5a41c367cd732b41 # v7
+        with:
+          enable-cache: true
+          python-version: "3.12"
+
+      - name: Install release-notes tool
+        run: |
+          uv pip install --system \
+            "giskard-release-notes @ git+https://${{ github.token }}@github.com/Giskard-AI/giskard-release-notes.git@${{ inputs.tool_ref }}"
+
+      - name: Resolve output path
+        id: resolve
+        run: |
+          if [ -n "${{ inputs.output_path }}" ]; then
+            echo "output=${{ inputs.output_path }}" >> "${GITHUB_OUTPUT}"
+          else
+            echo "output=release_notes/v${{ inputs.version }}.md" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Generate release notes
+        env:
+          AZURE_AI_API_KEY: ${{ secrets.AZURE_AI_API_KEY }}
+          AZURE_AI_API_BASE: ${{ secrets.AZURE_AI_API_BASE }}
+          AZURE_API_VERSION: "2024-08-01-preview"
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          RELEASE_NOTES_MODEL: ${{ inputs.model }}
+        run: |
+          set -euo pipefail
+          args=(
+            --version "${{ inputs.version }}"
+            --output "${{ steps.resolve.outputs.output }}"
+            --metadata-file metadata.json
+          )
+          if [ -n "${{ inputs.previous_tag }}" ]; then
+            args+=(--previous-tag "${{ inputs.previous_tag }}")
+          fi
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            args+=(--dry-run)
+          fi
+          generate-release-notes "${args[@]}"
+
+      - name: Read metadata
+        id: meta
+        run: |
+          {
+            echo "notes_path=$(jq -r '.output_path' metadata.json)"
+            echo "compare_url=$(jq -r '.compare_url' metadata.json)"
+
+            # summary can be multi-line — use heredoc for GITHUB_OUTPUT
+            echo "summary<<EOFMETA"
+            jq -r '.summary' metadata.json
+            echo "EOFMETA"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: release-notes-v${{ inputs.version }}
+          path: ${{ steps.resolve.outputs.output }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Create Pull Request
+        if: ${{ inputs.create_pr && !inputs.dry_run }}
+        uses: peter-evans/create-pull-request@c0f553fe549906ede9cf27b5156039d195d2ece0 # v8.1.0
+        with:
+          token: ${{ github.token }}
+          branch: chore/release-notes-v${{ inputs.version }}
+          base: ${{ inputs.base_branch }}
+          title: "chore: add release notes v${{ inputs.version }}"
+          commit-message: "chore: add release notes v${{ inputs.version }}"
+          add-paths: |
+            ${{ steps.resolve.outputs.output }}

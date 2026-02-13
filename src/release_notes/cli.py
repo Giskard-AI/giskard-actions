@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import json
 import logging
 import os
 from datetime import datetime, timezone
@@ -93,6 +94,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--env-file", default=None,
         help="Path to a .env file to load (e.g. /path/to/llm-hub/.env)",
+    )
+    p.add_argument(
+        "--metadata-file", default=None,
+        help="Write a JSON metadata file (previous_tag, current_tag, compare_url, summary, output_path).",
     )
     return p.parse_args()
 
@@ -281,6 +286,28 @@ async def main_async() -> None:
     )
     out_path.write_text(md, encoding="utf-8")
     LOG.info("Wrote %d bytes to %s", len(md.encode()), out_path)
+
+    if args.metadata_file:
+        compare = _compare_url(config.github_repository, tag_range)
+        summary_lines = []
+        for it in payload.summary:
+            name = it.short_name.strip()
+            desc = it.description.strip()
+            summary_lines.append(f"- {name}: {desc}" if name else f"- {desc}")
+        metadata = {
+            "previous_tag": tag_range.previous_tag,
+            "current_tag": tag_range.current_tag,
+            "compare_url": compare or "",
+            "summary": "\n".join(summary_lines),
+            "output_path": str(out_path),
+        }
+        meta_path = Path(args.metadata_file)
+        if not meta_path.is_absolute():
+            meta_path = Path.cwd() / meta_path
+        meta_path = meta_path.resolve()
+        meta_path.parent.mkdir(parents=True, exist_ok=True)
+        meta_path.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+        LOG.info("Wrote metadata to %s", meta_path)
 
 
 def main() -> None:
