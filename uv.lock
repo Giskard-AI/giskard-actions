@@ -401,6 +401,7 @@ dependencies = [
     { name = "jinja2" },
     { name = "litellm" },
     { name = "pydantic" },
+    { name = "python-dotenv" },
 ]
 
 [package.metadata]
@@ -408,6 +409,7 @@ requires-dist = [
     { name = "jinja2", specifier = ">=3.1.0" },
     { name = "litellm", specifier = ">=1.50.0" },
     { name = "pydantic", specifier = ">=2.0.0" },
+    { name = "python-dotenv", specifier = ">=1.0.0" },
 ]
 
 [[package]]

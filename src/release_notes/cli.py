@@ -7,6 +7,8 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 from .config import load_project_config
 from .deps import dependency_updates_for_range, merge_dependency_notes
 from .enrichment import fetch_linear_issues
@@ -82,12 +84,23 @@ def parse_args() -> argparse.Namespace:
         help="Skip LLM and Linear calls; produce a deterministic debug output.",
     )
     p.add_argument("--log-level", default="INFO")
+    p.add_argument(
+        "--env-file", default=None,
+        help="Path to a .env file to load (e.g. /path/to/llm-hub/.env)",
+    )
     return p.parse_args()
 
 
 async def main_async() -> None:
     args = parse_args()
     _setup_logging(args.log_level)
+
+    if args.env_file:
+        env_path = Path(args.env_file).resolve()
+        if not env_path.exists():
+            raise SystemExit(f"Env file not found: {env_path}")
+        load_dotenv(env_path, override=False)
+        LOG.info("Loaded env from %s", env_path)
 
     repo_root = Path(args.repo).resolve()
     if not (repo_root / ".git").exists():
@@ -218,6 +231,7 @@ async def main_async() -> None:
         linear_issues_by_key=linear_issues_by_key,
         include_digests_in_spoilers=include_digests_in_spoilers,
         dependency_bumps=dep_bumps_with_notes,
+        config=config,
     )
     out_path.write_text(md, encoding="utf-8")
     LOG.info("Wrote %d bytes to %s", len(md.encode()), out_path)

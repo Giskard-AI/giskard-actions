@@ -24,5 +24,16 @@
   "ignored_basenames": [
     "uv.lock",
     "pnpm-lock.yaml"
+  ],
+  "sections": [
+    { "id": "summary" },
+    { "id": "features" },
+    { "id": "fixes" },
+    { "id": "ux_frontend" },
+    { "id": "api_backend" },
+    { "id": "infra_deps" },
+    { "id": "upgrade_notes" },
+    { "id": "deps" },
+    { "id": "appendix" }
   ]
 }

@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 
+from .config import ProjectConfig
 from .models import (
     CommitDigest,
     ConsolidatedCommit,
@@ -90,9 +91,11 @@ def render_markdown(
     linear_issues_by_key: dict[str, LinearIssue],
     include_digests_in_spoilers: bool,
     dependency_bumps: list[DependencyUpdate],
+    config: ProjectConfig,
 ) -> str:
     ts = generated_at.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     w = MarkdownWriter()
+    enabled = config.enabled_section_ids()
 
     w.h1(f"Release notes v{version}")
     w.bullet(f"Range: `{tag_range.previous_tag}..{tag_range.current_tag}`")
@@ -101,61 +104,93 @@ def render_markdown(
     w.bullet(f"Generated: {ts}")
     w.blank()
 
-    w.h2("Summary")
-    for it in payload.summary:
-        name = it.short_name.strip()
-        desc = it.description.strip()
-        if name:
-            w.raw(f"**{name}**")
-            w.blank()
-        w.p(desc)
+    # Summary
+    if "summary" in enabled:
+        w.h2(config.section_title("summary"))
+        for it in payload.summary:
+            name = it.short_name.strip()
+            desc = it.description.strip()
+            if name:
+                w.raw(f"**{name}**")
+                w.blank()
+            w.p(desc)
 
-    w.h2("What changed")
+    # What changed (sub-sections)
+    has_what_changed = any(
+        sid in enabled
+        for sid in ("features", "fixes", "ux_frontend", "api_backend", "infra_deps")
+    )
+    if has_what_changed:
+        w.h2("What changed")
 
-    def section(title: str, items: list[ReleaseNoteItem]) -> None:
-        if not items:
-            return
-        w.h3(title)
-        for it in items:
-            w.bullet_kv(it.short_name, it.description)
-        w.blank()
-
-    section("Features", payload.features)
-    section("Fixes", payload.fixes)
-    section("UX / Frontend", payload.ux_frontend)
-    section("API / Backend", payload.api_backend)
-    section("Infra / Deps", payload.infra_deps)
-
-    w.h2("Upgrade notes")
-    if payload.upgrade_notes:
-        for it in payload.upgrade_notes:
-            w.bullet_kv(it.short_name, it.description)
-        w.blank()
-    else:
-        w.bullet("No explicit upgrade notes detected from the diff digest.")
-        w.blank()
-
-    w.h2("Appendix")
-
-    if dependency_bumps:
-        w.h3("Dependencies")
-        by_manifest: dict[str, list[DependencyUpdate]] = {}
-        for b in dependency_bumps:
-            by_manifest.setdefault(b.manifest_path, []).append(b)
-        for mp in sorted(by_manifest):
-            w.raw(f"#### `{mp}`")
-            w.blank()
-            for b in sorted(by_manifest[mp], key=lambda x: x.name.lower()):
-                note = f" — {b.note.strip()}" if b.note and b.note.strip() else ""
-                w.bullet(f"{b.name}: {b.from_version} → {b.to_version}{note}")
+        def section(section_id: str, items: list[ReleaseNoteItem]) -> None:
+            if section_id not in enabled or not items:
+                return
+            w.h3(config.section_title(section_id))
+            for it in items:
+                w.bullet_kv(it.short_name, it.description)
             w.blank()
 
-    w.h3("Diff stats")
-    w.codeblock("", (diff_stat.rstrip() or "<empty>"))
-    w.h3("Commits")
-    w.codeblock("", (commit_list.rstrip() or "<empty>"))
+        section("features", payload.features)
+        section("fixes", payload.fixes)
+        section("ux_frontend", payload.ux_frontend)
+        section("api_backend", payload.api_backend)
+        section("infra_deps", payload.infra_deps)
 
-    w.h3("Consolidated commits")
+    # Upgrade notes
+    if "upgrade_notes" in enabled:
+        w.h2(config.section_title("upgrade_notes"))
+        if payload.upgrade_notes:
+            for it in payload.upgrade_notes:
+                w.bullet_kv(it.short_name, it.description)
+            w.blank()
+        else:
+            w.bullet("No explicit upgrade notes detected from the diff digest.")
+            w.blank()
+
+    # Appendix
+    if "appendix" in enabled:
+        w.h2(config.section_title("appendix"))
+
+        # Dependencies sub-section
+        if "deps" in enabled and dependency_bumps:
+            w.h3(config.section_title("deps"))
+            by_manifest: dict[str, list[DependencyUpdate]] = {}
+            for b in dependency_bumps:
+                by_manifest.setdefault(b.manifest_path, []).append(b)
+            for mp in sorted(by_manifest):
+                w.raw(f"#### `{mp}`")
+                w.blank()
+                for b in sorted(by_manifest[mp], key=lambda x: x.name.lower()):
+                    note = f" — {b.note.strip()}" if b.note and b.note.strip() else ""
+                    w.bullet(f"{b.name}: {b.from_version} → {b.to_version}{note}")
+                w.blank()
+
+        w.h3("Diff stats")
+        w.codeblock("", (diff_stat.rstrip() or "<empty>"))
+        w.h3("Commits")
+        w.codeblock("", (commit_list.rstrip() or "<empty>"))
+
+        w.h3("Consolidated commits")
+        _render_consolidated_commits(
+            w,
+            commit_digests=commit_digests,
+            consolidations=consolidations,
+            linear_issues_by_key=linear_issues_by_key,
+            include_digests_in_spoilers=include_digests_in_spoilers,
+        )
+
+    return w.finish()
+
+
+def _render_consolidated_commits(
+    w: MarkdownWriter,
+    *,
+    commit_digests: list[CommitDigest],
+    consolidations: list[ConsolidatedCommit],
+    linear_issues_by_key: dict[str, LinearIssue],
+    include_digests_in_spoilers: bool,
+) -> None:
     by_sha: dict[str, ConsolidatedCommit] = {c.sha: c for c in consolidations}
     for cd in commit_digests:
         cons = by_sha.get(cd.sha)
@@ -232,5 +267,3 @@ def render_markdown(
             body.append("")
 
         w.details(summary, body)
-
-    return w.finish()

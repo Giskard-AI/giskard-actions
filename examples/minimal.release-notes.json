@@ -1,0 +1,19 @@
+{
+  "github_repository": "Giskard-AI/some-repo",
+  "manifest_paths": [
+    "pyproject.toml"
+  ],
+  "high_signal_prefixes": [
+    "src/"
+  ],
+  "sections": [
+    { "id": "summary" },
+    { "id": "features" },
+    { "id": "fixes" },
+    { "id": "ux_frontend", "enabled": false },
+    { "id": "api_backend", "enabled": false },
+    { "id": "upgrade_notes" },
+    { "id": "deps" },
+    { "id": "appendix" }
+  ]
+}
