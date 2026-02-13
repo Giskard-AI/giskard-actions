@@ -86,11 +86,13 @@ jobs:
           python-version: "3.12"
 
       - name: Install release-notes tool
+        env:
+          TOOL_TOKEN: ${{ secrets.VENDOR_PAT_TOKEN != '' && secrets.VENDOR_PAT_TOKEN || github.token }}
         run: |
           uv venv .venv
           . .venv/bin/activate
           uv pip install \
-            "giskard-release-notes @ git+https://${{ github.token }}@github.com/Giskard-AI/giskard-release-notes.git@${{ inputs.tool_ref }}"
+            "giskard-release-notes @ git+https://${TOOL_TOKEN}@github.com/Giskard-AI/giskard-release-notes.git@${{ inputs.tool_ref }}"
           echo "$PWD/.venv/bin" >> "${GITHUB_PATH}"
 
       - name: Resolve output path
