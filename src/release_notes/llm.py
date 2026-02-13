@@ -13,6 +13,7 @@ from .models import (
     CommitDigest,
     ConsolidatedCommit,
     DependencyUpdate,
+    GitHubIssue,
     LinearIssue,
     ReleaseNotesPayload,
 )
@@ -100,6 +101,7 @@ async def consolidate_commit(
     *,
     model: str,
     linear_issues: list[LinearIssue],
+    github_issues: list[GitHubIssue] | None = None,
     repo_root: Path,
     manifest_paths: tuple[str, ...],
 ) -> ConsolidatedCommit:
@@ -118,6 +120,24 @@ async def consolidate_commit(
                 lines.append("  -----")
         linear_block = "\n".join(lines).rstrip() + "\n"
 
+    github_block = ""
+    if github_issues:
+        lines = ["GitHub issues/PRs referenced by this commit:", ""]
+        for gh in github_issues:
+            kind = "PR" if gh.is_pull_request else "Issue"
+            lines.append(f"- #{gh.number} ({kind}): {gh.title}")
+            if gh.url:
+                lines.append(f"  URL: {gh.url}")
+            if gh.labels:
+                lines.append(f"  Labels: {', '.join(gh.labels)}")
+            if gh.body and gh.body.strip():
+                lines.append("  Body:")
+                lines.append("  -----")
+                for ln in gh.body.rstrip().splitlines():
+                    lines.append(f"  {ln}")
+                lines.append("  -----")
+        github_block = "\n".join(lines).rstrip() + "\n"
+
     dep_updates = dependency_updates_for_commit(
         commit_digest, repo_root=repo_root, manifest_paths=manifest_paths
     )
@@ -131,6 +151,7 @@ async def consolidate_commit(
         commit_digest=commit_digest.digest,
         dependency_updates_json=dep_updates_json,
         linear_block=linear_block,
+        github_block=github_block,
         _instr_output=output_schema,
     )
 

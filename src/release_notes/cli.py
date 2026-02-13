@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 
 from .config import load_project_config
 from .deps import dependency_updates_for_range, merge_dependency_notes
-from .enrichment import fetch_linear_issues
+from .enrichment import fetch_github_issues, fetch_linear_issues
 from .git_ops import (
     build_commit_digest,
     detect_tag_range,
@@ -24,6 +24,7 @@ from .models import (
     CommitCategory,
     CommitDigest,
     ConsolidatedCommit,
+    GitHubIssue,
     ReleaseNoteItem,
     ReleaseNotesPayload,
 )
@@ -78,10 +79,15 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-commit-digest-bytes", type=int, default=120_000)
     p.add_argument("--max-commit-file-diff-bytes", type=int, default=25_000)
     p.add_argument("--max-linear-issue-bytes", type=int, default=200_000)
+    p.add_argument("--max-github-issue-bytes", type=int, default=200_000)
     p.add_argument("--llm-concurrency", type=int, default=10)
     p.add_argument(
         "--dry-run", action="store_true",
         help="Skip LLM and Linear calls; produce a deterministic debug output.",
+    )
+    p.add_argument(
+        "--include-appendix", action="store_true",
+        help="Include the full appendix (diff stats, commit list, per-commit details). Off by default.",
     )
     p.add_argument("--log-level", default="INFO")
     p.add_argument(
@@ -168,7 +174,31 @@ async def main_async() -> None:
     else:
         LOG.info("Linear enrichment disabled (dry-run=%s, key=%s).", args.dry_run, bool(linear_api_key))
 
+    # GitHub enrichment
+    github_issues_by_number: dict[int, GitHubIssue] = {}
+    github_token = os.getenv("GITHUB_TOKEN")
+    github_repo = config.github_repository or os.getenv("GITHUB_REPOSITORY")
+    if not args.dry_run and github_token and github_repo:
+        all_gh_numbers = [n for cd in commit_digests for n in cd.github_issue_numbers]
+        # Also include PR numbers — they're issues in GitHub's API
+        all_gh_numbers += [cd.pr_number for cd in commit_digests if cd.pr_number]
+        github_issues_by_number = fetch_github_issues(
+            all_gh_numbers,
+            owner_repo=github_repo,
+            token=github_token,
+            max_issue_bytes=args.max_github_issue_bytes,
+        )
+    else:
+        LOG.info(
+            "GitHub enrichment disabled (dry-run=%s, token=%s, repo=%s).",
+            args.dry_run, bool(github_token), github_repo,
+        )
+
     include_digests_in_spoilers = bool(args.dry_run)
+
+    # Disable appendix unless explicitly requested
+    if not args.include_appendix:
+        config = config.with_section_disabled("appendix")
 
     consolidations: list[ConsolidatedCommit] = []
     if args.dry_run:
@@ -204,8 +234,20 @@ async def main_async() -> None:
                     for k in cd.linear_keys
                     if k in linear_issues_by_key
                 ]
+                gh_issues = [
+                    github_issues_by_number[n]
+                    for n in cd.github_issue_numbers
+                    if n in github_issues_by_number
+                ]
+                # Also include the PR itself if fetched
+                if cd.pr_number and cd.pr_number in github_issues_by_number:
+                    pr_issue = github_issues_by_number[cd.pr_number]
+                    if pr_issue not in gh_issues:
+                        gh_issues.insert(0, pr_issue)
                 return await consolidate_commit(
-                    cd, model=model, linear_issues=issues,
+                    cd, model=model,
+                    linear_issues=issues,
+                    github_issues=gh_issues,
                     repo_root=repo_root, manifest_paths=config.manifest_paths,
                 )
 
@@ -232,6 +274,7 @@ async def main_async() -> None:
         commit_digests=commit_digests,
         consolidations=consolidations,
         linear_issues_by_key=linear_issues_by_key,
+        github_issues_by_number=github_issues_by_number,
         include_digests_in_spoilers=include_digests_in_spoilers,
         dependency_bumps=dep_bumps_with_notes,
         config=config,

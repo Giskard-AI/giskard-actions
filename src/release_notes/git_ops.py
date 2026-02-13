@@ -123,6 +123,27 @@ def extract_linear_keys(text: str) -> list[str]:
     return out
 
 
+def extract_github_issue_numbers(text: str) -> list[int]:
+    """Extract GitHub issue/PR references like #123 from text.
+
+    Excludes the PR number that appears at the end of the subject line
+    (e.g. "(#456)") since that's handled separately by parse_pr_number.
+    Captures references in commit body like "Fixes #123", "closes #456", etc.
+    """
+    # Find all #N references
+    numbers = re.findall(r"(?<!\()#(\d+)(?!\))", text or "")
+    # Also find references in "Fixes #123" / "Closes #123" style (even with parens)
+    numbers += re.findall(r"(?:fix(?:es)?|close[sd]?|resolve[sd]?)\s+#(\d+)", text or "", re.IGNORECASE)
+    seen: set[int] = set()
+    out: list[int] = []
+    for n in numbers:
+        num = int(n)
+        if num not in seen:
+            seen.add(num)
+            out.append(num)
+    return out
+
+
 def parse_pr_number(subject: str) -> int | None:
     m = re.search(r"\(#(\d+)\)\s*$", subject or "")
     if not m:
@@ -211,7 +232,12 @@ def build_commit_digest(
     sha = commit.sha
     subject = commit.subject
     pr_number = parse_pr_number(subject)
-    linear_keys = extract_linear_keys(subject + "\n" + (commit.body or ""))
+    full_text = subject + "\n" + (commit.body or "")
+    linear_keys = extract_linear_keys(full_text)
+    github_issue_numbers = extract_github_issue_numbers(commit.body or "")
+    # Exclude the PR number itself from issue references
+    if pr_number and pr_number in github_issue_numbers:
+        github_issue_numbers = [n for n in github_issue_numbers if n != pr_number]
 
     parts: list[str] = []
     commit_range = f"{sha}^..{sha}"
@@ -271,6 +297,7 @@ def build_commit_digest(
         subject=subject,
         pr_number=pr_number,
         linear_keys=linear_keys,
+        github_issue_numbers=github_issue_numbers,
         changed_files=changed_files,
         selected_files=selected_sorted,
         digest=digest,

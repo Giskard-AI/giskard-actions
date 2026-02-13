@@ -111,6 +111,21 @@ class ProjectConfig:
                 return s.title
         return section_id
 
+    def with_section_disabled(self, section_id: str) -> "ProjectConfig":
+        """Return a new config with the given section disabled."""
+        new_sections = tuple(
+            SectionConfig(id=s.id, title=s.title, description=s.description, enabled=False)
+            if s.id == section_id else s
+            for s in self.sections
+        )
+        return ProjectConfig(
+            manifest_paths=self.manifest_paths,
+            high_signal_prefixes=self.high_signal_prefixes,
+            ignored_basenames=self.ignored_basenames,
+            github_repository=self.github_repository,
+            sections=new_sections,
+        )
+
     def section_descriptions_for_llm(self) -> str:
         """Build a text block describing enabled sections, for LLM prompt context."""
         lines: list[str] = []

@@ -2,7 +2,7 @@
 You consolidate a single git commit into a clear, user-comprehensible change description.
 
 Constraints:
-- Only use information supported by the provided commit diff digest and Linear issue content (if present).
+- Only use information supported by the provided commit diff digest, Linear issue content, and GitHub issue/PR content (if present).
 - Write in plain language. Assume the reader has not read the code.
 - Prefer concrete outcomes + scope (who/what/where changes) over vague claims.
 - Avoid sweeping words like "standardized", "expanded", "improved", "refactored" unless you specify what changed.
@@ -21,7 +21,7 @@ Requirements:
 - consolidated_description: 1-4 sentences explaining what changed in user-facing terms.
   - Must include an explicit benefit/outcome sentence.
   - Avoid low-level implementation details (routes, wrappers, query params) unless it directly affects users.
-- why/context: if Linear provides motivation/background, fill these fields (do not mention Linear IDs).
+- why/context: if Linear or GitHub issues provide motivation/background, fill these fields (do not mention Linear IDs or GitHub issue numbers in prose).
 - upgrade_notes: short bullets only when upgrade action is needed.
 - dependency_updates: use the provided deterministic list as the source of truth. You may add note/note_reason ONLY when non-routine and materially relevant.
   - Do NOT add items that are not present in the deterministic list.
@@ -38,6 +38,12 @@ Requirements:
 <LINEAR>
 {{ linear_block }}
 </LINEAR>
+{% endif %}
+
+{% if github_block %}
+<GITHUB>
+{{ github_block }}
+</GITHUB>
 {% endif %}
 
 <OUTPUT_SCHEMA>

@@ -38,11 +38,25 @@ class LinearIssue:
 
 
 @dataclass(frozen=True)
+class GitHubIssue:
+    """A GitHub issue or pull request fetched via the REST API."""
+
+    number: int
+    title: str
+    url: str
+    body: str
+    is_pull_request: bool
+    state: str  # "open" or "closed"
+    labels: list[str]
+
+
+@dataclass(frozen=True)
 class CommitDigest:
     sha: str
     subject: str
     pr_number: int | None
     linear_keys: list[str]
+    github_issue_numbers: list[int]
     changed_files: list[str]
     selected_files: list[str]
     digest: str

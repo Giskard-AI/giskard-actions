@@ -7,6 +7,7 @@ from .models import (
     CommitDigest,
     ConsolidatedCommit,
     DependencyUpdate,
+    GitHubIssue,
     LinearIssue,
     ReleaseNoteItem,
     ReleaseNotesPayload,
@@ -89,6 +90,7 @@ def render_markdown(
     commit_digests: list[CommitDigest],
     consolidations: list[ConsolidatedCommit],
     linear_issues_by_key: dict[str, LinearIssue],
+    github_issues_by_number: dict[int, GitHubIssue],
     include_digests_in_spoilers: bool,
     dependency_bumps: list[DependencyUpdate],
     config: ProjectConfig,
@@ -177,6 +179,7 @@ def render_markdown(
             commit_digests=commit_digests,
             consolidations=consolidations,
             linear_issues_by_key=linear_issues_by_key,
+            github_issues_by_number=github_issues_by_number,
             include_digests_in_spoilers=include_digests_in_spoilers,
         )
 
@@ -189,6 +192,7 @@ def _render_consolidated_commits(
     commit_digests: list[CommitDigest],
     consolidations: list[ConsolidatedCommit],
     linear_issues_by_key: dict[str, LinearIssue],
+    github_issues_by_number: dict[int, GitHubIssue],
     include_digests_in_spoilers: bool,
 ) -> None:
     by_sha: dict[str, ConsolidatedCommit] = {c.sha: c for c in consolidations}
@@ -211,6 +215,18 @@ def _render_consolidated_commits(
                         body.append(f"- [{k}]({iss.url}) — {title}")
                     else:
                         body.append(f"- {k}")
+                body.append("")
+
+            # GitHub issues/PRs referenced by this commit
+            gh_nums = cd.github_issue_numbers[:]
+            if cd.pr_number and cd.pr_number not in gh_nums:
+                gh_nums.insert(0, cd.pr_number)
+            gh_items = [github_issues_by_number[n] for n in gh_nums if n in github_issues_by_number]
+            if gh_items:
+                body.append("**GitHub**:")
+                for gh in gh_items:
+                    kind = "PR" if gh.is_pull_request else "Issue"
+                    body.append(f"- [#{gh.number}]({gh.url}) ({kind}) — {gh.title}")
                 body.append("")
 
             body.append("**Changed files**:")
