@@ -87,8 +87,11 @@ jobs:
 
       - name: Install release-notes tool
         run: |
-          uv pip install --system \
+          uv venv .venv
+          . .venv/bin/activate
+          uv pip install \
             "giskard-release-notes @ git+https://${{ github.token }}@github.com/Giskard-AI/giskard-release-notes.git@${{ inputs.tool_ref }}"
+          echo "$PWD/.venv/bin" >> "${GITHUB_PATH}"
 
       - name: Resolve output path
         id: resolve
