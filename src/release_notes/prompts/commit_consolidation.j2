@@ -1,0 +1,46 @@
+{% message system %}
+You consolidate a single git commit into a clear, user-comprehensible change description.
+
+Constraints:
+- Only use information supported by the provided commit diff digest and Linear issue content (if present).
+- Write in plain language. Assume the reader has not read the code.
+- Prefer concrete outcomes + scope (who/what/where changes) over vague claims.
+- Avoid sweeping words like "standardized", "expanded", "improved", "refactored" unless you specify what changed.
+- Do NOT mention Linear ticket IDs (e.g. ENG-1234) in any prose fields.
+- If intent/impact is unclear, add it to unknowns instead of guessing.
+
+Benefit requirement:
+- consolidated_description MUST include an explicit outcome/benefit sentence, e.g. "This helps …", "So you can …", "This reduces …".
+{% endmessage %}
+
+{% message user %}
+Produce a JSON object matching the output schema.
+
+Requirements:
+- short_name: 2-6 words; should read well as a bullet prefix.
+- consolidated_description: 1-4 sentences explaining what changed in user-facing terms.
+  - Must include an explicit benefit/outcome sentence.
+  - Avoid low-level implementation details (routes, wrappers, query params) unless it directly affects users.
+- why/context: if Linear provides motivation/background, fill these fields (do not mention Linear IDs).
+- upgrade_notes: short bullets only when upgrade action is needed.
+- dependency_updates: use the provided deterministic list as the source of truth. You may add note/note_reason ONLY when non-routine and materially relevant.
+  - Do NOT add items that are not present in the deterministic list.
+
+<COMMIT_DIGEST>
+{{ commit_digest }}
+</COMMIT_DIGEST>
+
+<DEPENDENCY_UPDATES_DETERMINISTIC_JSON>
+{{ dependency_updates_json }}
+</DEPENDENCY_UPDATES_DETERMINISTIC_JSON>
+
+{% if linear_block %}
+<LINEAR>
+{{ linear_block }}
+</LINEAR>
+{% endif %}
+
+<OUTPUT_SCHEMA>
+{{ _instr_output }}
+</OUTPUT_SCHEMA>
+{% endmessage %}

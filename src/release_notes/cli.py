@@ -1,0 +1,231 @@
+"""CLI entrypoint for release notes generation."""
+
+import argparse
+import asyncio
+import logging
+import os
+from datetime import datetime, timezone
+from pathlib import Path
+
+from .config import load_project_config
+from .deps import dependency_updates_for_range, merge_dependency_notes
+from .enrichment import fetch_linear_issues
+from .git_ops import (
+    build_commit_digest,
+    detect_tag_range,
+    git_diff_stat,
+    list_commits,
+    run_git,
+)
+from .llm import consolidate_commit, synthesize_release_notes
+from .models import (
+    CommitCategory,
+    CommitDigest,
+    ConsolidatedCommit,
+    ReleaseNoteItem,
+    ReleaseNotesPayload,
+)
+from .renderer import render_markdown
+
+LOG = logging.getLogger("release_notes")
+
+
+def _setup_logging(log_level: str) -> None:
+    level = getattr(logging, log_level.upper(), None)
+    if level is None:
+        raise SystemExit(f"Invalid --log-level: {log_level!r}")
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+    logging.getLogger("LiteLLM").setLevel(logging.WARNING)
+    logging.getLogger("litellm").setLevel(logging.WARNING)
+    if log_level.upper() != "DEBUG" and not os.getenv("LITELLM_LOG"):
+        os.environ["LITELLM_LOG"] = "ERROR"
+
+
+def _compare_url(github_repository: str | None, tag_range) -> str | None:
+    repo = github_repository or os.getenv("GITHUB_REPOSITORY")
+    if not repo:
+        return None
+    return f"https://github.com/{repo}/compare/{tag_range.previous_tag}...{tag_range.current_tag}"
+
+
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(
+        description="Generate release notes from git history + LLM.",
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    p.add_argument(
+        "--version", required=True,
+        help="Version like 1.2.3 (current tag must be v<version>)",
+    )
+    p.add_argument("--previous-tag", default=None, help="Override previous tag (e.g., v1.2.2)")
+    p.add_argument(
+        "--output", required=True,
+        help="Output markdown path",
+    )
+    p.add_argument(
+        "--repo", default=".",
+        help="Path to the git repository to analyze (default: current directory)",
+    )
+    p.add_argument(
+        "--model", default=None,
+        help="LiteLLM model name (default: from RELEASE_NOTES_MODEL env or azure_ai/gpt-4.1)",
+    )
+    p.add_argument("--max-commit-digest-bytes", type=int, default=120_000)
+    p.add_argument("--max-commit-file-diff-bytes", type=int, default=25_000)
+    p.add_argument("--max-linear-issue-bytes", type=int, default=200_000)
+    p.add_argument("--llm-concurrency", type=int, default=10)
+    p.add_argument(
+        "--dry-run", action="store_true",
+        help="Skip LLM and Linear calls; produce a deterministic debug output.",
+    )
+    p.add_argument("--log-level", default="INFO")
+    return p.parse_args()
+
+
+async def main_async() -> None:
+    args = parse_args()
+    _setup_logging(args.log_level)
+
+    repo_root = Path(args.repo).resolve()
+    if not (repo_root / ".git").exists():
+        raise SystemExit(f"Not a git repository: {repo_root}")
+    LOG.info("Repo root: %s", repo_root)
+
+    config = load_project_config(repo_root)
+
+    out_path = Path(args.output)
+    if not out_path.is_absolute():
+        out_path = Path.cwd() / out_path
+    out_path = out_path.resolve()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    LOG.info("Output path: %s", out_path)
+
+    tag_range = detect_tag_range(
+        version=args.version,
+        previous_tag_override=args.previous_tag,
+        repo_root=repo_root,
+    )
+
+    diff_stat = git_diff_stat(
+        f"{tag_range.previous_tag}..{tag_range.current_tag}",
+        repo_root=repo_root,
+        ignored_basenames=set(config.ignored_basenames),
+    )
+    commit_list = run_git(
+        [
+            "log", "--no-merges",
+            "--pretty=format:%h %ad %s", "--date=short",
+            f"{tag_range.previous_tag}..{tag_range.current_tag}",
+        ],
+        repo_root,
+    )
+
+    model = args.model or os.getenv("RELEASE_NOTES_MODEL") or "azure_ai/gpt-4.1"
+
+    commits = list_commits(tag_range=tag_range, repo_root=repo_root)
+    LOG.info("Commits in range: %d", len(commits))
+
+    commit_digests: list[CommitDigest] = [
+        build_commit_digest(
+            c, repo_root,
+            ignored_basenames=set(config.ignored_basenames),
+            max_total_bytes=args.max_commit_digest_bytes,
+            max_file_bytes=args.max_commit_file_diff_bytes,
+            high_signal_prefixes=config.high_signal_prefixes,
+        )
+        for c in commits
+    ]
+
+    # Linear enrichment
+    linear_issues_by_key = {}
+    linear_api_key = os.getenv("LINEAR_API_KEY")
+    if not args.dry_run and linear_api_key:
+        all_linear_keys = [k for cd in commit_digests for k in cd.linear_keys]
+        linear_issues_by_key = fetch_linear_issues(
+            all_linear_keys,
+            api_key=linear_api_key,
+            max_issue_bytes=args.max_linear_issue_bytes,
+        )
+    else:
+        LOG.info("Linear enrichment disabled (dry-run=%s, key=%s).", args.dry_run, bool(linear_api_key))
+
+    include_digests_in_spoilers = bool(args.dry_run)
+
+    consolidations: list[ConsolidatedCommit] = []
+    if args.dry_run:
+        consolidations = [
+            ConsolidatedCommit(
+                sha=cd.sha, subject=cd.subject,
+                pr_number=cd.pr_number, linear_keys=cd.linear_keys,
+                category=CommitCategory.OTHER,
+                consolidated_description="DRY RUN: LLM skipped.",
+                unknowns=["LLM/Linear skipped due to --dry-run."],
+            )
+            for cd in commit_digests
+        ]
+        payload = ReleaseNotesPayload(
+            summary=[
+                ReleaseNoteItem(
+                    short_name="Dry run",
+                    description=f"{len(commit_digests)} commits in range "
+                    f"{tag_range.previous_tag}..{tag_range.current_tag}. "
+                    "LLM generation was skipped.",
+                ),
+            ],
+            unknowns=["LLM generation skipped due to --dry-run."],
+        )
+    else:
+        LOG.info("Model: %s", model)
+        sem = asyncio.Semaphore(max(1, args.llm_concurrency))
+
+        async def consolidate_one(cd: CommitDigest) -> ConsolidatedCommit:
+            async with sem:
+                issues = [
+                    linear_issues_by_key[k]
+                    for k in cd.linear_keys
+                    if k in linear_issues_by_key
+                ]
+                return await consolidate_commit(
+                    cd, model=model, linear_issues=issues,
+                    repo_root=repo_root, manifest_paths=config.manifest_paths,
+                )
+
+        consolidations = list(
+            await asyncio.gather(*(consolidate_one(cd) for cd in commit_digests))
+        )
+        payload = await synthesize_release_notes(consolidations, model=model)
+
+    # Dependency bumps
+    range_dep_bumps = dependency_updates_for_range(
+        tag_range, repo_root=repo_root, manifest_paths=config.manifest_paths
+    )
+    dep_bumps_with_notes = merge_dependency_notes(
+        range_bumps=range_dep_bumps, consolidations=consolidations,
+    )
+
+    md = render_markdown(
+        payload, tag_range,
+        version=args.version,
+        generated_at=datetime.now(tz=timezone.utc),
+        compare_url=_compare_url(config.github_repository, tag_range),
+        diff_stat=diff_stat,
+        commit_list=commit_list,
+        commit_digests=commit_digests,
+        consolidations=consolidations,
+        linear_issues_by_key=linear_issues_by_key,
+        include_digests_in_spoilers=include_digests_in_spoilers,
+        dependency_bumps=dep_bumps_with_notes,
+    )
+    out_path.write_text(md, encoding="utf-8")
+    LOG.info("Wrote %d bytes to %s", len(md.encode()), out_path)
+
+
+def main() -> None:
+    asyncio.run(main_async())
+
+
+if __name__ == "__main__":
+    main()

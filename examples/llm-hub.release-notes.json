@@ -1,0 +1,28 @@
+{
+  "github_repository": "Giskard-AI/llm-hub",
+  "manifest_paths": [
+    "backend/pyproject.toml",
+    "demo_models/pyproject.toml",
+    "azure_oauth_llm_proxy/pyproject.toml",
+    "backend/vendor/lidar/pyproject.toml",
+    "frontend/package.json",
+    "keycloak/KeycloakApiKeyAuthenticator/pom.xml"
+  ],
+  "high_signal_prefixes": [
+    "backend/src/backend/routers/",
+    "backend/src/backend/http/",
+    "backend/src/backend/services/",
+    "backend/src/backend/jobs/",
+    "backend/src/backend/worker/",
+    "backend/migrations/versions/",
+    "helm/giskard-llm-hub/",
+    "frontend/src/app/",
+    "frontend/src/components/",
+    ".github/workflows/",
+    "docker-compose"
+  ],
+  "ignored_basenames": [
+    "uv.lock",
+    "pnpm-lock.yaml"
+  ]
+}
