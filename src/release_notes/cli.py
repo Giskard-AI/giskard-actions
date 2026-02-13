@@ -95,12 +95,15 @@ async def main_async() -> None:
     args = parse_args()
     _setup_logging(args.log_level)
 
+    # Load .env: explicit --env-file first, then auto-detect from cwd
     if args.env_file:
         env_path = Path(args.env_file).resolve()
         if not env_path.exists():
             raise SystemExit(f"Env file not found: {env_path}")
         load_dotenv(env_path, override=False)
         LOG.info("Loaded env from %s", env_path)
+    else:
+        load_dotenv(override=False)  # auto-loads .env from cwd
 
     repo_root = Path(args.repo).resolve()
     if not (repo_root / ".git").exists():
