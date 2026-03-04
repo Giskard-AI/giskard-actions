@@ -1,0 +1,95 @@
+name: "Giskard Release Notes"
+description: "Generate LLM-powered release notes from git history using Linear and GitHub enrichment"
+
+inputs:
+  version:
+    description: "Release version (e.g., 2.3.0)"
+    required: true
+  previous_tag:
+    description: "Override previous tag (auto-detect if empty)"
+    required: false
+    default: ""
+  model:
+    description: "LiteLLM model name"
+    required: false
+    default: "azure_ai/gpt-4.1"
+  dry_run:
+    description: "Skip LLM calls, produce debug output"
+    required: false
+    default: "false"
+  output_path:
+    description: "Output markdown path relative to repo root (default: release_notes/v{version}.md)"
+    required: false
+    default: ""
+  metadata_file:
+    description: "Path to write JSON metadata (default: metadata.json)"
+    required: false
+    default: "metadata.json"
+
+outputs:
+  notes_path:
+    description: "Path to the generated markdown file"
+    value: ${{ steps.meta.outputs.notes_path }}
+  summary:
+    description: "Short summary of the release"
+    value: ${{ steps.meta.outputs.summary }}
+  compare_url:
+    description: "GitHub compare URL for the tag range"
+    value: ${{ steps.meta.outputs.compare_url }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Setup Python 3.12 + uv
+      uses: astral-sh/setup-uv@803947b9bd8e9f986429fa0c5a41c367cd732b41 # v7
+      with:
+        enable-cache: true
+        python-version: "3.12"
+
+    - name: Install release-notes tool
+      shell: bash
+      run: |
+        uv tool install "${{ github.action_path }}"
+
+    - name: Resolve output path
+      id: resolve
+      shell: bash
+      run: |
+        if [ -n "${{ inputs.output_path }}" ]; then
+          echo "output=${{ inputs.output_path }}" >> "${GITHUB_OUTPUT}"
+        else
+          echo "output=release_notes/v${{ inputs.version }}.md" >> "${GITHUB_OUTPUT}"
+        fi
+
+    - name: Generate release notes
+      shell: bash
+      env:
+        AZURE_API_VERSION: "2024-08-01-preview"
+        RELEASE_NOTES_MODEL: ${{ inputs.model }}
+      run: |
+        set -euo pipefail
+        mkdir -p "$(dirname "${{ steps.resolve.outputs.output }}")"
+        args=(
+          --version "${{ inputs.version }}"
+          --output "${{ steps.resolve.outputs.output }}"
+          --metadata-file "${{ inputs.metadata_file }}"
+        )
+        if [ -n "${{ inputs.previous_tag }}" ]; then
+          args+=(--previous-tag "${{ inputs.previous_tag }}")
+        fi
+        if [ "${{ inputs.dry_run }}" = "true" ]; then
+          args+=(--dry-run)
+        fi
+        generate-release-notes "${args[@]}"
+
+    - name: Read metadata
+      id: meta
+      shell: bash
+      run: |
+        {
+          echo "notes_path=$(jq -r '.output_path' "${{ inputs.metadata_file }}")"
+          echo "compare_url=$(jq -r '.compare_url' "${{ inputs.metadata_file }}")"
+          echo "summary<<EOFMETA"
+          jq -r '.summary' "${{ inputs.metadata_file }}"
+          echo "EOFMETA"
+        } >> "${GITHUB_OUTPUT}"
