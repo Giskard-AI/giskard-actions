@@ -100,6 +100,7 @@ class ReleaseNotesPayload(BaseModel):
     )
     features: list[ReleaseNoteItem] = Field(default_factory=list)
     fixes: list[ReleaseNoteItem] = Field(default_factory=list)
+    misc: list[ReleaseNoteItem] = Field(default_factory=list)
     ux_frontend: list[ReleaseNoteItem] = Field(default_factory=list)
     api_backend: list[ReleaseNoteItem] = Field(default_factory=list)
     infra_deps: list[ReleaseNoteItem] = Field(default_factory=list)

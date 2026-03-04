@@ -120,7 +120,7 @@ def render_markdown(
     # What changed (sub-sections)
     has_what_changed = any(
         sid in enabled
-        for sid in ("features", "fixes", "ux_frontend", "api_backend", "infra_deps")
+        for sid in ("features", "fixes", "misc", "ux_frontend", "api_backend", "infra_deps")
     )
     if has_what_changed:
         w.h2("What changed")
@@ -135,6 +135,7 @@ def render_markdown(
 
         section("features", payload.features)
         section("fixes", payload.fixes)
+        section("misc", payload.misc)
         section("ux_frontend", payload.ux_frontend)
         section("api_backend", payload.api_backend)
         section("infra_deps", payload.infra_deps)

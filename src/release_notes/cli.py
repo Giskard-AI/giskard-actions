@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 
 from .config import load_project_config
 from .deps import dependency_updates_for_range, merge_dependency_notes
-from .enrichment import fetch_github_issues, fetch_linear_issues
+from .enrichment import fetch_github_issues_async, fetch_linear_issues_async
 from .git_ops import (
     build_commit_digest,
     detect_tag_range,
@@ -24,6 +24,7 @@ from .llm import consolidate_commit, synthesize_release_notes
 from .models import (
     CommitCategory,
     CommitDigest,
+    CommitInfo,
     ConsolidatedCommit,
     GitHubIssue,
     ReleaseNoteItem,
@@ -155,49 +156,59 @@ async def main_async() -> None:
     commits = list_commits(tag_range=tag_range, repo_root=repo_root)
     LOG.info("Commits in range: %d", len(commits))
 
-    commit_digests: list[CommitDigest] = [
-        build_commit_digest(
-            c, repo_root,
-            ignored_basenames=set(config.ignored_basenames),
-            max_total_bytes=args.max_commit_digest_bytes,
-            max_file_bytes=args.max_commit_file_diff_bytes,
-            high_signal_prefixes=config.high_signal_prefixes,
-        )
-        for c in commits
-    ]
+    # Task 2A: build commit digests in parallel (subprocess I/O per commit)
+    _sem_git = asyncio.Semaphore(8)
 
-    # Linear enrichment
-    linear_issues_by_key = {}
+    async def _build_one(c: CommitInfo) -> CommitDigest:
+        async with _sem_git:
+            return await asyncio.to_thread(
+                build_commit_digest, c, repo_root,
+                ignored_basenames=set(config.ignored_basenames),
+                max_total_bytes=args.max_commit_digest_bytes,
+                max_file_bytes=args.max_commit_file_diff_bytes,
+                high_signal_prefixes=config.high_signal_prefixes,
+            )
+
+    commit_digests: list[CommitDigest] = list(
+        await asyncio.gather(*(_build_one(c) for c in commits))
+    )
+
+    # Task 2B: run Linear + GitHub enrichment concurrently
     linear_api_key = os.getenv("LINEAR_API_KEY")
-    if not args.dry_run and linear_api_key:
+    github_token = os.getenv("GITHUB_TOKEN")
+    github_repo = config.github_repository or os.getenv("GITHUB_REPOSITORY")
+
+    async def _fetch_linear() -> dict:
+        if args.dry_run or not linear_api_key:
+            LOG.info("Linear enrichment disabled (dry-run=%s, key=%s).", args.dry_run, bool(linear_api_key))
+            return {}
         all_linear_keys = [k for cd in commit_digests for k in cd.linear_keys]
-        linear_issues_by_key = fetch_linear_issues(
+        return await fetch_linear_issues_async(
             all_linear_keys,
             api_key=linear_api_key,
             max_issue_bytes=args.max_linear_issue_bytes,
         )
-    else:
-        LOG.info("Linear enrichment disabled (dry-run=%s, key=%s).", args.dry_run, bool(linear_api_key))
 
-    # GitHub enrichment
-    github_issues_by_number: dict[int, GitHubIssue] = {}
-    github_token = os.getenv("GITHUB_TOKEN")
-    github_repo = config.github_repository or os.getenv("GITHUB_REPOSITORY")
-    if not args.dry_run and github_token and github_repo:
+    async def _fetch_github() -> dict:
+        if args.dry_run or not github_token or not github_repo:
+            LOG.info(
+                "GitHub enrichment disabled (dry-run=%s, token=%s, repo=%s).",
+                args.dry_run, bool(github_token), github_repo,
+            )
+            return {}
         all_gh_numbers = [n for cd in commit_digests for n in cd.github_issue_numbers]
-        # Also include PR numbers — they're issues in GitHub's API
         all_gh_numbers += [cd.pr_number for cd in commit_digests if cd.pr_number]
-        github_issues_by_number = fetch_github_issues(
+        return await fetch_github_issues_async(
             all_gh_numbers,
             owner_repo=github_repo,
             token=github_token,
             max_issue_bytes=args.max_github_issue_bytes,
         )
-    else:
-        LOG.info(
-            "GitHub enrichment disabled (dry-run=%s, token=%s, repo=%s).",
-            args.dry_run, bool(github_token), github_repo,
-        )
+
+    linear_issues_by_key, github_issues_by_number = await asyncio.gather(
+        _fetch_linear(), _fetch_github()
+    )
+    github_issues_by_number: dict[int, GitHubIssue] = github_issues_by_number
 
     include_digests_in_spoilers = bool(args.dry_run)
 
@@ -227,6 +238,9 @@ async def main_async() -> None:
                 ),
             ],
             unknowns=["LLM generation skipped due to --dry-run."],
+        )
+        range_dep_bumps = dependency_updates_for_range(
+            tag_range, repo_root=repo_root, manifest_paths=config.manifest_paths
         )
     else:
         LOG.info("Model: %s", model)
@@ -259,12 +273,14 @@ async def main_async() -> None:
         consolidations = list(
             await asyncio.gather(*(consolidate_one(cd) for cd in commit_digests))
         )
-        payload = await synthesize_release_notes(consolidations, model=model)
-
-    # Dependency bumps
-    range_dep_bumps = dependency_updates_for_range(
-        tag_range, repo_root=repo_root, manifest_paths=config.manifest_paths
-    )
+        # Task 2C: overlap dep-range computation with LLM synthesis
+        payload, range_dep_bumps = await asyncio.gather(
+            synthesize_release_notes(consolidations, model=model),
+            asyncio.to_thread(
+                dependency_updates_for_range,
+                tag_range, repo_root=repo_root, manifest_paths=config.manifest_paths,
+            ),
+        )
     dep_bumps_with_notes = merge_dependency_notes(
         range_bumps=range_dep_bumps, consolidations=consolidations,
     )

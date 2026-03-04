@@ -1,5 +1,6 @@
 """Issue tracker enrichment (Linear, GitHub)."""
 
+import asyncio
 import json
 import logging
 from typing import Iterable
@@ -170,3 +171,73 @@ def fetch_github_issues(
             labels=issue.labels,
         )
     return out
+
+
+# --- Async wrappers (parallelise I/O-bound enrichment fetches) ---
+
+_ENRICHMENT_SEM_SIZE = 5  # max concurrent API calls per tracker
+
+
+async def fetch_linear_issues_async(
+    identifiers: Iterable[str], *, api_key: str, max_issue_bytes: int
+) -> dict[str, LinearIssue]:
+    """Async version of fetch_linear_issues; fetches all identifiers concurrently."""
+    ids = sorted({i.strip() for i in identifiers if i and i.strip()})
+    if not ids:
+        return {}
+
+    LOG.info("Fetching Linear issues (async): %d", len(ids))
+    sem = asyncio.Semaphore(_ENRICHMENT_SEM_SIZE)
+
+    async def _one(ident: str) -> tuple[str, LinearIssue]:
+        async with sem:
+            issue = await asyncio.to_thread(fetch_linear_issue, ident, api_key=api_key)
+        desc_t, was_truncated = _truncate(issue.description or "", max_issue_bytes)
+        if was_truncated:
+            LOG.info("Truncated Linear description: %s cap=%dB", ident, max_issue_bytes)
+        return ident, LinearIssue(
+            identifier=issue.identifier,
+            title=issue.title,
+            url=issue.url,
+            description=desc_t,
+        )
+
+    pairs = await asyncio.gather(*(_one(ident) for ident in ids))
+    return dict(pairs)
+
+
+async def fetch_github_issues_async(
+    numbers: Iterable[int],
+    *,
+    owner_repo: str,
+    token: str,
+    max_issue_bytes: int,
+) -> dict[int, GitHubIssue]:
+    """Async version of fetch_github_issues; fetches all numbers concurrently."""
+    nums = sorted({n for n in numbers if n})
+    if not nums:
+        return {}
+
+    LOG.info("Fetching GitHub issues (async): %d from %s", len(nums), owner_repo)
+    sem = asyncio.Semaphore(_ENRICHMENT_SEM_SIZE)
+
+    async def _one(n: int) -> tuple[int, GitHubIssue | None]:
+        async with sem:
+            issue = await asyncio.to_thread(fetch_github_issue, n, owner_repo=owner_repo, token=token)
+        if issue is None:
+            return n, None
+        body_t, was_truncated = _truncate(issue.body or "", max_issue_bytes)
+        if was_truncated:
+            LOG.info("Truncated GitHub body: #%d cap=%dB", n, max_issue_bytes)
+        return n, GitHubIssue(
+            number=issue.number,
+            title=issue.title,
+            url=issue.url,
+            body=body_t,
+            is_pull_request=issue.is_pull_request,
+            state=issue.state,
+            labels=issue.labels,
+        )
+
+    pairs = await asyncio.gather(*(_one(n) for n in nums))
+    return {n: iss for n, iss in pairs if iss is not None}

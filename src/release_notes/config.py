@@ -9,7 +9,8 @@ LOG = logging.getLogger("release_notes.config")
 
 CONFIG_FILENAME = ".release-notes.json"
 
-# All known section types and their defaults
+# Base defaults — minimal set shared across all repos.
+# Repos opt-in to additional sections (ux_frontend, api_backend, etc.) via .release-notes.json.
 DEFAULT_SECTIONS: list[dict] = [
     {
         "id": "summary",
@@ -30,42 +31,55 @@ DEFAULT_SECTIONS: list[dict] = [
         "enabled": True,
     },
     {
+        "id": "misc",
+        "title": "Miscellaneous",
+        "description": "Other notable changes that don't fit the sections above.",
+        "enabled": True,
+    },
+]
+
+# Extended section definitions used when repos opt-in via .release-notes.json.
+# These are not enabled by default but are recognised and have sensible metadata.
+_KNOWN_SECTIONS: dict[str, dict] = {
+    s["id"]: s for s in DEFAULT_SECTIONS
+} | {
+    "ux_frontend": {
         "id": "ux_frontend",
         "title": "UX / Frontend",
         "description": "User interface and frontend changes.",
         "enabled": True,
     },
-    {
+    "api_backend": {
         "id": "api_backend",
         "title": "API / Backend",
         "description": "API and backend changes.",
         "enabled": True,
     },
-    {
+    "infra_deps": {
         "id": "infra_deps",
         "title": "Infra / Deps",
         "description": "Infrastructure, CI, and dependency changes.",
         "enabled": True,
     },
-    {
+    "upgrade_notes": {
         "id": "upgrade_notes",
         "title": "Upgrade notes",
         "description": "Migrations, config changes, breaking changes.",
         "enabled": True,
     },
-    {
+    "deps": {
         "id": "deps",
         "title": "Dependencies",
         "description": "Deterministic dependency version bump table.",
         "enabled": True,
     },
-    {
+    "appendix": {
         "id": "appendix",
         "title": "Appendix",
         "description": "Diff stats, commit list, and per-commit details.",
         "enabled": True,
     },
-]
+}
 
 
 @dataclass(frozen=True)
@@ -139,18 +153,15 @@ def _parse_sections(raw: list[dict] | None) -> tuple[SectionConfig, ...]:
     if not raw:
         return tuple(SectionConfig(**s) for s in DEFAULT_SECTIONS)
 
-    # Start from defaults, then overlay user config
-    defaults_by_id = {s["id"]: dict(s) for s in DEFAULT_SECTIONS}
+    # Overlay user config on top of known section metadata
     result: list[SectionConfig] = []
-
-    # Track which sections user explicitly listed (preserves their order)
     seen_ids: set[str] = set()
     for entry in raw:
         sid = entry.get("id", "")
         if not sid:
             continue
         seen_ids.add(sid)
-        base = defaults_by_id.get(sid, {"id": sid, "title": sid, "description": "", "enabled": True})
+        base = _KNOWN_SECTIONS.get(sid, {"id": sid, "title": sid, "description": "", "enabled": True})
         merged = {**base, **entry}
         result.append(SectionConfig(**merged))
 
