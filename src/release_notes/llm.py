@@ -61,12 +61,17 @@ def _enforce_azure_schema(schema: dict) -> dict:
     """Recursively make schema compatible with Azure structured outputs:
     - additionalProperties: false on all objects
     - required must list every key in properties
+    - $ref cannot coexist with default or description
     """
     if isinstance(schema, dict):
         if schema.get("type") == "object":
             schema["additionalProperties"] = False
             if "properties" in schema:
                 schema["required"] = list(schema["properties"].keys())
+                for prop in schema["properties"].values():
+                    if "$ref" in prop:
+                        prop.pop("default", None)
+                        prop.pop("description", None)
         for value in schema.values():
             if isinstance(value, dict):
                 _enforce_azure_schema(value)
