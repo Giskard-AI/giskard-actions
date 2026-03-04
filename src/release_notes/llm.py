@@ -57,18 +57,23 @@ def _render_messages(template_name: str, **kwargs: str) -> list[dict[str, str]]:
     return messages
 
 
-def _add_additional_properties_false(schema: dict) -> dict:
-    """Recursively add additionalProperties: false to all object schemas (required by Azure)."""
+def _enforce_azure_schema(schema: dict) -> dict:
+    """Recursively make schema compatible with Azure structured outputs:
+    - additionalProperties: false on all objects
+    - required must list every key in properties
+    """
     if isinstance(schema, dict):
-        if schema.get("type") == "object" and "additionalProperties" not in schema:
+        if schema.get("type") == "object":
             schema["additionalProperties"] = False
+            if "properties" in schema:
+                schema["required"] = list(schema["properties"].keys())
         for value in schema.values():
             if isinstance(value, dict):
-                _add_additional_properties_false(value)
+                _enforce_azure_schema(value)
             elif isinstance(value, list):
                 for item in value:
                     if isinstance(item, dict):
-                        _add_additional_properties_false(item)
+                        _enforce_azure_schema(item)
     return schema
 
 
@@ -81,7 +86,7 @@ def _call_llm_structured(
     num_retries: int = 2,
 ) -> dict:
     """Call LLM with structured JSON output using litellm."""
-    schema = _add_additional_properties_false(response_model.model_json_schema())
+    schema = _enforce_azure_schema(response_model.model_json_schema())
 
     for attempt in range(1 + num_retries):
         try:
