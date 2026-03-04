@@ -126,6 +126,13 @@ async def consolidate_commit(
     repo_root: Path,
     manifest_paths: tuple[str, ...],
 ) -> ConsolidatedCommit:
+    """Call the LLM to consolidate a commit digest into a structured ConsolidatedCommit.
+
+    Builds a prompt from the commit digest, Linear/GitHub issue context, and
+    deterministic dependency diffs, then calls the LLM with structured JSON output.
+    The returned ConsolidatedCommit has canonical git fields (sha, pr_number, etc.)
+    enforced from parsed data, with only the LLM-generated fields taken from the response.
+    """
     linear_block = ""
     if linear_issues:
         lines = ["Linear issues referenced by this commit:", ""]
@@ -220,6 +227,11 @@ async def consolidate_commit(
 async def synthesize_release_notes(
     consolidations: list[ConsolidatedCommit], *, model: str
 ) -> ReleaseNotesPayload:
+    """Call the LLM to synthesize a ReleaseNotesPayload from all consolidated commits.
+
+    Formats all consolidations into a structured text block, then calls the LLM
+    once to produce the final summary, per-section items, and upgrade notes.
+    """
     lines: list[str] = []
     for c in consolidations:
         header = f"- {c.sha[:8]} {c.subject}"

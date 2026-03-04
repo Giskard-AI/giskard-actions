@@ -17,6 +17,7 @@ from .git_ops import (
     build_commit_digest,
     detect_tag_range,
     git_diff_stat,
+    git_file_diff,
     list_commits,
     run_git,
 )
@@ -36,6 +37,7 @@ LOG = logging.getLogger("release_notes")
 
 
 def _setup_logging(log_level: str) -> None:
+    """Configure root logging and silence noisy LiteLLM loggers."""
     level = getattr(logging, log_level.upper(), None)
     if level is None:
         raise SystemExit(f"Invalid --log-level: {log_level!r}")
@@ -50,6 +52,7 @@ def _setup_logging(log_level: str) -> None:
 
 
 def _compare_url(github_repository: str | None, tag_range) -> str | None:
+    """Build the GitHub compare URL for the tag range, or None if no repo is known."""
     repo = github_repository or os.getenv("GITHUB_REPOSITORY")
     if not repo:
         return None
@@ -57,6 +60,7 @@ def _compare_url(github_repository: str | None, tag_range) -> str | None:
 
 
 def parse_args() -> argparse.Namespace:
+    """Define and parse CLI arguments."""
     p = argparse.ArgumentParser(
         description="Generate release notes from git history + LLM.",
         formatter_class=argparse.RawTextHelpFormatter,
@@ -104,6 +108,18 @@ def parse_args() -> argparse.Namespace:
 
 
 async def main_async() -> None:
+    """Main async pipeline: git → enrich (Linear/GitHub) → LLM → render → write.
+
+    Steps:
+    1. Parse args and load project config from the target repo.
+    2. Detect tag range and list commits.
+    3. Build commit digests in parallel (git subprocess I/O).
+    4. Concurrently fetch Linear and GitHub issue enrichment.
+    5. In non-dry-run mode, concurrently: consolidate each commit via LLM and
+       compute dependency bumps across the full tag range.
+    6. Synthesize the full ReleaseNotesPayload from consolidated commits.
+    7. Render to markdown and write the output file + optional metadata JSON.
+    """
     args = parse_args()
     _setup_logging(args.log_level)
 
@@ -285,6 +301,12 @@ async def main_async() -> None:
         range_bumps=range_dep_bumps, consolidations=consolidations,
     )
 
+    # Compute raw diffs for tracked files (e.g. helm values.yaml)
+    file_diff_results: dict[str, str] = {
+        path: git_file_diff(tag_range, path, repo_root=repo_root)
+        for path in config.file_diffs
+    }
+
     md = render_markdown(
         payload, tag_range,
         version=args.version,
@@ -298,6 +320,7 @@ async def main_async() -> None:
         github_issues_by_number=github_issues_by_number,
         include_digests_in_spoilers=include_digests_in_spoilers,
         dependency_bumps=dep_bumps_with_notes,
+        file_diff_results=file_diff_results,
         config=config,
     )
     out_path.write_text(md, encoding="utf-8")

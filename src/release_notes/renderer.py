@@ -1,6 +1,7 @@
 """Markdown rendering for release notes."""
 
 from datetime import datetime, timezone
+from pathlib import Path
 
 from .config import ProjectConfig
 from .models import (
@@ -16,6 +17,11 @@ from .models import (
 
 
 class MarkdownWriter:
+    """Accumulates markdown lines and exposes helpers for headings, bullets, etc.
+
+    Call `finish()` to get the final string with a single trailing newline.
+    """
+
     def __init__(self) -> None:
         self._lines: list[str] = []
 
@@ -93,8 +99,15 @@ def render_markdown(
     github_issues_by_number: dict[int, GitHubIssue],
     include_digests_in_spoilers: bool,
     dependency_bumps: list[DependencyUpdate],
+    file_diff_results: dict[str, str],
     config: ProjectConfig,
 ) -> str:
+    """Render the full release notes document as a markdown string.
+
+    Sections are rendered in order according to config.enabled_section_ids().
+    file_diff_results maps repo-relative paths to their raw unified diff (or ''
+    for no changes) and is rendered verbatim after upgrade notes.
+    """
     ts = generated_at.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     w = MarkdownWriter()
     enabled = config.enabled_section_ids()
@@ -151,6 +164,14 @@ def render_markdown(
             w.bullet("No explicit upgrade notes detected from the diff digest.")
             w.blank()
 
+    # File diffs (verbatim diff for tracked paths, e.g. helm values.yaml)
+    for path, diff_text in file_diff_results.items():
+        w.h2(f"`{path}` diff")
+        if diff_text.strip():
+            w.codeblock("diff", diff_text.rstrip())
+        else:
+            w.p(f"_No changes in `{path}`._")
+
     # Dependencies (deterministic, not LLM-driven)
     if "deps" in enabled and dependency_bumps:
         w.h2(config.section_title("deps"))
@@ -195,6 +216,11 @@ def _render_consolidated_commits(
     github_issues_by_number: dict[int, GitHubIssue],
     include_digests_in_spoilers: bool,
 ) -> None:
+    """Render per-commit collapsible <details> blocks for the appendix.
+
+    Each block includes category, Linear/GitHub links, changed files, why/context,
+    consolidated description, upgrade notes, dependency updates, and unknowns.
+    """
     by_sha: dict[str, ConsolidatedCommit] = {c.sha: c for c in consolidations}
     for cd in commit_digests:
         cons = by_sha.get(cd.sha)

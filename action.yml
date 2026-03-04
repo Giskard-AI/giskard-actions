@@ -17,6 +17,10 @@ inputs:
     description: "Skip LLM calls, produce debug output"
     required: false
     default: "false"
+  include_appendix:
+    description: "Include appendix (diff stats, commit list, per-commit details)"
+    required: false
+    default: "false"
   output_path:
     description: "Output markdown path relative to repo root (default: release_notes/v{version}.md)"
     required: false
@@ -79,6 +83,9 @@ runs:
         fi
         if [ "${{ inputs.dry_run }}" = "true" ]; then
           args+=(--dry-run)
+        fi
+        if [ "${{ inputs.include_appendix }}" = "true" ]; then
+          args+=(--include-appendix)
         fi
         generate-release-notes "${args[@]}"
 

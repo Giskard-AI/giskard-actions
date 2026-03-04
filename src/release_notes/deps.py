@@ -16,6 +16,11 @@ _REQ_NAME_RE = re.compile(r"^([A-Za-z0-9_.-]+)(\[[^\]]+\])?(.*)$")
 
 
 def _parse_python_req(req: str) -> tuple[str, str]:
+    """Parse a PEP 621 requirement string into (name+extras, version_spec).
+
+    Handles pinned (==) and unpinned specifiers; extras like `[asyncio]` are
+    kept as part of the name.
+    """
     req = (req or "").strip()
     m = _REQ_NAME_RE.match(req)
     if not m:
@@ -31,6 +36,10 @@ def _parse_python_req(req: str) -> tuple[str, str]:
 
 
 def _parse_pyproject_deps(content: str) -> dict[str, str]:
+    """Extract {name: version_spec} from a pyproject.toml content string.
+
+    Reads both `[project].dependencies` and `[dependency-groups]` sections.
+    """
     data = tomllib.loads(content)
     out: dict[str, str] = {}
 
@@ -53,6 +62,11 @@ def _parse_pyproject_deps(content: str) -> dict[str, str]:
 
 
 def _parse_package_json_deps(content: str) -> dict[str, str]:
+    """Extract {name: version_spec} from a package.json content string.
+
+    Merges `dependencies` and `devDependencies`; dev-only names get a `(dev)` suffix
+    when a collision with a runtime dep exists.
+    """
     data = json.loads(content)
     out: dict[str, str] = {}
     deps = data.get("dependencies") or {}
@@ -68,6 +82,11 @@ def _parse_package_json_deps(content: str) -> dict[str, str]:
 
 
 def _parse_pom_versions(content: str) -> dict[str, str]:
+    """Extract {key: version} from a pom.xml content string.
+
+    Reads `<properties>` (version placeholders) and explicit `<dependency>` entries
+    with literal (non-property-reference) version strings.
+    """
     root = ET.fromstring(content)
     ns = ""
     if root.tag.startswith("{") and "}" in root.tag:
@@ -102,6 +121,11 @@ def _parse_pom_versions(content: str) -> dict[str, str]:
 def _dependency_bumps_for_file(
     *, before: str | None, after: str | None, manifest_path: str
 ) -> list[DependencyUpdate]:
+    """Compare before/after manifest content and return DependencyUpdate entries for changed versions.
+
+    Returns an empty list if either snapshot is missing (file was added or deleted).
+    Supports pyproject.toml, package.json, and pom.xml.
+    """
     if before is None or after is None:
         return []
 
@@ -135,6 +159,10 @@ def _dependency_bumps_for_file(
 def dependency_updates_for_commit(
     commit_digest: CommitDigest, *, repo_root: Path, manifest_paths: tuple[str, ...]
 ) -> list[DependencyUpdate]:
+    """Compute dependency bumps introduced by a single commit.
+
+    Only considers manifest files that were actually changed in the commit.
+    """
     manifest_set = set(manifest_paths)
     changed_manifests = [p for p in commit_digest.changed_files if p in manifest_set]
     if not changed_manifests:
@@ -151,6 +179,11 @@ def dependency_updates_for_commit(
 def dependency_updates_for_range(
     tag_range: TagRange, *, repo_root: Path, manifest_paths: tuple[str, ...]
 ) -> list[DependencyUpdate]:
+    """Compute dependency bumps across the full tag range (tag-to-tag diff).
+
+    Uses `git show` to read each manifest at the previous and current tag,
+    then diffs them. This is authoritative and independent of per-commit analysis.
+    """
     bumps: list[DependencyUpdate] = []
     for mp in manifest_paths:
         before = git_show(tag_range.previous_tag, mp, repo_root=repo_root)
@@ -162,6 +195,12 @@ def dependency_updates_for_range(
 def merge_dependency_notes(
     *, range_bumps: list[DependencyUpdate], consolidations: list[ConsolidatedCommit]
 ) -> list[DependencyUpdate]:
+    """Annotate range_bumps with LLM-generated notes/reasons from per-commit consolidations.
+
+    The authoritative bump list comes from range_bumps (git-derived). Notes are
+    overlaid from consolidations where the LLM flagged a bump as notable.
+    First-seen note wins if the same dep appears in multiple commits.
+    """
     notes: dict[tuple[str, str], tuple[str, str]] = {}
     for c in consolidations:
         for u in c.dependency_updates:

@@ -25,6 +25,10 @@ def _truncate(s: str, max_bytes: int) -> tuple[str, bool]:
 
 
 def fetch_linear_issue(identifier: str, *, api_key: str) -> LinearIssue:
+    """Fetch a single Linear issue by identifier via the GraphQL API.
+
+    Raises SystemExit on HTTP errors, network failures, or if the issue is not found.
+    """
     query = """
     query Issue($id: String!) {
       issue(id: $id) {
@@ -76,6 +80,10 @@ def fetch_linear_issue(identifier: str, *, api_key: str) -> LinearIssue:
 def fetch_linear_issues(
     identifiers: Iterable[str], *, api_key: str, max_issue_bytes: int
 ) -> dict[str, LinearIssue]:
+    """Fetch multiple Linear issues sequentially, keyed by identifier.
+
+    Descriptions are truncated to max_issue_bytes to keep LLM context manageable.
+    """
     out: dict[str, LinearIssue] = {}
     ids = sorted({i.strip() for i in identifiers if i and i.strip()})
     if not ids:

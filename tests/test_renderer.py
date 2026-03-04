@@ -82,6 +82,7 @@ class TestRenderMarkdown:
             github_issues_by_number={},
             include_digests_in_spoilers=False,
             dependency_bumps=[],
+            file_diff_results={},
             config=config,
         )
         defaults.update(kwargs)
@@ -133,3 +134,16 @@ class TestRenderMarkdown:
     def test_range_in_output(self):
         out = self._render()
         assert "v1.1.0..v1.2.3" in out
+
+    def test_file_diff_results_no_changes(self):
+        out = self._render(file_diff_results={"helm/values.yaml": ""})
+        assert "## `helm/values.yaml` diff" in out
+        assert "_No changes in `helm/values.yaml`._" in out
+
+    def test_file_diff_results_with_diff(self):
+        diff_text = "-old: 1\n+new: 2\n"
+        out = self._render(file_diff_results={"helm/values.yaml": diff_text})
+        assert "## `helm/values.yaml` diff" in out
+        assert "```diff" in out
+        assert "-old: 1" in out
+        assert "+new: 2" in out

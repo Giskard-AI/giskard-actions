@@ -12,6 +12,7 @@ LOG = logging.getLogger("release_notes.git")
 
 
 def run_git(args: list[str], repo_root: Path) -> str:
+    """Run a git command in repo_root and return stdout. Raises SystemExit on failure."""
     cmd = ["git", *args]
     started = time.perf_counter()
     p = subprocess.run(
@@ -33,6 +34,7 @@ def run_git(args: list[str], repo_root: Path) -> str:
 
 
 def git_show(ref: str, path: str, *, repo_root: Path) -> str | None:
+    """Return the content of a file at a specific git ref, or None if not found."""
     p = subprocess.run(
         ["git", "show", f"{ref}:{path}"],
         cwd=str(repo_root),
@@ -47,6 +49,7 @@ def git_show(ref: str, path: str, *, repo_root: Path) -> str | None:
 
 
 def validate_version(version: str) -> None:
+    """Validate version format (X.Y.Z[...]). Raises SystemExit on mismatch."""
     if not re.match(r"^[0-9]+\.[0-9]+\.[0-9]+[A-Za-z0-9.+-]*$", version):
         raise SystemExit(f"Invalid version: {version!r}. Expected X.Y.Z[...]")
 
@@ -56,6 +59,7 @@ def _ensure_tag_exists(tag: str, repo_root: Path) -> None:
 
 
 def _detect_previous_tag(current_tag: str, repo_root: Path) -> str:
+    """Find the tag immediately before current_tag by sorting all v*.*.* tags."""
     tags = run_git(["tag", "--list", "v*.*.*", "--sort=v:refname"], repo_root=repo_root)
     ordered = [t.strip() for t in tags.splitlines() if t.strip()]
     if current_tag not in ordered:
@@ -72,6 +76,12 @@ def _detect_previous_tag(current_tag: str, repo_root: Path) -> str:
 def detect_tag_range(
     version: str, previous_tag_override: str | None, repo_root: Path
 ) -> TagRange:
+    """Resolve the previous and current tags for a release.
+
+    The current tag is always v{version}. The previous tag is either the
+    --previous-tag override or auto-detected as the preceding v*.*.* tag.
+    Raises SystemExit if either tag is missing from the repository.
+    """
     validate_version(version)
     current_tag = f"v{version}"
     LOG.info("Detecting tag range for version=%s (current tag=%s)", version, current_tag)
@@ -89,6 +99,7 @@ def detect_tag_range(
 
 
 def list_commits(tag_range: TagRange, repo_root: Path) -> list[CommitInfo]:
+    """Return non-merge commits between tags in chronological order (oldest first)."""
     raw = run_git(
         [
             "log", "--no-merges", "--reverse",
@@ -113,6 +124,7 @@ def list_commits(tag_range: TagRange, repo_root: Path) -> list[CommitInfo]:
 
 
 def extract_linear_keys(text: str) -> list[str]:
+    """Extract unique Linear issue keys (e.g. ENG-123) from text, preserving order."""
     keys = re.findall(r"\[([A-Z]+-\d+)\]", text or "")
     seen: set[str] = set()
     out: list[str] = []
@@ -145,6 +157,10 @@ def extract_github_issue_numbers(text: str) -> list[int]:
 
 
 def parse_pr_number(subject: str) -> int | None:
+    """Extract a trailing PR number from a subject line like 'feat: foo (#123)'.
+
+    Returns None if the pattern is not found.
+    """
     m = re.search(r"\(#(\d+)\)\s*$", subject or "")
     if not m:
         return None
@@ -159,6 +175,7 @@ def _byte_len(s: str) -> int:
 
 
 def _truncate(s: str, max_bytes: int) -> tuple[str, bool]:
+    """Truncate s to max_bytes (UTF-8), appending a [TRUNCATED] marker if cut."""
     b = s.encode("utf-8", errors="replace")
     if len(b) <= max_bytes:
         return s, False
@@ -188,6 +205,10 @@ def _filter_name_status(raw: str, *, ignored_basenames: set[str]) -> str:
 
 
 def _filter_diff_stat(raw: str, *, ignored_basenames: set[str]) -> str:
+    """Remove lines for ignored_basenames from a `git diff --stat` output block.
+
+    Passes through the summary line (no `|` separator) unchanged.
+    """
     out: list[str] = []
     for ln in raw.splitlines():
         ln = ln.rstrip("\n")
@@ -213,7 +234,28 @@ def git_diff_stat(
     return _filter_diff_stat(raw, ignored_basenames=ignored_basenames)
 
 
+def git_file_diff(tag_range: "TagRange", path: str, *, repo_root: Path) -> str:
+    """Return the unified diff for a single file between two tags.
+
+    Returns an empty string if the file did not change between the tags.
+    """
+    p = subprocess.run(
+        ["git", "diff", f"{tag_range.previous_tag}..{tag_range.current_tag}", "--", path],
+        cwd=str(repo_root),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+    return p.stdout
+
+
 def _score_path(path: str, high_signal_prefixes: tuple[str, ...]) -> int:
+    """Return a priority score for a file path; lower = higher priority.
+
+    Paths matching high_signal_prefixes rank first (by prefix order); all
+    others get score 50 and are deprioritized.
+    """
     for i, prefix in enumerate(high_signal_prefixes):
         if path.startswith(prefix):
             return i
@@ -229,6 +271,12 @@ def build_commit_digest(
     max_file_bytes: int,
     high_signal_prefixes: tuple[str, ...],
 ) -> CommitDigest:
+    """Build a structured digest of a commit for LLM consumption.
+
+    The digest includes the commit subject/body, name-status, diff stat, and
+    per-file diffs for high-signal paths. Content is capped at max_total_bytes
+    total and max_file_bytes per file to keep LLM context manageable.
+    """
     sha = commit.sha
     subject = commit.subject
     pr_number = parse_pr_number(subject)

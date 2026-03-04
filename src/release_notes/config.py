@@ -111,6 +111,10 @@ class ProjectConfig:
     # GitHub repository slug (owner/repo) for compare URLs
     github_repository: str | None = None
 
+    # Repo-relative paths to diff between tags and render verbatim (e.g. helm values.yaml).
+    # Each path gets its own section showing the raw diff or "No changes."
+    file_diffs: tuple[str, ...] = ()
+
     # Sections configuration
     sections: tuple[SectionConfig, ...] = tuple(
         SectionConfig(**s) for s in DEFAULT_SECTIONS
@@ -137,6 +141,7 @@ class ProjectConfig:
             high_signal_prefixes=self.high_signal_prefixes,
             ignored_basenames=self.ignored_basenames,
             github_repository=self.github_repository,
+            file_diffs=self.file_diffs,
             sections=new_sections,
         )
 
@@ -150,6 +155,12 @@ class ProjectConfig:
 
 
 def _parse_sections(raw: list[dict] | None) -> tuple[SectionConfig, ...]:
+    """Parse the `sections` list from project config, overlaying onto known section metadata.
+
+    User entries override known defaults (title, description, enabled). Any default
+    section not mentioned in the user config is appended at the end with its defaults.
+    Unknown section IDs are passed through as-is (title defaults to the ID).
+    """
     if not raw:
         return tuple(SectionConfig(**s) for s in DEFAULT_SECTIONS)
 
@@ -191,5 +202,6 @@ def load_project_config(repo_root: Path) -> ProjectConfig:
         high_signal_prefixes=tuple(data.get("high_signal_prefixes", [])),
         ignored_basenames=frozenset(data.get("ignored_basenames", ["uv.lock", "pnpm-lock.yaml"])),
         github_repository=data.get("github_repository"),
+        file_diffs=tuple(data.get("file_diffs", [])),
         sections=_parse_sections(data.get("sections")),
     )

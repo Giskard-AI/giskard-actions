@@ -120,6 +120,17 @@ class TestLoadProjectConfig:
         cfg = load_project_config(tmp_path)
         assert "pyproject.toml" in cfg.manifest_paths
 
+    def test_reads_file_diffs(self, tmp_path):
+        data = {"file_diffs": ["helm/giskard-llm-hub/values.yaml"]}
+        (tmp_path / ".release-notes.json").write_text(json.dumps(data))
+        cfg = load_project_config(tmp_path)
+        assert "helm/giskard-llm-hub/values.yaml" in cfg.file_diffs
+
+    def test_file_diffs_defaults_empty(self, tmp_path):
+        (tmp_path / ".release-notes.json").write_text("{}")
+        cfg = load_project_config(tmp_path)
+        assert cfg.file_diffs == ()
+
 
 class TestWithSectionDisabled:
     def test_disables_one_section(self):
