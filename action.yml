@@ -49,7 +49,7 @@ runs:
     - name: Install release-notes tool
       shell: bash
       run: |
-        uv tool install "${{ github.action_path }}"
+        uv tool install --reinstall "${{ github.action_path }}"
 
     - name: Resolve output path
       id: resolve
