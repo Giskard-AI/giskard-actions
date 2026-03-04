@@ -162,12 +162,12 @@ def dependency_updates_for_range(
 def merge_dependency_notes(
     *, range_bumps: list[DependencyUpdate], consolidations: list[ConsolidatedCommit]
 ) -> list[DependencyUpdate]:
-    notes: dict[tuple[str, str], tuple[str | None, str | None]] = {}
+    notes: dict[tuple[str, str], tuple[str, str]] = {}
     for c in consolidations:
         for u in c.dependency_updates:
             key = (u.manifest_path, u.name)
-            note = (u.note or "").strip() or None
-            reason = (u.note_reason or "").strip() or None
+            note = (u.note or "").strip()
+            reason = (u.note_reason or "").strip()
             if not note:
                 continue
             notes.setdefault(key, (note, reason))
@@ -175,7 +175,7 @@ def merge_dependency_notes(
     out: list[DependencyUpdate] = []
     for b in range_bumps:
         key = (b.manifest_path, b.name)
-        note, reason = notes.get(key, (None, None))
+        note, reason = notes.get(key, ("", ""))
         out.append(
             DependencyUpdate(
                 manifest_path=b.manifest_path, name=b.name,

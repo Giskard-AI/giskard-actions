@@ -186,21 +186,21 @@ async def consolidate_commit(
             DependencyUpdate(
                 manifest_path=u.manifest_path, name=u.name,
                 from_version=u.from_version, to_version=u.to_version,
-                note=(u.note or "").strip() or None,
-                note_reason=(u.note_reason or "").strip() or None,
+                note=(u.note or "").strip(),
+                note_reason=(u.note_reason or "").strip(),
             )
         )
 
     return ConsolidatedCommit(
         sha=commit_digest.sha,
         subject=commit_digest.subject,
-        pr_number=commit_digest.pr_number,
+        pr_number=commit_digest.pr_number or 0,
         linear_keys=commit_digest.linear_keys,
         short_name=payload.short_name.strip(),
         category=payload.category,
         consolidated_description=payload.consolidated_description.strip(),
-        why=(payload.why or "").strip() or None,
-        context=(payload.context or "").strip() or None,
+        why=payload.why.strip(),
+        context=payload.context.strip(),
         upgrade_notes=[u.strip() for u in payload.upgrade_notes if u.strip()],
         unknowns=[u.strip() for u in payload.unknowns if u.strip()],
         dependency_updates=filtered_deps,
@@ -213,7 +213,7 @@ async def synthesize_release_notes(
     lines: list[str] = []
     for c in consolidations:
         header = f"- {c.sha[:8]} {c.subject}"
-        if c.pr_number is not None:
+        if c.pr_number:
             header += f" (#{c.pr_number})"
         lines.append(header)
         lines.append(f"  Category: {c.category}")

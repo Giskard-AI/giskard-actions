@@ -67,20 +67,20 @@ class DependencyUpdate(BaseModel):
     name: str = Field(description="Dependency name.")
     from_version: str = Field(description="Previous version/spec.")
     to_version: str = Field(description="New version/spec.")
-    note: str | None = Field(default=None, description="Optional note if non-routine.")
-    note_reason: str | None = Field(default=None, description="Reason: security/breaking/compat/etc.")
+    note: str = Field(default="", description="Optional note if non-routine, empty string if none.")
+    note_reason: str = Field(default="", description="Reason: security/breaking/compat/etc., empty string if none.")
 
 
 class ConsolidatedCommit(BaseModel):
-    sha: str = Field(description="Full git SHA.")
-    subject: str = Field(description="Commit subject line.")
-    pr_number: int | None = Field(default=None, description="PR number from subject like (#1234).")
+    sha: str = Field(default="", description="Full git SHA.")
+    subject: str = Field(default="", description="Commit subject line.")
+    pr_number: int = Field(default=0, description="PR number from subject like (#1234), 0 if none.")
     linear_keys: list[str] = Field(default_factory=list, description="Linear issue keys.")
     short_name: str = Field(default="", description="Short label (2-6 words).")
     category: CommitCategory = Field(default=CommitCategory.OTHER, description="Change category.")
     consolidated_description: str = Field(default="", description="Human-readable description.")
-    context: str | None = Field(default=None, description="Context/motivation from issue tracker.")
-    why: str | None = Field(default=None, description="Reason/goal for the change.")
+    context: str = Field(default="", description="Context/motivation from issue tracker, empty string if none.")
+    why: str = Field(default="", description="Reason/goal for the change, empty string if none.")
     upgrade_notes: list[str] = Field(default_factory=list, description="Upgrade-impact notes.")
     unknowns: list[str] = Field(default_factory=list, description="Ambiguities.")
     dependency_updates: list[DependencyUpdate] = Field(
