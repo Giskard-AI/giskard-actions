@@ -115,8 +115,8 @@ def fetch_github_issue(
         with urlopen(req, timeout=30) as resp:  # noqa: S310
             body = resp.read().decode("utf-8", errors="replace")
     except HTTPError as e:
-        if e.code == 404:
-            LOG.warning("GitHub issue #%d not found in %s", number, owner_repo)
+        if e.code in (403, 404):
+            LOG.warning("GitHub issue #%d not accessible in %s (%d %s), skipping.", number, owner_repo, e.code, e.reason)
             return None
         raise SystemExit(
             f"GitHub API HTTP error for #{number}: {e.code} {e.reason}"
