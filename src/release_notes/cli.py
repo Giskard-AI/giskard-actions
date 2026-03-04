@@ -157,6 +157,7 @@ async def main_async() -> None:
         f"{tag_range.previous_tag}..{tag_range.current_tag}",
         repo_root=repo_root,
         ignored_basenames=set(config.ignored_basenames),
+        ignored_path_prefixes=config.ignored_path_prefixes,
     )
     commit_list = run_git(
         [

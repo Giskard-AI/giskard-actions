@@ -47,6 +47,10 @@ class MarkdownWriter:
         self.raw(f"### {text}")
         self.blank()
 
+    def h4(self, text: str) -> None:
+        self.raw(f"#### {text}")
+        self.blank()
+
     def p(self, text: str) -> None:
         for ln in (text or "").splitlines() or [""]:
             self.raw(ln)
@@ -172,22 +176,20 @@ def render_markdown(
         else:
             w.p(f"_No changes in `{path}`._")
 
-    # Dependencies (deterministic, not LLM-driven)
-    if "deps" in enabled and dependency_bumps:
+    # Dependencies — standalone section only when appendix is not also enabled.
+    # When appendix is enabled, deps are rendered inside it (see below).
+    if "deps" in enabled and dependency_bumps and "appendix" not in enabled:
         w.h2(config.section_title("deps"))
-        by_manifest: dict[str, list[DependencyUpdate]] = {}
-        for b in dependency_bumps:
-            by_manifest.setdefault(b.manifest_path, []).append(b)
-        for mp in sorted(by_manifest):
-            w.h3(f"`{mp}`")
-            for b in sorted(by_manifest[mp], key=lambda x: x.name.lower()):
-                note = f" — {b.note.strip()}" if b.note and b.note.strip() else ""
-                w.bullet(f"{b.name}: {b.from_version} → {b.to_version}{note}")
-            w.blank()
+        _render_deps(w, dependency_bumps, config)
 
     # Appendix
     if "appendix" in enabled:
         w.h2(config.section_title("appendix"))
+
+        # Dependencies as the first subsection of the appendix
+        if "deps" in enabled and dependency_bumps:
+            w.h3(config.section_title("deps"))
+            _render_deps(w, dependency_bumps, config)
 
         w.h3("Diff stats")
         w.codeblock("", (diff_stat.rstrip() or "<empty>"))
@@ -207,6 +209,23 @@ def render_markdown(
     return w.finish()
 
 
+def _render_deps(
+    w: MarkdownWriter,
+    dependency_bumps: list[DependencyUpdate],
+    config: "ProjectConfig",
+) -> None:
+    """Render dependency bump table grouped by manifest path."""
+    by_manifest: dict[str, list[DependencyUpdate]] = {}
+    for b in dependency_bumps:
+        by_manifest.setdefault(b.manifest_path, []).append(b)
+    for mp in sorted(by_manifest):
+        w.h4(f"`{mp}`")
+        for b in sorted(by_manifest[mp], key=lambda x: x.name.lower()):
+            note = f" — {b.note.strip()}" if b.note and b.note.strip() else ""
+            w.bullet(f"{b.name}: {b.from_version} → {b.to_version}{note}")
+        w.blank()
+
+
 def _render_consolidated_commits(
     w: MarkdownWriter,
     *,
@@ -224,9 +243,8 @@ def _render_consolidated_commits(
     by_sha: dict[str, ConsolidatedCommit] = {c.sha: c for c in consolidations}
     for cd in commit_digests:
         cons = by_sha.get(cd.sha)
+        # subject already contains the PR number when parsed from "(#NNN)" at the end
         summary = f"{cd.sha[:8]} {cd.subject}"
-        if cd.pr_number is not None:
-            summary += f" (#{cd.pr_number})"
 
         body: list[str] = []
         if cons is not None:
@@ -256,9 +274,17 @@ def _render_consolidated_commits(
                 body.append("")
 
             body.append("**Changed files**:")
-            if cd.changed_files:
-                for p in cd.changed_files:
+            # Prefer high-signal selected files; fall back to all changed files.
+            # Cap at _MAX_SHOWN_FILES to avoid bloating large refactor commits.
+            _MAX_SHOWN_FILES = 20
+            display = cd.selected_files if cd.selected_files else cd.changed_files
+            shown = display[:_MAX_SHOWN_FILES]
+            extra = len(cd.changed_files) - len(shown)
+            if shown:
+                for p in shown:
                     body.append(f"- `{p}`")
+                if extra > 0:
+                    body.append(f"- _...and {extra} more files_")
             else:
                 body.append("- <none>")
             body.append("")

@@ -204,8 +204,13 @@ def _filter_name_status(raw: str, *, ignored_basenames: set[str]) -> str:
     return "\n".join(out) + ("\n" if out else "")
 
 
-def _filter_diff_stat(raw: str, *, ignored_basenames: set[str]) -> str:
-    """Remove lines for ignored_basenames from a `git diff --stat` output block.
+def _filter_diff_stat(
+    raw: str,
+    *,
+    ignored_basenames: set[str],
+    ignored_path_prefixes: tuple[str, ...] = (),
+) -> str:
+    """Remove lines for ignored_basenames or ignored_path_prefixes from a `git diff --stat` block.
 
     Passes through the summary line (no `|` separator) unchanged.
     """
@@ -220,18 +225,28 @@ def _filter_diff_stat(raw: str, *, ignored_basenames: set[str]) -> str:
         path_part = ln.split("|", 1)[0].strip()
         if Path(path_part).name in ignored_basenames:
             continue
+        if ignored_path_prefixes and any(path_part.startswith(p) for p in ignored_path_prefixes):
+            continue
         out.append(ln)
     return "\n".join(out) + ("\n" if out else "")
 
 
 def git_diff_stat(
-    range_ref: str, *, repo_root: Path, ignored_basenames: set[str]
+    range_ref: str,
+    *,
+    repo_root: Path,
+    ignored_basenames: set[str],
+    ignored_path_prefixes: tuple[str, ...] = (),
 ) -> str:
     raw = run_git(
         ["diff", "--stat", "--stat-name-width=200", "--stat-width=240", range_ref],
         repo_root=repo_root,
     )
-    return _filter_diff_stat(raw, ignored_basenames=ignored_basenames)
+    return _filter_diff_stat(
+        raw,
+        ignored_basenames=ignored_basenames,
+        ignored_path_prefixes=ignored_path_prefixes,
+    )
 
 
 def git_file_diff(tag_range: "TagRange", path: str, *, repo_root: Path) -> str:

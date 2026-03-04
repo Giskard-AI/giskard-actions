@@ -115,6 +115,9 @@ class ProjectConfig:
     # Each path gets its own section showing the raw diff or "No changes."
     file_diffs: tuple[str, ...] = ()
 
+    # Path prefixes to exclude from the diff stat in the appendix (e.g. test dirs, generated files).
+    ignored_path_prefixes: tuple[str, ...] = ()
+
     # Sections configuration
     sections: tuple[SectionConfig, ...] = tuple(
         SectionConfig(**s) for s in DEFAULT_SECTIONS
@@ -142,6 +145,7 @@ class ProjectConfig:
             ignored_basenames=self.ignored_basenames,
             github_repository=self.github_repository,
             file_diffs=self.file_diffs,
+            ignored_path_prefixes=self.ignored_path_prefixes,
             sections=new_sections,
         )
 
@@ -203,5 +207,6 @@ def load_project_config(repo_root: Path) -> ProjectConfig:
         ignored_basenames=frozenset(data.get("ignored_basenames", ["uv.lock", "pnpm-lock.yaml"])),
         github_repository=data.get("github_repository"),
         file_diffs=tuple(data.get("file_diffs", [])),
+        ignored_path_prefixes=tuple(data.get("ignored_path_prefixes", [])),
         sections=_parse_sections(data.get("sections")),
     )
