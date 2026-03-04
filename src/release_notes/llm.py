@@ -57,6 +57,21 @@ def _render_messages(template_name: str, **kwargs: str) -> list[dict[str, str]]:
     return messages
 
 
+def _add_additional_properties_false(schema: dict) -> dict:
+    """Recursively add additionalProperties: false to all object schemas (required by Azure)."""
+    if isinstance(schema, dict):
+        if schema.get("type") == "object" and "additionalProperties" not in schema:
+            schema["additionalProperties"] = False
+        for value in schema.values():
+            if isinstance(value, dict):
+                _add_additional_properties_false(value)
+            elif isinstance(value, list):
+                for item in value:
+                    if isinstance(item, dict):
+                        _add_additional_properties_false(item)
+    return schema
+
+
 def _call_llm_structured(
     messages: list[dict[str, str]],
     *,
@@ -66,7 +81,7 @@ def _call_llm_structured(
     num_retries: int = 2,
 ) -> dict:
     """Call LLM with structured JSON output using litellm."""
-    schema = response_model.model_json_schema()
+    schema = _add_additional_properties_false(response_model.model_json_schema())
 
     for attempt in range(1 + num_retries):
         try:
