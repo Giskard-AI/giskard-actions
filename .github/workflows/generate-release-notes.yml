@@ -31,6 +31,7 @@ concurrency:
 
 jobs:
   generate:
+    name: Generate release notes
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository with tags
@@ -38,6 +39,7 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
+          persist-credentials: false
 
       - name: Generate release notes
         uses: ./

@@ -52,17 +52,22 @@ runs:
 
     - name: Install release-notes tool
       shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
       run: |
-        uv tool install --reinstall "${{ github.action_path }}"
+        uv tool install --reinstall "${ACTION_PATH}"
 
     - name: Resolve output path
       id: resolve
       shell: bash
+      env:
+        INPUT_OUTPUT_PATH: ${{ inputs.output_path }}
+        INPUT_VERSION: ${{ inputs.version }}
       run: |
-        if [ -n "${{ inputs.output_path }}" ]; then
-          echo "output=${{ inputs.output_path }}" >> "${GITHUB_OUTPUT}"
+        if [ -n "${INPUT_OUTPUT_PATH}" ]; then
+          echo "output=${INPUT_OUTPUT_PATH}" >> "${GITHUB_OUTPUT}"
         else
-          echo "output=release_notes/v${{ inputs.version }}.md" >> "${GITHUB_OUTPUT}"
+          echo "output=release_notes/v${INPUT_VERSION}.md" >> "${GITHUB_OUTPUT}"
         fi
 
     - name: Generate release notes
@@ -70,21 +75,27 @@ runs:
       env:
         AZURE_API_VERSION: "2024-08-01-preview"
         RELEASE_NOTES_MODEL: ${{ inputs.model }}
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_OUTPUT: ${{ steps.resolve.outputs.output }}
+        INPUT_METADATA_FILE: ${{ inputs.metadata_file }}
+        INPUT_PREVIOUS_TAG: ${{ inputs.previous_tag }}
+        INPUT_DRY_RUN: ${{ inputs.dry_run }}
+        INPUT_INCLUDE_APPENDIX: ${{ inputs.include_appendix }}
       run: |
         set -euo pipefail
-        mkdir -p "$(dirname "${{ steps.resolve.outputs.output }}")"
+        mkdir -p "$(dirname "${INPUT_OUTPUT}")"
         args=(
-          --version "${{ inputs.version }}"
-          --output "${{ steps.resolve.outputs.output }}"
-          --metadata-file "${{ inputs.metadata_file }}"
+          --version "${INPUT_VERSION}"
+          --output "${INPUT_OUTPUT}"
+          --metadata-file "${INPUT_METADATA_FILE}"
         )
-        if [ -n "${{ inputs.previous_tag }}" ]; then
-          args+=(--previous-tag "${{ inputs.previous_tag }}")
+        if [ -n "${INPUT_PREVIOUS_TAG}" ]; then
+          args+=(--previous-tag "${INPUT_PREVIOUS_TAG}")
         fi
-        if [ "${{ inputs.dry_run }}" = "true" ]; then
+        if [ "${INPUT_DRY_RUN}" = "true" ]; then
           args+=(--dry-run)
         fi
-        if [ "${{ inputs.include_appendix }}" = "true" ]; then
+        if [ "${INPUT_INCLUDE_APPENDIX}" = "true" ]; then
           args+=(--include-appendix)
         fi
         generate-release-notes "${args[@]}"
@@ -92,11 +103,13 @@ runs:
     - name: Read metadata
       id: meta
       shell: bash
+      env:
+        INPUT_METADATA_FILE: ${{ inputs.metadata_file }}
       run: |
         {
-          echo "notes_path=$(jq -r '.output_path' "${{ inputs.metadata_file }}")"
-          echo "compare_url=$(jq -r '.compare_url' "${{ inputs.metadata_file }}")"
+          echo "notes_path=$(jq -r '.output_path' "${INPUT_METADATA_FILE}")"
+          echo "compare_url=$(jq -r '.compare_url' "${INPUT_METADATA_FILE}")"
           echo "summary<<EOFMETA"
-          jq -r '.summary' "${{ inputs.metadata_file }}"
+          jq -r '.summary' "${INPUT_METADATA_FILE}"
           echo "EOFMETA"
         } >> "${GITHUB_OUTPUT}"
