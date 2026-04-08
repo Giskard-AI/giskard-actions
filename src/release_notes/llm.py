@@ -82,7 +82,7 @@ def _enforce_azure_schema(schema: dict) -> dict:
     return schema
 
 
-def _call_llm_structured(
+async def _call_llm_structured(
     messages: list[dict[str, str]],
     *,
     model: str,
@@ -95,7 +95,7 @@ def _call_llm_structured(
 
     for attempt in range(1 + num_retries):
         try:
-            response = litellm.completion(
+            response = await litellm.acompletion(
                 model=model,
                 messages=messages,
                 temperature=temperature,
@@ -184,7 +184,7 @@ async def consolidate_commit(
     )
 
     started = time.perf_counter()
-    raw = _call_llm_structured(messages, model=model, response_model=ConsolidatedCommit)
+    raw = await _call_llm_structured(messages, model=model, response_model=ConsolidatedCommit)
     elapsed_s = time.perf_counter() - started
     LOG.info("Consolidated commit via LLM: sha=%s (%.2fs)", commit_digest.sha[:8], elapsed_s)
 
@@ -271,7 +271,7 @@ async def synthesize_release_notes(
     )
 
     started = time.perf_counter()
-    raw = _call_llm_structured(messages, model=model, response_model=ReleaseNotesPayload)
+    raw = await _call_llm_structured(messages, model=model, response_model=ReleaseNotesPayload)
     elapsed_s = time.perf_counter() - started
     LOG.info("Synthesis via LLM completed in %.2fs", elapsed_s)
     return ReleaseNotesPayload.model_validate(raw)
