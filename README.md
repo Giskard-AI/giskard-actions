@@ -110,7 +110,45 @@ Section lists differ by product. llm-hub uses UX/API/Helm; lidar uses `python_ap
 
 **Consumers** that list submodule paths in `manifest_paths` must init those submodules **before** the action (`actions/checkout` `submodules: true`, or a GitHub App token checkout). If objects are missing, the tool logs a warning and skips that manifest instead of reporting an empty bump list.
 
-Initing lidar is **not** required to *run* this action (it `uv tool install`s itself). It is only required to *diff* files inside that submodule.
+Initing lidar is **not** required to *run* this action (it `uv tool install`s itself from a lockfile export). It is only required to *diff* files inside that submodule.
+
+## Codex PR review (reusable)
+
+This repo ships a reusable workflow that other Giskard repos can call. Secret-bearing jobs load **trusted automation** from `github.workflow_sha` of the reusable workflow, and treat the PR head as review evidence only.
+
+In the **consumer** repo:
+
+1. Add `.github/codex/reviewer-map.json` mapping path prefixes to `.cursor/agents/<name>.md` reviewers.
+2. Add a thin workflow:
+
+```yaml
+name: Codex PR Code Review
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request number to review
+        required: true
+        type: string
+permissions: {}
+jobs:
+  review:
+    uses: Giskard-AI/giskard-release-notes/.github/workflows/codex-pr-review.reusable.yml@<sha>
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: write
+    secrets:
+      AZURE_AI_API_KEY: ${{ secrets.AZURE_AI_API_KEY }}
+      # Required when this private automation repo is not readable with github.token:
+      # AUTOMATION_GITHUB_TOKEN: ${{ secrets.AUTOMATION_GITHUB_TOKEN }}
+```
+
+Start a review with the `codex-review` label, `/review`, or `/codex-assess` from OWNER/MEMBER/COLLABORATOR. Azure jobs use the consumer `ci` environment and `vars.AZURE_AI_RESPONSES_BASE`.
 
 ## Cursor
 

@@ -34,7 +34,12 @@ line-length = 100
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP"]
 
+[tool.ruff.lint.per-file-ignores]
+"scripts/ci/codex_pr_assessment.py" = ["E501", "UP022"]
+"tests/test_codex_pr_assessment.py" = ["E501"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+pythonpath = ["scripts/ci"]
 addopts = "--tb=short"

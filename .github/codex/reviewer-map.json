@@ -1,0 +1,37 @@
+{
+  "rules": [
+    {
+      "name": "prompt-critic",
+      "model_kind": "normal",
+      "path_prefixes": [
+        "src/release_notes/prompts/",
+        ".cursor/agents/",
+        ".cursor/rules/",
+        ".cursor/skills/",
+        ".agents/",
+        ".github/codex/"
+      ],
+      "path_names": ["AGENTS.md"],
+      "path_contains": ["/prompts/"]
+    },
+    {
+      "name": "python-builder",
+      "model_kind": "normal",
+      "path_prefixes": ["src/", "tests/"],
+      "path_suffixes": [".py"]
+    },
+    {
+      "name": "infra-reviewer",
+      "model_kind": "normal",
+      "path_prefixes": [".github/", "scripts/ci/"],
+      "path_names": ["action.yml", "Makefile", "pyproject.toml", "uv.lock", "renovate.json"]
+    },
+    {
+      "name": "security-auditor",
+      "model_kind": "critical",
+      "path_prefixes": [".github/", "scripts/ci/"],
+      "path_names": ["action.yml"],
+      "path_contains": ["secret", "auth", "token", "permission"]
+    }
+  ]
+}
