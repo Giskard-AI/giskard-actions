@@ -209,12 +209,6 @@ jobs:
           printf 'repository=%s\n' "${repo}" >> "${GITHUB_OUTPUT}"
           printf 'ref=%s\n' "${ref}" >> "${GITHUB_OUTPUT}"
 
-      - name: Checkout pull request head as review evidence
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ needs.resolve.outputs.head_sha }}
-          persist-credentials: false
-
       - name: Checkout trusted automation
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -255,6 +249,7 @@ jobs:
       - name: Run Codex reviewer
         id: codex
         continue-on-error: true
+        timeout-minutes: 8
         uses: openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e # v1.12
         with:
           openai-api-key: ${{ secrets.AZURE_AI_API_KEY }}
@@ -352,12 +347,6 @@ jobs:
           printf 'repository=%s\n' "${repo}" >> "${GITHUB_OUTPUT}"
           printf 'ref=%s\n' "${ref}" >> "${GITHUB_OUTPUT}"
 
-      - name: Checkout pull request head as review evidence
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ needs.resolve.outputs.head_sha }}
-          persist-credentials: false
-
       - name: Checkout trusted automation
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -400,6 +389,7 @@ jobs:
           --github-output "$GITHUB_OUTPUT"
 
       - name: Run Codex code-review aggregator
+        timeout-minutes: 8
         uses: openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e # v1.12
         with:
           openai-api-key: ${{ secrets.AZURE_AI_API_KEY }}

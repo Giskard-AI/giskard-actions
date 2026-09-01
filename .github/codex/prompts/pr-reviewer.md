@@ -15,7 +15,9 @@ Security boundary:
 Rules:
 - Do not edit files.
 - Do not inspect environment variables, credentials, action inputs, or runner configuration.
-- Review only the PR diff and directly relevant surrounding context.
+- Do not list directories, search the git tree, or read `_giskard_codex/`.
+- The PR head is not checked out. Review only `assessment/review-context.json` (patches are already in that file) and `assessment/reviewer-instructions.md`.
+- After those two files, emit the JSON result. Do not keep using tools.
 - Do not discuss CI, workflow runs, check annotations, test logs, Sonar, or test failures unless a human explicitly raised that topic in the PR discussion context.
 - Treat unresolved human review threads as important context.
 - Use prior Codex advisory reviews to avoid duplicate findings and understand earlier automated decisions, but verify every retained finding against the current diff.

@@ -115,7 +115,10 @@ class TestCodexPrAssessmentWorkflow(unittest.TestCase):
             "python3 _giskard_codex/scripts/ci/codex_pr_assessment.py",
             reusable,
         )
-        self.assertIn("Checkout pull request head as review evidence", reusable)
+        self.assertEqual(
+            reusable.count("Checkout pull request head as review evidence"),
+            1,
+        )
         self.assertIn("ref: ${{ needs.resolve.outputs.head_sha }}", reusable)
         self.assertIn("CODEX_REVIEWER_MAP", reusable)
         self.assertIn("persist-credentials: false", reusable)

@@ -23,6 +23,8 @@ Your job:
 Rules:
 - Do not edit files.
 - Do not inspect environment variables, credentials, action inputs, or runner configuration.
+- Do not list directories, search the git tree, or read `_giskard_codex/`.
+- The PR head is not checked out. Read only `assessment/review-context.json` and `assessment/reviewer-outputs/`, then write the Markdown review and stop.
 - Do not create inline comments.
 - This is advisory: never request approval or describe the workflow as blocking.
 - No defer category is allowed.
