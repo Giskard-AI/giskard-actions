@@ -101,9 +101,9 @@ jobs:
           git remote set-url origin "https://x-access-token:${APP_TOKEN}@github.com/${REPO}.git"
           git push origin HEAD
 
-      - name: Create Pull Request
+      - name: Create Pull Request # zizmor: ignore[superfluous-actions]
         if: steps.target.outputs.mode == 'pr'
-        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1 # zizmor: ignore[superfluous-actions]
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         with:
           token: ${{ steps.automation-token.outputs.token }}
           branch: chore/lock-update-${{ steps.target.outputs.branch }}
