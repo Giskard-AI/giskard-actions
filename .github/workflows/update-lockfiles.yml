@@ -71,12 +71,20 @@ jobs:
           set -euo pipefail
           uv lock -U
 
+      - name: Generate automation token
+        id: automation-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.AUTOMATION_APP_ID }}
+          private-key: ${{ secrets.AUTOMATION_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+
       - name: Commit and push to feature branch
         if: steps.target.outputs.mode == 'push'
         shell: bash
         env:
-          # Prefer AUTOMATION_GITHUB_TOKEN so follow-up CI runs; GITHUB_TOKEN does not retrigger workflows.
-          APP_TOKEN: ${{ secrets.AUTOMATION_GITHUB_TOKEN || github.token }}
+          APP_TOKEN: ${{ steps.automation-token.outputs.token }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -97,8 +105,7 @@ jobs:
         if: steps.target.outputs.mode == 'pr'
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1 # zizmor: ignore[superfluous-actions]
         with:
-          # Prefer AUTOMATION_GITHUB_TOKEN so Tests run on the bot PR; GITHUB_TOKEN does not retrigger workflows.
-          token: ${{ secrets.AUTOMATION_GITHUB_TOKEN || github.token }}
+          token: ${{ steps.automation-token.outputs.token }}
           branch: chore/lock-update-${{ steps.target.outputs.branch }}
           base: ${{ steps.target.outputs.branch }}
           title: "chore: update lockfiles"
