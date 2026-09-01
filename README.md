@@ -19,7 +19,10 @@ make setup          # uv sync --group dev
 make test           # uv run pytest
 make format
 make check_linting
+make lock-upgrade   # uv lock -U (latest versions allowed by pyproject.toml)
 ```
+
+CI keeps `uv.lock` current in two ways: **Update lockfiles** (weekly Monday 06:00 UTC, or Actions → workflow_dispatch) opens a `chore: update lockfiles` PR against `main`. Renovate pep621 PRs get the `deps:lockfile=python` label; **Renovate lockfile refresh** then runs `uv lock -U` and pushes a follow-up commit on that branch. Manual re-lock: add the label or dispatch the refresh workflow with a branch name. Set repo secret `AUTOMATION_GITHUB_TOKEN` (PAT or GitHub App) if Tests should run on those bot commits; the default `GITHUB_TOKEN` does not retrigger workflows.
 
 Or:
 

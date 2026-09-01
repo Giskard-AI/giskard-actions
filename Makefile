@@ -1,4 +1,4 @@
-.PHONY: setup test format check_linting
+.PHONY: setup test format check_linting lock-upgrade
 
 setup:
 	uv sync --group dev
@@ -13,3 +13,6 @@ format:
 check_linting:
 	uv run ruff format --check .
 	uv run ruff check .
+
+lock-upgrade:
+	uv lock -U
