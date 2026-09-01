@@ -21,7 +21,6 @@ concurrency:
 jobs:
   review:
     uses: $/.github/workflows/codex-pr-review.reusable.yml
-    environment: ci
     permissions:
       contents: read
       issues: read # Needed to resolve issue_comment events to a pull request
