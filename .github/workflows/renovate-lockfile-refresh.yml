@@ -1,0 +1,181 @@
+name: Renovate lockfile refresh
+
+on:
+  pull_request:
+    types: [opened, reopened, labeled, synchronize]
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch to refresh lockfiles on (used only for workflow_dispatch; ignored in pull_request context)"
+        required: false
+        type: string
+        default: ""
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    name: Renovate lockfile refresh
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        contains(github.event.pull_request.labels.*.name, 'deps:lockfile=python')
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Push the lockfile refresh commit back to the PR branch.
+      pull-requests: write # Comment on the PR and remove the acted-on label once the workflow has run.
+    steps:
+      - name: Resolve target ref
+        id: target
+        env:
+          # Pull every ${{ }} expression into env so the shell script
+          # never embeds GitHub-controlled values directly. This keeps
+          # zizmor's template-injection audit quiet on the run block.
+          EVENT_NAME: ${{ github.event_name }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          INPUT_BRANCH: ${{ inputs.branch }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+
+          write_output() {
+            local key="$1"
+            local value="$2"
+            value="${value//$'\r'/}"
+            value="${value//$'\n'/}"
+            printf '%s=%s\n' "$key" "$value" >> "$GITHUB_OUTPUT"
+          }
+
+          is_protected_branch() {
+            local branch="$1"
+            [ "$branch" = "${DEFAULT_BRANCH}" ] || [ "$branch" = "main" ] || [ "$branch" = "master" ]
+          }
+
+          if [ "${EVENT_NAME}" = "pull_request" ]; then
+            if is_protected_branch "${PR_HEAD_REF}"; then
+              echo "::error::refusing to refresh lockfiles on default branch '${PR_HEAD_REF}'."
+              exit 1
+            fi
+            write_output "ref" "${PR_HEAD_SHA}"
+            write_output "branch" "${PR_HEAD_REF}"
+            write_output "pr_number" "${PR_NUMBER}"
+          else
+            if [ -z "${INPUT_BRANCH}" ]; then
+              echo "::error::inputs.branch is required when triggering via workflow_dispatch."
+              exit 1
+            fi
+            if is_protected_branch "${INPUT_BRANCH}"; then
+              echo "::error::refusing to refresh lockfiles on default branch '${INPUT_BRANCH}'."
+              exit 1
+            fi
+            write_output "ref" "${INPUT_BRANCH}"
+            write_output "branch" "${INPUT_BRANCH}"
+            write_output "pr_number" ""
+          fi
+
+      - name: Checkout target branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ steps.target.outputs.ref }}
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+          python-version: "3.12"
+
+      - name: Update Python lockfile (uv lock -U)
+        run: |
+          set -euo pipefail
+          uv lock -U
+
+      - name: Detect drift
+        id: diff
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- uv.lock; then
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+            TMP_DIFF="$(mktemp)"
+            trap 'rm -f "${TMP_DIFF}"' EXIT
+            git --no-pager diff -- uv.lock > "${TMP_DIFF}" || true
+            head -200 "${TMP_DIFF}" || true
+          fi
+
+      - name: Generate automation token
+        id: automation-token
+        if: steps.diff.outputs.has_changes == 'true'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.AUTOMATION_APP_ID }}
+          private-key: ${{ secrets.AUTOMATION_APP_PRIVATE_KEY }}
+          permission-contents: write
+
+      - name: Commit and push lockfile refresh
+        if: steps.diff.outputs.has_changes == 'true'
+        env:
+          APP_TOKEN: ${{ steps.automation-token.outputs.token }}
+          BRANCH: ${{ steps.target.outputs.branch }}
+          REPO: ${{ github.repository }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${BRANCH}" ]; then
+            echo "::error::target branch is empty; cannot push."
+            exit 1
+          fi
+          if [ "${BRANCH}" = "${DEFAULT_BRANCH}" ] || [ "${BRANCH}" = "main" ] || [ "${BRANCH}" = "master" ]; then
+            echo "::error::refusing to push lockfile refresh to protected branch '${BRANCH}'."
+            exit 1
+          fi
+
+          git config user.name "renovate-bot"
+          git config user.email "renovate[bot]@users.noreply.github.com"
+          git add uv.lock
+          git commit -m "fix(renovate): refresh lockfiles"
+          git remote set-url origin "https://x-access-token:${APP_TOKEN}@github.com/${REPO}.git"
+          git push origin "HEAD:${BRANCH}"
+
+      - name: Remove deps:lockfile=python label
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.target.outputs.pr_number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ -z "${PR_NUMBER}" ]; then
+            exit 0
+          fi
+          gh api -X DELETE "repos/${REPO}/issues/${PR_NUMBER}/labels/deps:lockfile=python" >/dev/null || true
+
+      - name: Comment on PR with refreshed lockfiles
+        if: >-
+          github.event_name == 'pull_request' &&
+          steps.diff.outputs.has_changes == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.target.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          if [ -z "${PR_NUMBER}" ]; then
+            exit 0
+          fi
+          {
+            printf 'Renovate lockfile refresh — pushed follow-up commit.\n\n'
+            printf 'Refreshed:\n'
+            printf -- '- `uv.lock` via `uv lock -U`\n'
+          } > /tmp/lockfile_refresh_comment.md
+          gh pr comment "${PR_NUMBER}" --body-file /tmp/lockfile_refresh_comment.md >/dev/null || true

@@ -20,6 +20,13 @@
       "groupSlug": "{{manager}}-deps",
       "matchUpdateTypes": ["*"],
       "matchPackageNames": ["*"]
+    },
+    {
+      "description": "Group pep621 Python updates and flag them for the in-PR lockfile refresh workflow.",
+      "matchManagers": ["pep621"],
+      "groupName": "python deps",
+      "groupSlug": "python-deps",
+      "labels": ["dependencies", "deps:lockfile=python"]
     }
   ]
 }
