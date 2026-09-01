@@ -1,0 +1,25 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "schedule": ["before 4am on Monday"],
+  "minimumReleaseAge": "3 days",
+  "labels": ["dependencies"],
+  "extends": [
+    "config:recommended",
+    "helpers:pinGitHubActionDigests",
+    ":pinAllExceptPeerDependencies"
+  ],
+  "packageRules": [
+    {
+      "matchManagers": ["pep621"],
+      "description": "Disable python versions from updating",
+      "enabled": false,
+      "matchPackageNames": ["/^python$/"]
+    },
+    {
+      "groupName": "{{manager}} dependencies",
+      "groupSlug": "{{manager}}-deps",
+      "matchUpdateTypes": ["*"],
+      "matchPackageNames": ["*"]
+    }
+  ]
+}

@@ -1,7 +1,8 @@
 """Markdown rendering for release notes."""
 
-from datetime import datetime, timezone
-from pathlib import Path
+from datetime import UTC, datetime
+
+from pydantic import BaseModel
 
 from .config import ProjectConfig
 from .models import (
@@ -10,9 +11,8 @@ from .models import (
     DependencyUpdate,
     GitHubIssue,
     LinearIssue,
-    ReleaseNoteItem,
-    ReleaseNotesPayload,
     TagRange,
+    payload_items,
 )
 
 
@@ -89,7 +89,7 @@ class MarkdownWriter:
 
 
 def render_markdown(
-    payload: ReleaseNotesPayload,
+    payload: BaseModel,
     tag_range: TagRange,
     *,
     version: str,
@@ -112,7 +112,7 @@ def render_markdown(
     file_diff_results maps repo-relative paths to their raw unified diff (or ''
     for no changes) and is rendered verbatim after upgrade notes.
     """
-    ts = generated_at.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    ts = generated_at.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
     w = MarkdownWriter()
     enabled = config.enabled_section_ids()
 
@@ -126,7 +126,7 @@ def render_markdown(
     # Summary
     if "summary" in enabled:
         w.h2(config.section_title("summary"))
-        for it in payload.summary:
+        for it in payload_items(payload, "summary"):
             name = it.short_name.strip()
             desc = it.description.strip()
             if name:
@@ -134,34 +134,29 @@ def render_markdown(
                 w.blank()
             w.p(desc)
 
-    # What changed (sub-sections)
-    has_what_changed = any(
-        sid in enabled
-        for sid in ("features", "fixes", "misc", "ux_frontend", "api_backend", "infra_deps")
-    )
-    if has_what_changed:
+    # What changed (sub-sections from config, excluding summary/upgrade/deps/appendix)
+    what_changed_ids = config.what_changed_section_ids()
+    if what_changed_ids:
         w.h2("What changed")
 
-        def section(section_id: str, items: list[ReleaseNoteItem]) -> None:
-            if section_id not in enabled or not items:
+        def section(section_id: str) -> None:
+            items = payload_items(payload, section_id)
+            if not items:
                 return
             w.h3(config.section_title(section_id))
             for it in items:
                 w.bullet_kv(it.short_name, it.description)
             w.blank()
 
-        section("features", payload.features)
-        section("fixes", payload.fixes)
-        section("misc", payload.misc)
-        section("ux_frontend", payload.ux_frontend)
-        section("api_backend", payload.api_backend)
-        section("infra_deps", payload.infra_deps)
+        for sid in what_changed_ids:
+            section(sid)
 
     # Upgrade notes
     if "upgrade_notes" in enabled:
         w.h2(config.section_title("upgrade_notes"))
-        if payload.upgrade_notes:
-            for it in payload.upgrade_notes:
+        upgrade_items = payload_items(payload, "upgrade_notes")
+        if upgrade_items:
+            for it in upgrade_items:
                 w.bullet_kv(it.short_name, it.description)
             w.blank()
         else:

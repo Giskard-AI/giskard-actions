@@ -1,7 +1,5 @@
 """Tests for pure functions in git_ops.py (no subprocess calls)."""
 
-import pytest
-
 from release_notes.git_ops import (
     _filter_diff_stat,
     _filter_name_status,
@@ -131,3 +129,80 @@ class TestScorePath:
 
     def test_empty_prefixes(self):
         assert _score_path("anything.py", ()) == 50
+
+
+class TestGitShow:
+    def _git(self, repo, *args):
+        import subprocess
+
+        subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
+
+    def test_regular_file_at_ref(self, tmp_path):
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        self._git(repo, "init")
+        self._git(repo, "config", "user.email", "t@example.com")
+        self._git(repo, "config", "user.name", "t")
+        (repo / "pyproject.toml").write_text("[project]\nname='x'\n")
+        self._git(repo, "add", "pyproject.toml")
+        self._git(repo, "commit", "-m", "init")
+        from release_notes.git_ops import git_show
+
+        content = git_show("HEAD", "pyproject.toml", repo_root=repo)
+        assert content is not None
+        assert "name='x'" in content
+
+    def test_missing_file_returns_none(self, tmp_path):
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        self._git(repo, "init")
+        self._git(repo, "config", "user.email", "t@example.com")
+        self._git(repo, "config", "user.name", "t")
+        (repo / "README.md").write_text("hi\n")
+        self._git(repo, "add", "README.md")
+        self._git(repo, "commit", "-m", "init")
+        from release_notes.git_ops import git_show
+
+        assert git_show("HEAD", "nope.toml", repo_root=repo) is None
+
+    def test_gitlink_nested_file(self, tmp_path):
+        import subprocess
+
+        from release_notes.git_ops import git_show, gitlink_sha
+
+        child = tmp_path / "child"
+        parent = tmp_path / "parent"
+        child.mkdir()
+        parent.mkdir()
+        self._git(child, "init")
+        self._git(child, "config", "user.email", "t@example.com")
+        self._git(child, "config", "user.name", "t")
+        (child / "pyproject.toml").write_text("[project]\nname='lidar'\n")
+        self._git(child, "add", "pyproject.toml")
+        self._git(child, "commit", "-m", "child")
+        self._git(parent, "init")
+        self._git(parent, "config", "user.email", "t@example.com")
+        self._git(parent, "config", "user.name", "t")
+        (parent / "README.md").write_text("root\n")
+        self._git(parent, "add", "README.md")
+        self._git(parent, "commit", "-m", "root")
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "protocol.file.allow=always",
+                "submodule",
+                "add",
+                str(child),
+                "vendor/mod",
+            ],
+            cwd=parent,
+            check=True,
+            capture_output=True,
+        )
+        self._git(parent, "commit", "-m", "add submodule")
+        sha = gitlink_sha("HEAD", "vendor/mod", repo_root=parent)
+        assert sha
+        content = git_show("HEAD", "vendor/mod/pyproject.toml", repo_root=parent)
+        assert content is not None
+        assert "lidar" in content

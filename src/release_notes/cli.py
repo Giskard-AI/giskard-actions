@@ -5,7 +5,7 @@ import asyncio
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -16,12 +16,13 @@ from .enrichment import fetch_github_issues_async, fetch_linear_issues_async
 from .git_ops import (
     build_commit_digest,
     detect_tag_range,
+    git_changed_files,
     git_diff_stat,
     git_file_diff,
     list_commits,
     run_git,
 )
-from .llm import consolidate_commit, synthesize_release_notes
+from .llm import DEFAULT_MODEL, consolidate_commit, synthesize_release_notes
 from .models import (
     CommitCategory,
     CommitDigest,
@@ -30,14 +31,17 @@ from .models import (
     GitHubIssue,
     ReleaseNoteItem,
     ReleaseNotesPayload,
+    payload_items,
+    set_payload_section,
 )
 from .renderer import render_markdown
+from .upgrade import apply_upgrade_rules, merge_upgrade_notes
 
 LOG = logging.getLogger("release_notes")
 
 
 def _setup_logging(log_level: str) -> None:
-    """Configure root logging and silence noisy LiteLLM loggers."""
+    """Configure root logging and silence noisy HTTP/SDK loggers."""
     level = getattr(logging, log_level.upper(), None)
     if level is None:
         raise SystemExit(f"Invalid --log-level: {log_level!r}")
@@ -45,10 +49,9 @@ def _setup_logging(log_level: str) -> None:
         level=level,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
-    logging.getLogger("LiteLLM").setLevel(logging.WARNING)
-    logging.getLogger("litellm").setLevel(logging.WARNING)
-    if log_level.upper() != "DEBUG" and not os.getenv("LITELLM_LOG"):
-        os.environ["LITELLM_LOG"] = "ERROR"
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("openai").setLevel(logging.WARNING)
+    logging.getLogger("giskard").setLevel(logging.WARNING)
 
 
 def _compare_url(github_repository: str | None, tag_range) -> str | None:
@@ -66,21 +69,25 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.RawTextHelpFormatter,
     )
     p.add_argument(
-        "--version", required=True,
+        "--version",
+        required=True,
         help="Version like 1.2.3 (current tag must be v<version>)",
     )
     p.add_argument("--previous-tag", default=None, help="Override previous tag (e.g., v1.2.2)")
     p.add_argument(
-        "--output", required=True,
+        "--output",
+        required=True,
         help="Output markdown path",
     )
     p.add_argument(
-        "--repo", default=".",
+        "--repo",
+        default=".",
         help="Path to the git repository to analyze (default: current directory)",
     )
     p.add_argument(
-        "--model", default=None,
-        help="LiteLLM model name (default: from RELEASE_NOTES_MODEL env or azure_ai/gpt-4.1)",
+        "--model",
+        default=None,
+        help=f"giskard-llm model name (default: RELEASE_NOTES_MODEL or {DEFAULT_MODEL})",
     )
     p.add_argument("--max-commit-digest-bytes", type=int, default=120_000)
     p.add_argument("--max-commit-file-diff-bytes", type=int, default=25_000)
@@ -88,21 +95,25 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-github-issue-bytes", type=int, default=200_000)
     p.add_argument("--llm-concurrency", type=int, default=10)
     p.add_argument(
-        "--dry-run", action="store_true",
+        "--dry-run",
+        action="store_true",
         help="Skip LLM and Linear calls; produce a deterministic debug output.",
     )
     p.add_argument(
-        "--include-appendix", action="store_true",
-        help="Include the full appendix (diff stats, commit list, per-commit details). Off by default.",
+        "--include-appendix",
+        action="store_true",
+        help="Include the full appendix (stats, commits, per-commit details).",
     )
     p.add_argument("--log-level", default="INFO")
     p.add_argument(
-        "--env-file", default=None,
+        "--env-file",
+        default=None,
         help="Path to a .env file to load (e.g. /path/to/llm-hub/.env)",
     )
     p.add_argument(
-        "--metadata-file", default=None,
-        help="Write a JSON metadata file (previous_tag, current_tag, compare_url, summary, output_path).",
+        "--metadata-file",
+        default=None,
+        help="Write JSON metadata (tags, compare_url, summary, output_path).",
     )
     return p.parse_args()
 
@@ -161,14 +172,16 @@ async def main_async() -> None:
     )
     commit_list = run_git(
         [
-            "log", "--no-merges",
-            "--pretty=format:%h %ad %s", "--date=short",
+            "log",
+            "--no-merges",
+            "--pretty=format:%h %ad %s",
+            "--date=short",
             f"{tag_range.previous_tag}..{tag_range.current_tag}",
         ],
         repo_root,
     )
 
-    model = args.model or os.getenv("RELEASE_NOTES_MODEL") or "azure_ai/gpt-4.1"
+    model = args.model or os.getenv("RELEASE_NOTES_MODEL") or DEFAULT_MODEL
 
     commits = list_commits(tag_range=tag_range, repo_root=repo_root)
     LOG.info("Commits in range: %d", len(commits))
@@ -179,7 +192,9 @@ async def main_async() -> None:
     async def _build_one(c: CommitInfo) -> CommitDigest:
         async with _sem_git:
             return await asyncio.to_thread(
-                build_commit_digest, c, repo_root,
+                build_commit_digest,
+                c,
+                repo_root,
                 ignored_basenames=set(config.ignored_basenames),
                 max_total_bytes=args.max_commit_digest_bytes,
                 max_file_bytes=args.max_commit_file_diff_bytes,
@@ -197,7 +212,11 @@ async def main_async() -> None:
 
     async def _fetch_linear() -> dict:
         if args.dry_run or not linear_api_key:
-            LOG.info("Linear enrichment disabled (dry-run=%s, key=%s).", args.dry_run, bool(linear_api_key))
+            LOG.info(
+                "Linear enrichment disabled (dry-run=%s, key=%s).",
+                args.dry_run,
+                bool(linear_api_key),
+            )
             return {}
         all_linear_keys = [k for cd in commit_digests for k in cd.linear_keys]
         return await fetch_linear_issues_async(
@@ -210,7 +229,9 @@ async def main_async() -> None:
         if args.dry_run or not github_token or not github_repo:
             LOG.info(
                 "GitHub enrichment disabled (dry-run=%s, token=%s, repo=%s).",
-                args.dry_run, bool(github_token), github_repo,
+                args.dry_run,
+                bool(github_token),
+                github_repo,
             )
             return {}
         all_gh_numbers = [n for cd in commit_digests for n in cd.github_issue_numbers]
@@ -237,8 +258,10 @@ async def main_async() -> None:
     if args.dry_run:
         consolidations = [
             ConsolidatedCommit(
-                sha=cd.sha, subject=cd.subject,
-                pr_number=cd.pr_number, linear_keys=cd.linear_keys,
+                sha=cd.sha,
+                subject=cd.subject,
+                pr_number=cd.pr_number,
+                linear_keys=cd.linear_keys,
                 category=CommitCategory.OTHER,
                 consolidated_description="DRY RUN: LLM skipped.",
                 unknowns=["LLM/Linear skipped due to --dry-run."],
@@ -266,9 +289,7 @@ async def main_async() -> None:
         async def consolidate_one(cd: CommitDigest) -> ConsolidatedCommit:
             async with sem:
                 issues = [
-                    linear_issues_by_key[k]
-                    for k in cd.linear_keys
-                    if k in linear_issues_by_key
+                    linear_issues_by_key[k] for k in cd.linear_keys if k in linear_issues_by_key
                 ]
                 gh_issues = [
                     github_issues_by_number[n]
@@ -281,37 +302,46 @@ async def main_async() -> None:
                     if pr_issue not in gh_issues:
                         gh_issues.insert(0, pr_issue)
                 return await consolidate_commit(
-                    cd, model=model,
+                    cd,
+                    model=model,
                     linear_issues=issues,
                     github_issues=gh_issues,
-                    repo_root=repo_root, manifest_paths=config.manifest_paths,
+                    repo_root=repo_root,
+                    manifest_paths=config.manifest_paths,
                 )
 
-        consolidations = list(
-            await asyncio.gather(*(consolidate_one(cd) for cd in commit_digests))
-        )
+        consolidations = list(await asyncio.gather(*(consolidate_one(cd) for cd in commit_digests)))
         # Task 2C: overlap dep-range computation with LLM synthesis
         payload, range_dep_bumps = await asyncio.gather(
-            synthesize_release_notes(consolidations, model=model),
+            synthesize_release_notes(consolidations, model=model, config=config),
             asyncio.to_thread(
                 dependency_updates_for_range,
-                tag_range, repo_root=repo_root, manifest_paths=config.manifest_paths,
+                tag_range,
+                repo_root=repo_root,
+                manifest_paths=config.manifest_paths,
             ),
         )
     dep_bumps_with_notes = merge_dependency_notes(
-        range_bumps=range_dep_bumps, consolidations=consolidations,
+        range_bumps=range_dep_bumps,
+        consolidations=consolidations,
     )
+
+    if config.upgrade_rules and "upgrade_notes" in config.enabled_section_ids():
+        changed = git_changed_files(tag_range, repo_root=repo_root)
+        deterministic = apply_upgrade_rules(config.upgrade_rules, changed)
+        llm_notes = payload_items(payload, "upgrade_notes")
+        set_payload_section(payload, "upgrade_notes", merge_upgrade_notes(deterministic, llm_notes))
 
     # Compute raw diffs for tracked files (e.g. helm values.yaml)
     file_diff_results: dict[str, str] = {
-        path: git_file_diff(tag_range, path, repo_root=repo_root)
-        for path in config.file_diffs
+        path: git_file_diff(tag_range, path, repo_root=repo_root) for path in config.file_diffs
     }
 
     md = render_markdown(
-        payload, tag_range,
+        payload,
+        tag_range,
         version=args.version,
-        generated_at=datetime.now(tz=timezone.utc),
+        generated_at=datetime.now(tz=UTC),
         compare_url=_compare_url(config.github_repository, tag_range),
         diff_stat=diff_stat,
         commit_list=commit_list,
@@ -330,7 +360,7 @@ async def main_async() -> None:
     if args.metadata_file:
         compare = _compare_url(config.github_repository, tag_range)
         summary_lines = []
-        for it in payload.summary:
+        for it in payload_items(payload, "summary"):
             name = it.short_name.strip()
             desc = it.description.strip()
             summary_lines.append(f"- {name}: {desc}" if name else f"- {desc}")

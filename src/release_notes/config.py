@@ -2,12 +2,14 @@
 
 import json
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 LOG = logging.getLogger("release_notes.config")
 
 CONFIG_FILENAME = ".release-notes.json"
+
+DETERMINISTIC_SECTION_IDS = frozenset({"deps", "appendix"})
 
 # Base defaults — minimal set shared across all repos.
 # Repos opt-in to additional sections (ux_frontend, api_backend, etc.) via .release-notes.json.
@@ -39,10 +41,7 @@ DEFAULT_SECTIONS: list[dict] = [
 ]
 
 # Extended section definitions used when repos opt-in via .release-notes.json.
-# These are not enabled by default but are recognised and have sensible metadata.
-_KNOWN_SECTIONS: dict[str, dict] = {
-    s["id"]: s for s in DEFAULT_SECTIONS
-} | {
+_KNOWN_SECTIONS: dict[str, dict] = {s["id"]: s for s in DEFAULT_SECTIONS} | {
     "ux_frontend": {
         "id": "ux_frontend",
         "title": "UX / Frontend",
@@ -53,6 +52,12 @@ _KNOWN_SECTIONS: dict[str, dict] = {
         "id": "api_backend",
         "title": "API / Backend",
         "description": "API and backend changes.",
+        "enabled": True,
+    },
+    "python_api": {
+        "id": "python_api",
+        "title": "Python API",
+        "description": "Public Python SDK / library API changes.",
         "enabled": True,
     },
     "infra_deps": {
@@ -93,38 +98,43 @@ class SectionConfig:
 
 
 @dataclass(frozen=True)
+class UpgradeRule:
+    """Git-only rule that emits an upgrade note when matching paths changed."""
+
+    id: str
+    short_name: str
+    description: str
+    paths: tuple[str, ...] = ()
+    path_prefixes: tuple[str, ...] = ()
+    filename_keywords: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class ProjectConfig:
     """Per-project configuration for release notes generation.
 
     Can be loaded from a `.release-notes.json` file at the root of the target repo.
     """
 
-    # Paths to dependency manifest files (pyproject.toml, package.json, pom.xml)
     manifest_paths: tuple[str, ...] = ()
-
-    # Path prefixes considered "high-signal" for diff extraction (ordered by priority)
     high_signal_prefixes: tuple[str, ...] = ()
-
-    # File basenames to ignore in diffs (e.g. lock files)
     ignored_basenames: frozenset[str] = frozenset({"uv.lock", "pnpm-lock.yaml"})
-
-    # GitHub repository slug (owner/repo) for compare URLs
     github_repository: str | None = None
-
-    # Repo-relative paths to diff between tags and render verbatim (e.g. helm values.yaml).
-    # Each path gets its own section showing the raw diff or "No changes."
     file_diffs: tuple[str, ...] = ()
-
-    # Path prefixes to exclude from the diff stat in the appendix (e.g. test dirs, generated files).
     ignored_path_prefixes: tuple[str, ...] = ()
-
-    # Sections configuration
-    sections: tuple[SectionConfig, ...] = tuple(
-        SectionConfig(**s) for s in DEFAULT_SECTIONS
-    )
+    sections: tuple[SectionConfig, ...] = tuple(SectionConfig(**s) for s in DEFAULT_SECTIONS)
+    upgrade_rules: tuple[UpgradeRule, ...] = ()
 
     def enabled_section_ids(self) -> set[str]:
         return {s.id for s in self.sections if s.enabled}
+
+    def llm_section_ids(self) -> list[str]:
+        """Enabled section ids that the LLM should fill (excludes deps/appendix)."""
+        return [s.id for s in self.sections if s.enabled and s.id not in DETERMINISTIC_SECTION_IDS]
+
+    def what_changed_section_ids(self) -> list[str]:
+        skip = {"summary", "upgrade_notes"} | DETERMINISTIC_SECTION_IDS
+        return [s.id for s in self.sections if s.enabled and s.id not in skip]
 
     def section_title(self, section_id: str) -> str:
         for s in self.sections:
@@ -136,39 +146,26 @@ class ProjectConfig:
         """Return a new config with the given section disabled."""
         new_sections = tuple(
             SectionConfig(id=s.id, title=s.title, description=s.description, enabled=False)
-            if s.id == section_id else s
+            if s.id == section_id
+            else s
             for s in self.sections
         )
-        return ProjectConfig(
-            manifest_paths=self.manifest_paths,
-            high_signal_prefixes=self.high_signal_prefixes,
-            ignored_basenames=self.ignored_basenames,
-            github_repository=self.github_repository,
-            file_diffs=self.file_diffs,
-            ignored_path_prefixes=self.ignored_path_prefixes,
-            sections=new_sections,
-        )
+        return replace(self, sections=new_sections)
 
     def section_descriptions_for_llm(self) -> str:
-        """Build a text block describing enabled sections, for LLM prompt context."""
+        """Build a text block describing enabled LLM-facing sections."""
         lines: list[str] = []
         for s in self.sections:
-            if s.enabled and s.id not in ("deps", "appendix"):
+            if s.enabled and s.id not in DETERMINISTIC_SECTION_IDS:
                 lines.append(f"- {s.id} ({s.title}): {s.description}")
         return "\n".join(lines)
 
 
 def _parse_sections(raw: list[dict] | None) -> tuple[SectionConfig, ...]:
-    """Parse the `sections` list from project config, overlaying onto known section metadata.
-
-    User entries override known defaults (title, description, enabled). Any default
-    section not mentioned in the user config is appended at the end with its defaults.
-    Unknown section IDs are passed through as-is (title defaults to the ID).
-    """
+    """Parse the `sections` list from project config, overlaying onto known section metadata."""
     if not raw:
         return tuple(SectionConfig(**s) for s in DEFAULT_SECTIONS)
 
-    # Overlay user config on top of known section metadata
     result: list[SectionConfig] = []
     seen_ids: set[str] = set()
     for entry in raw:
@@ -176,16 +173,47 @@ def _parse_sections(raw: list[dict] | None) -> tuple[SectionConfig, ...]:
         if not sid:
             continue
         seen_ids.add(sid)
-        base = _KNOWN_SECTIONS.get(sid, {"id": sid, "title": sid, "description": "", "enabled": True})
+        base = _KNOWN_SECTIONS.get(
+            sid, {"id": sid, "title": sid, "description": "", "enabled": True}
+        )
         merged = {**base, **entry}
-        result.append(SectionConfig(**merged))
+        result.append(
+            SectionConfig(
+                id=merged["id"],
+                title=merged["title"],
+                description=merged["description"],
+                enabled=merged.get("enabled", True),
+            )
+        )
 
-    # Append any default sections not mentioned by user (preserving default order)
     for s in DEFAULT_SECTIONS:
         if s["id"] not in seen_ids:
             result.append(SectionConfig(**s))
 
     return tuple(result)
+
+
+def _parse_upgrade_rules(raw: list[dict] | None) -> tuple[UpgradeRule, ...]:
+    if not raw:
+        return ()
+    rules: list[UpgradeRule] = []
+    for entry in raw:
+        rid = (entry.get("id") or "").strip()
+        short_name = (entry.get("short_name") or "").strip()
+        description = (entry.get("description") or "").strip()
+        if not rid or not short_name or not description:
+            raise SystemExit("Each upgrade_rules entry needs id, short_name, and description.")
+        rules.append(
+            UpgradeRule(
+                id=rid,
+                short_name=short_name,
+                description=description,
+                paths=tuple(entry.get("paths") or ()),
+                path_prefixes=tuple(entry.get("path_prefixes") or ()),
+                filename_keywords=tuple(entry.get("filename_keywords") or ()),
+            )
+        )
+    return tuple(rules)
 
 
 def load_project_config(repo_root: Path) -> ProjectConfig:
@@ -209,4 +237,5 @@ def load_project_config(repo_root: Path) -> ProjectConfig:
         file_diffs=tuple(data.get("file_diffs", [])),
         ignored_path_prefixes=tuple(data.get("ignored_path_prefixes", [])),
         sections=_parse_sections(data.get("sections")),
+        upgrade_rules=_parse_upgrade_rules(data.get("upgrade_rules")),
     )

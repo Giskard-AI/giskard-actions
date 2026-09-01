@@ -10,9 +10,9 @@ inputs:
     required: false
     default: ""
   model:
-    description: "LiteLLM model name"
+    description: "giskard-llm model name (Azure AI), e.g. azure_ai/gpt-5.4"
     required: false
-    default: "azure_ai/gpt-4.1"
+    default: "azure_ai/gpt-5.4"
   dry_run:
     description: "Skip LLM calls, produce debug output"
     required: false
@@ -45,7 +45,7 @@ runs:
   using: "composite"
   steps:
     - name: Setup Python 3.12 + uv
-      uses: astral-sh/setup-uv@803947b9bd8e9f986429fa0c5a41c367cd732b41 # v7
+      uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
       with:
         enable-cache: true
         python-version: "3.12"
@@ -73,7 +73,6 @@ runs:
     - name: Generate release notes
       shell: bash
       env:
-        AZURE_API_VERSION: "2024-08-01-preview"
         RELEASE_NOTES_MODEL: ${{ inputs.model }}
         INPUT_VERSION: ${{ inputs.version }}
         INPUT_OUTPUT: ${{ steps.resolve.outputs.output }}

@@ -12,18 +12,17 @@ on:
         required: false
         type: string
       model:
-        description: "LiteLLM model name"
+        description: "giskard-llm model name"
         required: false
         type: string
-        default: azure_ai/gpt-4.1
+        default: azure_ai/gpt-5.4
       dry_run:
         description: "Skip LLM calls, produce debug output"
         required: false
         type: boolean
         default: false
 
-permissions:
-  contents: read
+permissions: {}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.inputs.version }}
@@ -32,10 +31,13 @@ concurrency:
 jobs:
   generate:
     name: Generate release notes
+    timeout-minutes: 180
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout repository with tags
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           fetch-tags: true
@@ -51,13 +53,14 @@ jobs:
         env:
           AZURE_AI_API_KEY: ${{ secrets.AZURE_AI_API_KEY }}
           AZURE_AI_API_BASE: ${{ secrets.AZURE_AI_API_BASE }}
+          AZURE_AI_ENDPOINT: ${{ secrets.AZURE_AI_API_BASE }}
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
           GITHUB_TOKEN: ${{ github.token }}
 
       - name: Upload release notes artifact
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-notes-v${{ github.event.inputs.version }}
           path: release_notes/v${{ github.event.inputs.version }}.md
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 60

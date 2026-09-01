@@ -126,10 +126,45 @@ class TestLoadProjectConfig:
         cfg = load_project_config(tmp_path)
         assert "helm/giskard-llm-hub/values.yaml" in cfg.file_diffs
 
-    def test_file_diffs_defaults_empty(self, tmp_path):
-        (tmp_path / ".release-notes.json").write_text("{}")
+    def test_reads_upgrade_rules(self, tmp_path):
+        data = {
+            "upgrade_rules": [
+                {
+                    "id": "helm_values",
+                    "short_name": "Helm values",
+                    "description": "Review values.",
+                    "paths": ["helm/values.yaml"],
+                }
+            ]
+        }
+        (tmp_path / ".release-notes.json").write_text(json.dumps(data))
         cfg = load_project_config(tmp_path)
-        assert cfg.file_diffs == ()
+        assert len(cfg.upgrade_rules) == 1
+        assert cfg.upgrade_rules[0].id == "helm_values"
+        assert cfg.upgrade_rules[0].paths == ("helm/values.yaml",)
+
+    @pytest.mark.parametrize(
+        "example",
+        [
+            "llm-hub.release-notes.json",
+            "lidar.release-notes.json",
+            "minimal.release-notes.json",
+        ],
+        ids=["llm-hub", "lidar", "minimal"],
+    )
+    def test_example_json_files_load(self, tmp_path, example):
+        from pathlib import Path
+
+        src = Path(__file__).resolve().parents[1] / "examples" / example
+        (tmp_path / ".release-notes.json").write_text(src.read_text())
+        cfg = load_project_config(tmp_path)
+        assert cfg.sections
+        if example == "llm-hub.release-notes.json":
+            assert cfg.upgrade_rules
+            assert cfg.file_diffs
+        if example == "lidar.release-notes.json":
+            assert any(s.id == "python_api" for s in cfg.sections)
+            assert not any(s.id == "ux_frontend" for s in cfg.sections if s.enabled)
 
 
 class TestWithSectionDisabled:
@@ -149,3 +184,12 @@ class TestWithSectionDisabled:
         cfg = ProjectConfig()
         new_cfg = cfg.with_section_disabled("nonexistent")
         assert len(new_cfg.sections) == len(cfg.sections)
+
+    def test_preserves_upgrade_rules(self):
+        from release_notes.config import UpgradeRule
+
+        cfg = ProjectConfig(
+            upgrade_rules=(UpgradeRule(id="x", short_name="X", description="d", paths=("a",)),)
+        )
+        new_cfg = cfg.with_section_disabled("fixes")
+        assert new_cfg.upgrade_rules == cfg.upgrade_rules

@@ -3,7 +3,7 @@
 import asyncio
 import json
 import logging
-from typing import Iterable
+from collections.abc import Iterable
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -107,9 +107,7 @@ def fetch_linear_issues(
 # --- GitHub issue/PR enrichment ---
 
 
-def fetch_github_issue(
-    number: int, *, owner_repo: str, token: str
-) -> GitHubIssue | None:
+def fetch_github_issue(number: int, *, owner_repo: str, token: str) -> GitHubIssue | None:
     """Fetch a single GitHub issue or PR via the REST API."""
     url = f"https://api.github.com/repos/{owner_repo}/issues/{number}"
     req = Request(
@@ -125,11 +123,15 @@ def fetch_github_issue(
             body = resp.read().decode("utf-8", errors="replace")
     except HTTPError as e:
         if e.code in (403, 404):
-            LOG.warning("GitHub issue #%d not accessible in %s (%d %s), skipping.", number, owner_repo, e.code, e.reason)
+            LOG.warning(
+                "GitHub issue #%d not accessible in %s (%d %s), skipping.",
+                number,
+                owner_repo,
+                e.code,
+                e.reason,
+            )
             return None
-        raise SystemExit(
-            f"GitHub API HTTP error for #{number}: {e.code} {e.reason}"
-        ) from e
+        raise SystemExit(f"GitHub API HTTP error for #{number}: {e.code} {e.reason}") from e
     except URLError as e:
         raise SystemExit(f"GitHub API network error for #{number}: {e}") from e
 
@@ -231,7 +233,9 @@ async def fetch_github_issues_async(
 
     async def _one(n: int) -> tuple[int, GitHubIssue | None]:
         async with sem:
-            issue = await asyncio.to_thread(fetch_github_issue, n, owner_repo=owner_repo, token=token)
+            issue = await asyncio.to_thread(
+                fetch_github_issue, n, owner_repo=owner_repo, token=token
+            )
         if issue is None:
             return n, None
         body_t, was_truncated = _truncate(issue.body or "", max_issue_bytes)

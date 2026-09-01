@@ -8,6 +8,7 @@
     "frontend/package.json",
     "keycloak/KeycloakApiKeyAuthenticator/pom.xml"
   ],
+  "file_diffs": ["helm/giskard-llm-hub/values.yaml"],
   "high_signal_prefixes": [
     "backend/src/backend/routers/",
     "backend/src/backend/http/",
@@ -21,18 +22,63 @@
     ".github/workflows/",
     "docker-compose"
   ],
-  "ignored_basenames": [
-    "uv.lock",
-    "pnpm-lock.yaml"
+  "ignored_basenames": ["uv.lock", "pnpm-lock.yaml"],
+  "ignored_path_prefixes": [
+    "backend/tests/",
+    "backend/openapi_specs/",
+    "backend/scripts/data/"
+  ],
+  "upgrade_rules": [
+    {
+      "id": "helm_values",
+      "short_name": "Helm values",
+      "description": "Helm values.yaml changed; review the values.yaml diff section and update your deployment values accordingly.",
+      "paths": ["helm/giskard-llm-hub/values.yaml"]
+    },
+    {
+      "id": "migrations",
+      "short_name": "Database migrations",
+      "description": "Database migrations changed. Migrations run automatically on upgrade, but take a DB backup before deploying this version.",
+      "path_prefixes": ["backend/migrations/versions/"]
+    },
+    {
+      "id": "deploy_docs",
+      "short_name": "Deployment docs",
+      "description": "Deployment/local-install documentation or tooling changed; review updated instructions if you rely on Helm or local deployment workflows.",
+      "paths": [".github/workflows/test-local-package.yml"],
+      "path_prefixes": ["local-install/", "docs/"],
+      "filename_keywords": ["helm", "deploy", "deployment", "install", "local", "docker", "k8s", "kubernetes"]
+    }
   ],
   "sections": [
-    { "id": "summary" },
-    { "id": "features" },
-    { "id": "fixes" },
-    { "id": "ux_frontend" },
-    { "id": "api_backend" },
-    { "id": "infra_deps" },
-    { "id": "upgrade_notes" },
+    {
+      "id": "summary",
+      "description": "3-6 highlight-reel bullets of user-visible Hub changes. Each item must state a benefit. Subset of What changed, not a superset."
+    },
+    {
+      "id": "features",
+      "description": "New Hub capabilities (product behavior users can do now)."
+    },
+    {
+      "id": "fixes",
+      "description": "Bug fixes that restore or correct existing Hub behavior."
+    },
+    {
+      "id": "ux_frontend",
+      "description": "UI/UX and Next.js frontend changes (pages, components, forms, navigation)."
+    },
+    {
+      "id": "api_backend",
+      "description": "Backend API, services, jobs, and worker behavior changes."
+    },
+    {
+      "id": "infra_deps",
+      "description": "Helm, Docker, CI, and other deploy/infra changes (not the dependency version table)."
+    },
+    {
+      "id": "upgrade_notes",
+      "description": "Operator actions required on upgrade. Git rules also add Helm/migrations/docs notes; only add extra breaking/config items here."
+    },
     { "id": "deps" },
     { "id": "appendix" }
   ]

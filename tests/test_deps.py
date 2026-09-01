@@ -102,7 +102,9 @@ class TestDependencyBumpsForFile:
     def test_pyproject_bump_detected(self):
         before = "[project]\nname='x'\ndependencies=['requests>=2.0.0']\n"
         after = "[project]\nname='x'\ndependencies=['requests>=2.28.0']\n"
-        bumps = _dependency_bumps_for_file(before=before, after=after, manifest_path="pyproject.toml")
+        bumps = _dependency_bumps_for_file(
+            before=before, after=after, manifest_path="pyproject.toml"
+        )
         assert len(bumps) == 1
         assert bumps[0].name == "requests"
         assert bumps[0].from_version == ">=2.0.0"
@@ -114,10 +116,14 @@ class TestDependencyBumpsForFile:
         assert bumps == []
 
     def test_none_before_returns_empty(self):
-        assert _dependency_bumps_for_file(before=None, after="x", manifest_path="pyproject.toml") == []
+        assert (
+            _dependency_bumps_for_file(before=None, after="x", manifest_path="pyproject.toml") == []
+        )
 
     def test_none_after_returns_empty(self):
-        assert _dependency_bumps_for_file(before="x", after=None, manifest_path="pyproject.toml") == []
+        assert (
+            _dependency_bumps_for_file(before="x", after=None, manifest_path="pyproject.toml") == []
+        )
 
     def test_package_json_bump(self):
         before = '{"dependencies": {"react": "^17.0.0"}}'

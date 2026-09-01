@@ -1,8 +1,6 @@
 """Tests for renderer.py — MarkdownWriter and render_markdown."""
 
-from datetime import datetime, timezone
-
-import pytest
+from datetime import UTC, datetime
 
 from release_notes.config import ProjectConfig
 from release_notes.models import (
@@ -38,7 +36,6 @@ class TestMarkdownWriter:
         w.blank()
         w.blank()  # should not add a second blank
         lines = w.finish().splitlines()
-        blank_count = sum(1 for ln in lines if ln == "")
         # Should not have two consecutive blanks from double blank() calls
         assert "  " not in "\n\n\n".join(lines)  # no triple newlines
 
@@ -72,7 +69,7 @@ class TestRenderMarkdown:
             config = ProjectConfig()
         defaults = dict(
             version="1.2.3",
-            generated_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            generated_at=datetime(2024, 1, 1, tzinfo=UTC),
             compare_url=None,
             diff_stat="",
             commit_list="",
@@ -147,3 +144,20 @@ class TestRenderMarkdown:
         assert "```diff" in out
         assert "-old: 1" in out
         assert "+new: 2" in out
+
+    def test_custom_section_from_config(self):
+        from release_notes.config import SectionConfig
+
+        config = ProjectConfig(
+            sections=(
+                SectionConfig(id="summary", title="Summary", description=""),
+                SectionConfig(id="python_api", title="Python API", description=""),
+            )
+        )
+        payload = self._make_payload(
+            python_api=[ReleaseNoteItem(short_name="Scan API", description="New scan.")]
+        )
+        out = self._render(payload=payload, config=config)
+        assert "Python API" in out
+        assert "New scan." in out
+        assert "What changed" in out

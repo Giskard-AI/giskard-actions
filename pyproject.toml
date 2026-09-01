@@ -1,19 +1,20 @@
 [project]
 name = "giskard-release-notes"
-version = "0.2.0"
+version = "0.3.0"
 description = "Generate structured, LLM-powered release notes from git history"
 requires-python = ">=3.12"
 dependencies = [
-    "litellm>=1.50.0",
+    "giskard-agents==1.0.2",
+    "giskard-llm[azure]==1.0.0",
     "pydantic>=2.0.0",
-    "jinja2>=3.1.0",
     "python-dotenv>=1.0.0",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
+    "ruff>=0.9",
 ]
 
 [project.scripts]
@@ -32,3 +33,8 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "--tb=short"

@@ -101,7 +101,7 @@ def _parse_pom_versions(content: str) -> dict[str, str]:
         for child in list(props):
             tag = child.tag
             if ns and tag.startswith(ns):
-                tag = tag[len(ns):]
+                tag = tag[len(ns) :]
             val = (child.text or "").strip()
             if tag and val:
                 out[tag] = val
@@ -121,7 +121,7 @@ def _parse_pom_versions(content: str) -> dict[str, str]:
 def _dependency_bumps_for_file(
     *, before: str | None, after: str | None, manifest_path: str
 ) -> list[DependencyUpdate]:
-    """Compare before/after manifest content and return DependencyUpdate entries for changed versions.
+    """Compare before/after manifests; return DependencyUpdate rows for version changes.
 
     Returns an empty list if either snapshot is missing (file was added or deleted).
     Supports pyproject.toml, package.json, and pom.xml.
@@ -149,8 +149,10 @@ def _dependency_bumps_for_file(
             continue
         bumps.append(
             DependencyUpdate(
-                manifest_path=manifest_path, name=name,
-                from_version=bv, to_version=av,
+                manifest_path=manifest_path,
+                name=name,
+                from_version=bv,
+                to_version=av,
             )
         )
     return bumps
@@ -217,9 +219,12 @@ def merge_dependency_notes(
         note, reason = notes.get(key, ("", ""))
         out.append(
             DependencyUpdate(
-                manifest_path=b.manifest_path, name=b.name,
-                from_version=b.from_version, to_version=b.to_version,
-                note=note, note_reason=reason,
+                manifest_path=b.manifest_path,
+                name=b.name,
+                from_version=b.from_version,
+                to_version=b.to_version,
+                note=note,
+                note_reason=reason,
             )
         )
     return out

@@ -18,8 +18,7 @@ def run_git(args: list[str], repo_root: Path) -> str:
     p = subprocess.run(
         cmd,
         cwd=str(repo_root),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
         text=True,
         check=False,
     )
@@ -33,19 +32,83 @@ def run_git(args: list[str], repo_root: Path) -> str:
     return p.stdout
 
 
-def git_show(ref: str, path: str, *, repo_root: Path) -> str | None:
-    """Return the content of a file at a specific git ref, or None if not found."""
+def _git_show_direct(ref: str, path: str, *, cwd: Path) -> str | None:
     p = subprocess.run(
         ["git", "show", f"{ref}:{path}"],
-        cwd=str(repo_root),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        cwd=str(cwd),
+        capture_output=True,
         text=True,
         check=False,
     )
     if p.returncode != 0:
         return None
     return p.stdout
+
+
+def gitlink_sha(ref: str, dirpath: str, *, repo_root: Path) -> str | None:
+    """Return the gitlink commit SHA if dirpath is a submodule at ref, else None."""
+    p = subprocess.run(
+        ["git", "ls-tree", ref, "--", dirpath],
+        cwd=str(repo_root),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if p.returncode != 0:
+        return None
+    for line in p.stdout.splitlines():
+        parts = line.split()
+        # 160000 commit <sha>\t<path>
+        if len(parts) >= 3 and parts[0] == "160000":
+            return parts[2]
+    return None
+
+
+def git_show(ref: str, path: str, *, repo_root: Path) -> str | None:
+    """Return file content at ref:path, including files inside a submodule gitlink.
+
+    Parent trees store submodules as mode 160000 gitlinks, so
+    ``git show vX:vendor/mod/pyproject.toml`` fails. When that happens, walk path
+    prefixes, resolve the gitlink SHA, and ``git show <sha>:nested`` from the
+    submodule working tree (must be initialized) or the parent if objects exist.
+
+    Missing submodule objects log a warning and return None (skip the manifest)
+    instead of pretending there were no dependency bumps.
+    """
+    direct = _git_show_direct(ref, path, cwd=repo_root)
+    if direct is not None:
+        return direct
+
+    parts = Path(path).parts
+    for i in range(len(parts) - 1, 0, -1):
+        prefix = str(Path(*parts[:i]))
+        nested = str(Path(*parts[i:]))
+        sha = gitlink_sha(ref, prefix, repo_root=repo_root)
+        if not sha:
+            continue
+        sub_root = repo_root / prefix
+        cwd = sub_root if (sub_root / ".git").exists() else repo_root
+        nested_content = _git_show_direct(sha, nested, cwd=cwd)
+        if nested_content is not None:
+            return nested_content
+        LOG.warning(
+            "Cannot read %s at %s via gitlink %s. Init/fetch the submodule "
+            "before listing this path in manifest_paths or file_diffs.",
+            path,
+            ref,
+            sha[:12],
+        )
+        return None
+    return None
+
+
+def git_changed_files(tag_range: TagRange, *, repo_root: Path) -> list[str]:
+    """Repo-relative paths changed between previous_tag and current_tag."""
+    raw = run_git(
+        ["diff", "--name-only", f"{tag_range.previous_tag}..{tag_range.current_tag}"],
+        repo_root,
+    )
+    return [p.strip() for p in raw.splitlines() if p.strip()]
 
 
 def validate_version(version: str) -> None:
@@ -69,13 +132,13 @@ def _detect_previous_tag(current_tag: str, repo_root: Path) -> str:
         )
     idx = ordered.index(current_tag)
     if idx == 0:
-        raise SystemExit(f"Current tag {current_tag!r} is the first tag; cannot auto-detect previous.")
+        raise SystemExit(
+            f"Current tag {current_tag!r} is the first tag; cannot auto-detect previous."
+        )
     return ordered[idx - 1]
 
 
-def detect_tag_range(
-    version: str, previous_tag_override: str | None, repo_root: Path
-) -> TagRange:
+def detect_tag_range(version: str, previous_tag_override: str | None, repo_root: Path) -> TagRange:
     """Resolve the previous and current tags for a release.
 
     The current tag is always v{version}. The previous tag is either the
@@ -102,7 +165,9 @@ def list_commits(tag_range: TagRange, repo_root: Path) -> list[CommitInfo]:
     """Return non-merge commits between tags in chronological order (oldest first)."""
     raw = run_git(
         [
-            "log", "--no-merges", "--reverse",
+            "log",
+            "--no-merges",
+            "--reverse",
             "--pretty=format:%H%x1f%s%x1f%b%x1e",
             f"{tag_range.previous_tag}..{tag_range.current_tag}",
         ],
@@ -145,7 +210,11 @@ def extract_github_issue_numbers(text: str) -> list[int]:
     # Find all #N references
     numbers = re.findall(r"(?<!\()#(\d+)(?!\))", text or "")
     # Also find references in "Fixes #123" / "Closes #123" style (even with parens)
-    numbers += re.findall(r"(?:fix(?:es)?|close[sd]?|resolve[sd]?)\s+#(\d+)", text or "", re.IGNORECASE)
+    numbers += re.findall(
+        r"(?:fix(?:es)?|close[sd]?|resolve[sd]?)\s+#(\d+)",
+        text or "",
+        re.IGNORECASE,
+    )
     seen: set[int] = set()
     out: list[int] = []
     for n in numbers:
@@ -257,8 +326,7 @@ def git_file_diff(tag_range: "TagRange", path: str, *, repo_root: Path) -> str:
     p = subprocess.run(
         ["git", "diff", f"{tag_range.previous_tag}..{tag_range.current_tag}", "--", path],
         cwd=str(repo_root),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
         text=True,
         check=False,
     )
@@ -338,9 +406,7 @@ def build_commit_digest(
     changed_files = [p for p in changed_files if Path(p).name not in ignored_basenames]
 
     selected = [p for p in changed_files if _matches_any(p, high_signal_prefixes)]
-    selected_sorted = sorted(
-        selected, key=lambda p: _score_path(p, high_signal_prefixes)
-    )
+    selected_sorted = sorted(selected, key=lambda p: _score_path(p, high_signal_prefixes))
 
     add_block(
         "Selected file diffs (truncated per-file, capped total)",
