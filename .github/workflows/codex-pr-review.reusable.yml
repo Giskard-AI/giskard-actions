@@ -245,7 +245,7 @@ jobs:
       - name: Validate Azure Responses endpoint
         id: endpoint
         env:
-          AZURE_AI_API_BASE: ${{ vars.AZURE_AI_RESPONSES_BASE }}
+          AZURE_AI_API_BASE: ${{ vars.AZURE_AI_API_BASE }}
         run: >-
           python3 _giskard_codex/scripts/ci/codex_pr_assessment.py endpoint
           --base-url "$AZURE_AI_API_BASE"
@@ -391,7 +391,7 @@ jobs:
       - name: Validate Azure Responses endpoint
         id: endpoint
         env:
-          AZURE_AI_API_BASE: ${{ vars.AZURE_AI_RESPONSES_BASE }}
+          AZURE_AI_API_BASE: ${{ vars.AZURE_AI_API_BASE }}
         run: >-
           python3 _giskard_codex/scripts/ci/codex_pr_assessment.py endpoint
           --base-url "$AZURE_AI_API_BASE"

@@ -148,7 +148,7 @@ jobs:
       # AUTOMATION_GITHUB_TOKEN: ${{ secrets.AUTOMATION_GITHUB_TOKEN }}
 ```
 
-Start a review with the `codex-review` label, `/review`, or `/codex-assess` from OWNER/MEMBER/COLLABORATOR. Azure jobs use the consumer `ci` environment and `vars.AZURE_AI_RESPONSES_BASE`.
+Start a review with the `codex-review` label, `/review`, or `/codex-assess` from OWNER/MEMBER/COLLABORATOR. Azure jobs use the consumer `ci` environment and the same `vars.AZURE_AI_API_BASE` as the release-notes action.
 
 ## Cursor
 

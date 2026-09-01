@@ -52,8 +52,8 @@ jobs:
           dry_run: ${{ github.event.inputs.dry_run }}
         env:
           AZURE_AI_API_KEY: ${{ secrets.AZURE_AI_API_KEY }}
-          AZURE_AI_API_BASE: ${{ secrets.AZURE_AI_API_BASE }}
-          AZURE_AI_ENDPOINT: ${{ secrets.AZURE_AI_API_BASE }}
+          AZURE_AI_API_BASE: ${{ vars.AZURE_AI_API_BASE }}
+          AZURE_AI_ENDPOINT: ${{ vars.AZURE_AI_API_BASE }}
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
           GITHUB_TOKEN: ${{ github.token }}
 

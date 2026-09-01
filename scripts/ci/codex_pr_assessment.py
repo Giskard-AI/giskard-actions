@@ -1073,9 +1073,12 @@ def ensure_responses_endpoint(base_url: str) -> str:
         return base_url
     if parsed.path.endswith("/openai/v1"):
         return f"{base_url}/responses"
+    if re.fullmatch(r"/api/projects/[^/]+", parsed.path):
+        return f"{base_url}/openai/v1/responses"
     raise ValueError(
         "AZURE_AI_API_BASE must be a Responses-compatible endpoint ending "
-        "in /responses, or an Azure OpenAI v1 base ending in /openai/v1"
+        "in /responses, an Azure OpenAI v1 base ending in /openai/v1, "
+        "or an Azure AI Foundry project URL ending in /api/projects/<name>"
     )
 
 

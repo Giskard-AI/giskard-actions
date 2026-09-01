@@ -1128,6 +1128,12 @@ class TestEndpointPreflight(unittest.TestCase):
         cases = {
             "https://example.openai.azure.com/openai/v1": "https://example.openai.azure.com/openai/v1/responses",
             "https://example.openai.azure.com/openai/v1/responses": "https://example.openai.azure.com/openai/v1/responses",
+            "https://example.services.ai.azure.com/api/projects/ci": (
+                "https://example.services.ai.azure.com/api/projects/ci/openai/v1/responses"
+            ),
+            "https://example.services.ai.azure.com/api/projects/ci/openai/v1/responses": (
+                "https://example.services.ai.azure.com/api/projects/ci/openai/v1/responses"
+            ),
         }
 
         for base_url, expected in cases.items():
