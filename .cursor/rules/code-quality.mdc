@@ -7,6 +7,7 @@ alwaysApply: true
 - Python: `uv run ruff format` and `uv run ruff check`; or `make format && make check_linting`
 - Tests: `uv run pytest` / `make test` in **this** repo (do not use llm-hub `.venv`)
 - snake_case functions, PascalCase classes, UPPER_SNAKE_CASE constants
+- Python 3.12 typing: see `.cursor/rules/python-style.mdc` (no `from __future__ import annotations`)
 - After editing, run `make format` then tests
 - CI: pin GitHub Actions to full commit SHA with a version comment
 - Workflows: `permissions: {}` at top level; put `${{ }}` in `env:` not in `run:`
