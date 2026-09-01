@@ -1,0 +1,54 @@
+{
+  "type": "object",
+  "properties": {
+    "reviewer": {
+      "type": "string"
+    },
+    "summary": {
+      "type": "string"
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string",
+            "enum": ["must_fix", "no_action", "informational"]
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["critical", "high", "medium", "low", "info"]
+          },
+          "path": {
+            "type": ["string", "null"]
+          },
+          "line": {
+            "type": ["integer", "null"]
+          },
+          "title": {
+            "type": "string"
+          },
+          "rationale": {
+            "type": "string"
+          },
+          "suggested_action": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "category",
+          "severity",
+          "path",
+          "line",
+          "title",
+          "rationale",
+          "suggested_action"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["reviewer", "summary", "findings"],
+  "additionalProperties": false
+}

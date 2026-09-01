@@ -1,0 +1,115 @@
+name: "Giskard Release Notes"
+description: "Generate LLM-powered release notes from git history using Linear and GitHub enrichment"
+
+inputs:
+  version:
+    description: "Release version (e.g., 2.3.0)"
+    required: true
+  previous_tag:
+    description: "Override previous tag (auto-detect if empty)"
+    required: false
+    default: ""
+  model:
+    description: "giskard-llm model name (Azure AI), e.g. azure_ai/gpt-5.4"
+    required: false
+    default: "azure_ai/gpt-5.4"
+  dry_run:
+    description: "Skip LLM calls, produce debug output"
+    required: false
+    default: "false"
+  include_appendix:
+    description: "Include appendix (diff stats, commit list, per-commit details)"
+    required: false
+    default: "false"
+  output_path:
+    description: "Output markdown path relative to repo root (default: release_notes/v{version}.md)"
+    required: false
+    default: ""
+  metadata_file:
+    description: "Path to write JSON metadata (default: metadata.json)"
+    required: false
+    default: "metadata.json"
+
+outputs:
+  notes_path:
+    description: "Path to the generated markdown file"
+    value: ${{ steps.meta.outputs.notes_path }}
+  summary:
+    description: "Short summary of the release"
+    value: ${{ steps.meta.outputs.summary }}
+  compare_url:
+    description: "GitHub compare URL for the tag range"
+    value: ${{ steps.meta.outputs.compare_url }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Setup Python 3.12 + uv
+      uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      with:
+        enable-cache: true
+        python-version: "3.12"
+
+    - name: Install release-notes tool
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        constraints="${RUNNER_TEMP}/giskard-release-notes-constraints.txt"
+        uv export --frozen --no-dev --no-hashes \
+          --directory "${ACTION_PATH}" \
+          --output-file "${constraints}"
+        uv tool install --reinstall --constraints "${constraints}" "${ACTION_PATH}"
+
+    - name: Resolve output path
+      id: resolve
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        INPUT_OUTPUT_PATH: ${{ inputs.output_path }}
+        INPUT_VERSION: ${{ inputs.version }}
+      run: |
+        python3 "${ACTION_PATH}/scripts/ci/write_github_output.py" \
+          --github-output "${GITHUB_OUTPUT}" \
+          --resolve-output-path
+
+    - name: Generate release notes
+      shell: bash
+      env:
+        RELEASE_NOTES_MODEL: ${{ inputs.model }}
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_OUTPUT: ${{ steps.resolve.outputs.output }}
+        INPUT_METADATA_FILE: ${{ inputs.metadata_file }}
+        INPUT_PREVIOUS_TAG: ${{ inputs.previous_tag }}
+        INPUT_DRY_RUN: ${{ inputs.dry_run }}
+        INPUT_INCLUDE_APPENDIX: ${{ inputs.include_appendix }}
+      run: |
+        set -euo pipefail
+        mkdir -p "$(dirname "${INPUT_OUTPUT}")"
+        args=(
+          --version "${INPUT_VERSION}"
+          --output "${INPUT_OUTPUT}"
+          --metadata-file "${INPUT_METADATA_FILE}"
+        )
+        if [ -n "${INPUT_PREVIOUS_TAG}" ]; then
+          args+=(--previous-tag "${INPUT_PREVIOUS_TAG}")
+        fi
+        if [ "${INPUT_DRY_RUN}" = "true" ]; then
+          args+=(--dry-run)
+        fi
+        if [ "${INPUT_INCLUDE_APPENDIX}" = "true" ]; then
+          args+=(--include-appendix)
+        fi
+        generate-release-notes "${args[@]}"
+
+    - name: Read metadata
+      id: meta
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        INPUT_METADATA_FILE: ${{ inputs.metadata_file }}
+      run: |
+        python3 "${ACTION_PATH}/scripts/ci/write_github_output.py" \
+          --github-output "${GITHUB_OUTPUT}" \
+          --metadata-file "${INPUT_METADATA_FILE}"

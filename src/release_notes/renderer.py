@@ -1,6 +1,8 @@
 """Markdown rendering for release notes."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
+from pydantic import BaseModel
 
 from .config import ProjectConfig
 from .models import (
@@ -9,13 +11,17 @@ from .models import (
     DependencyUpdate,
     GitHubIssue,
     LinearIssue,
-    ReleaseNoteItem,
-    ReleaseNotesPayload,
     TagRange,
+    payload_items,
 )
 
 
 class MarkdownWriter:
+    """Accumulates markdown lines and exposes helpers for headings, bullets, etc.
+
+    Call `finish()` to get the final string with a single trailing newline.
+    """
+
     def __init__(self) -> None:
         self._lines: list[str] = []
 
@@ -39,6 +45,10 @@ class MarkdownWriter:
 
     def h3(self, text: str) -> None:
         self.raw(f"### {text}")
+        self.blank()
+
+    def h4(self, text: str) -> None:
+        self.raw(f"#### {text}")
         self.blank()
 
     def p(self, text: str) -> None:
@@ -79,7 +89,7 @@ class MarkdownWriter:
 
 
 def render_markdown(
-    payload: ReleaseNotesPayload,
+    payload: BaseModel,
     tag_range: TagRange,
     *,
     version: str,
@@ -93,9 +103,16 @@ def render_markdown(
     github_issues_by_number: dict[int, GitHubIssue],
     include_digests_in_spoilers: bool,
     dependency_bumps: list[DependencyUpdate],
+    file_diff_results: dict[str, str],
     config: ProjectConfig,
 ) -> str:
-    ts = generated_at.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    """Render the full release notes document as a markdown string.
+
+    Sections are rendered in order according to config.enabled_section_ids().
+    file_diff_results maps repo-relative paths to their raw unified diff (or ''
+    for no changes) and is rendered verbatim after upgrade notes.
+    """
+    ts = generated_at.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
     w = MarkdownWriter()
     enabled = config.enabled_section_ids()
 
@@ -109,7 +126,7 @@ def render_markdown(
     # Summary
     if "summary" in enabled:
         w.h2(config.section_title("summary"))
-        for it in payload.summary:
+        for it in payload_items(payload, "summary"):
             name = it.short_name.strip()
             desc = it.description.strip()
             if name:
@@ -117,55 +134,57 @@ def render_markdown(
                 w.blank()
             w.p(desc)
 
-    # What changed (sub-sections)
-    has_what_changed = any(
-        sid in enabled
-        for sid in ("features", "fixes", "ux_frontend", "api_backend", "infra_deps")
-    )
-    if has_what_changed:
+    # What changed (sub-sections from config, excluding summary/upgrade/deps/appendix)
+    what_changed_ids = config.what_changed_section_ids()
+    if what_changed_ids:
         w.h2("What changed")
 
-        def section(section_id: str, items: list[ReleaseNoteItem]) -> None:
-            if section_id not in enabled or not items:
+        def section(section_id: str) -> None:
+            items = payload_items(payload, section_id)
+            if not items:
                 return
             w.h3(config.section_title(section_id))
             for it in items:
                 w.bullet_kv(it.short_name, it.description)
             w.blank()
 
-        section("features", payload.features)
-        section("fixes", payload.fixes)
-        section("ux_frontend", payload.ux_frontend)
-        section("api_backend", payload.api_backend)
-        section("infra_deps", payload.infra_deps)
+        for sid in what_changed_ids:
+            section(sid)
 
     # Upgrade notes
     if "upgrade_notes" in enabled:
         w.h2(config.section_title("upgrade_notes"))
-        if payload.upgrade_notes:
-            for it in payload.upgrade_notes:
+        upgrade_items = payload_items(payload, "upgrade_notes")
+        if upgrade_items:
+            for it in upgrade_items:
                 w.bullet_kv(it.short_name, it.description)
             w.blank()
         else:
             w.bullet("No explicit upgrade notes detected from the diff digest.")
             w.blank()
 
-    # Dependencies (deterministic, not LLM-driven)
-    if "deps" in enabled and dependency_bumps:
+    # File diffs (verbatim diff for tracked paths, e.g. helm values.yaml)
+    for path, diff_text in file_diff_results.items():
+        w.h2(f"`{path}` diff")
+        if diff_text.strip():
+            w.codeblock("diff", diff_text.rstrip())
+        else:
+            w.p(f"_No changes in `{path}`._")
+
+    # Dependencies — standalone section only when appendix is not also enabled.
+    # When appendix is enabled, deps are rendered inside it (see below).
+    if "deps" in enabled and dependency_bumps and "appendix" not in enabled:
         w.h2(config.section_title("deps"))
-        by_manifest: dict[str, list[DependencyUpdate]] = {}
-        for b in dependency_bumps:
-            by_manifest.setdefault(b.manifest_path, []).append(b)
-        for mp in sorted(by_manifest):
-            w.h3(f"`{mp}`")
-            for b in sorted(by_manifest[mp], key=lambda x: x.name.lower()):
-                note = f" — {b.note.strip()}" if b.note and b.note.strip() else ""
-                w.bullet(f"{b.name}: {b.from_version} → {b.to_version}{note}")
-            w.blank()
+        _render_deps(w, dependency_bumps, config)
 
     # Appendix
     if "appendix" in enabled:
         w.h2(config.section_title("appendix"))
+
+        # Dependencies as the first subsection of the appendix
+        if "deps" in enabled and dependency_bumps:
+            w.h3(config.section_title("deps"))
+            _render_deps(w, dependency_bumps, config)
 
         w.h3("Diff stats")
         w.codeblock("", (diff_stat.rstrip() or "<empty>"))
@@ -185,6 +204,23 @@ def render_markdown(
     return w.finish()
 
 
+def _render_deps(
+    w: MarkdownWriter,
+    dependency_bumps: list[DependencyUpdate],
+    config: "ProjectConfig",
+) -> None:
+    """Render dependency bump table grouped by manifest path."""
+    by_manifest: dict[str, list[DependencyUpdate]] = {}
+    for b in dependency_bumps:
+        by_manifest.setdefault(b.manifest_path, []).append(b)
+    for mp in sorted(by_manifest):
+        w.h4(f"`{mp}`")
+        for b in sorted(by_manifest[mp], key=lambda x: x.name.lower()):
+            note = f" — {b.note.strip()}" if b.note and b.note.strip() else ""
+            w.bullet(f"{b.name}: {b.from_version} → {b.to_version}{note}")
+        w.blank()
+
+
 def _render_consolidated_commits(
     w: MarkdownWriter,
     *,
@@ -194,12 +230,16 @@ def _render_consolidated_commits(
     github_issues_by_number: dict[int, GitHubIssue],
     include_digests_in_spoilers: bool,
 ) -> None:
+    """Render per-commit collapsible <details> blocks for the appendix.
+
+    Each block includes category, Linear/GitHub links, changed files, why/context,
+    consolidated description, upgrade notes, dependency updates, and unknowns.
+    """
     by_sha: dict[str, ConsolidatedCommit] = {c.sha: c for c in consolidations}
     for cd in commit_digests:
         cons = by_sha.get(cd.sha)
+        # subject already contains the PR number when parsed from "(#NNN)" at the end
         summary = f"{cd.sha[:8]} {cd.subject}"
-        if cd.pr_number is not None:
-            summary += f" (#{cd.pr_number})"
 
         body: list[str] = []
         if cons is not None:
@@ -229,9 +269,17 @@ def _render_consolidated_commits(
                 body.append("")
 
             body.append("**Changed files**:")
-            if cd.changed_files:
-                for p in cd.changed_files:
+            # Prefer high-signal selected files; fall back to all changed files.
+            # Cap at _MAX_SHOWN_FILES to avoid bloating large refactor commits.
+            _MAX_SHOWN_FILES = 20
+            display = cd.selected_files if cd.selected_files else cd.changed_files
+            shown = display[:_MAX_SHOWN_FILES]
+            extra = len(cd.changed_files) - len(shown)
+            if shown:
+                for p in shown:
                     body.append(f"- `{p}`")
+                if extra > 0:
+                    body.append(f"- _...and {extra} more files_")
             else:
                 body.append("- <none>")
             body.append("")

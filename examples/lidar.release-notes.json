@@ -1,0 +1,48 @@
+{
+  "github_repository": "Giskard-AI/lidar",
+  "manifest_paths": ["pyproject.toml"],
+  "high_signal_prefixes": [
+    "src/lidar/",
+    ".github/workflows/"
+  ],
+  "ignored_basenames": ["uv.lock"],
+  "ignored_path_prefixes": ["tests/", "docs/generated/"],
+  "upgrade_rules": [
+    {
+      "id": "public_api",
+      "short_name": "Python API",
+      "description": "Public Python API or package extras changed; review the changelog and update callers before upgrading.",
+      "path_prefixes": ["src/lidar/"],
+      "filename_keywords": ["api", "client", "public"]
+    }
+  ],
+  "sections": [
+    {
+      "id": "summary",
+      "description": "3-6 highlight-reel bullets for lidar users (Python SDK / CLI). Each item must state a benefit (e.g. 'This helps …', 'So you can …')."
+    },
+    {
+      "id": "features",
+      "description": "New scanning, detection, or SDK capabilities. Each item must explicitly state the user benefit/outcome."
+    },
+    {
+      "id": "fixes",
+      "description": "Bug fixes in scanners, scorers, or the Python API."
+    },
+    {
+      "id": "python_api",
+      "title": "Python API",
+      "description": "Public lidar Python package surface: imports, constructors, scan APIs, extras."
+    },
+    {
+      "id": "infra_deps",
+      "description": "CI, packaging, and tooling changes for building or releasing lidar."
+    },
+    {
+      "id": "upgrade_notes",
+      "description": "Breaking Python API or extras changes that require caller updates."
+    },
+    { "id": "deps" },
+    { "id": "appendix" }
+  ]
+}

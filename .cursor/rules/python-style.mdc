@@ -1,0 +1,14 @@
+---
+globs: "**/*.py"
+---
+
+# Python 3.12+ Type Syntax
+
+Requires-python is `>=3.12`. Match llm-hub backend typing rules.
+
+- **Never use `from __future__ import annotations`** — it is unnecessary on 3.12+ and can break Pydantic v2 model resolution at runtime. Ruff `UP010` flags it (`target-version = "py312"`).
+- Use PEP 604 union syntax: `str | int`, `X | None` (not `Union`, `Optional`).
+- Use built-in generics: `list[str]`, `dict[str, int]`, `tuple[int, ...]` (not `List`, `Dict`, `Tuple` from `typing`).
+- Use PEP 695 type parameter syntax where applicable: `class Box[T]:` (not `TypeVar` + `Generic[T]`).
+- Use PEP 695 `type` statement for aliases: `type Vector = list[float]` (not `TypeAlias`).
+- Use `@override` from `typing` when overriding a parent method in large class hierarchies.

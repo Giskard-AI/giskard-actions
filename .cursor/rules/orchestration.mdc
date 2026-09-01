@@ -1,0 +1,28 @@
+---
+alwaysApply: true
+---
+
+# Agent Orchestration
+
+## Agent Roster
+
+### Builders
+- **python-builder** -- CLI, config, git/deps pipeline, tests
+- **prompt-engineer** -- giskard-agents Jinja templates and structured output
+- **devops-helper** -- GitHub Action, workflows, Renovate, Makefile, uv
+
+### Reviewers (readonly)
+- **prompt-critic** -- prompt injection, schema, hallucination
+- **infra-reviewer** -- Action pinning, workflows, packaging
+- **security-auditor** -- secrets, zizmor, permissions
+
+## Review matching
+
+| Files changed | Reviewers |
+|---|---|
+| `src/release_notes/prompts/**` | prompt-critic |
+| `src/release_notes/**/*.py` | (main agent); prompt-critic if llm.py |
+| `.github/workflows/**`, `action.yml` | security-auditor, infra-reviewer |
+| `pyproject.toml`, `renovate.json` | infra-reviewer |
+
+Plan first, then builders, then reviewers in parallel.

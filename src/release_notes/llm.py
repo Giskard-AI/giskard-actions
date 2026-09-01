@@ -1,13 +1,16 @@
-"""LLM calls for commit consolidation and release notes synthesis."""
+"""LLM calls for commit consolidation and release notes synthesis via giskard-agents."""
 
 import json
 import logging
+import os
 import time
 from pathlib import Path
 
-import jinja2
-import litellm
+from giskard.agents import add_prompts_path
+from giskard.agents.generators import GiskardLLMGenerator
+from pydantic import BaseModel
 
+from .config import ProjectConfig
 from .deps import dependency_updates_for_commit
 from .models import (
     CommitDigest,
@@ -15,81 +18,81 @@ from .models import (
     DependencyUpdate,
     GitHubIssue,
     LinearIssue,
-    ReleaseNotesPayload,
+    build_release_notes_payload_model,
 )
 
 LOG = logging.getLogger("release_notes.llm")
 
 _PROMPTS_DIR = Path(__file__).parent / "prompts"
+_PROMPTS_CONFIGURED = False
+DEFAULT_MODEL = "azure_ai/gpt-5.4"
 
 
-def _render_messages(template_name: str, **kwargs: str) -> list[dict[str, str]]:
-    """Render a prompt template into a list of chat messages.
-
-    Templates use {% message role %} ... {% endmessage %} blocks to delimit
-    chat messages.  We first split on these markers (which are NOT real Jinja2
-    tags), then render each block's content through Jinja2 for variable
-    substitution.
-    """
-    import re
-
-    raw = (_PROMPTS_DIR / template_name).read_text(encoding="utf-8")
-
-    env = jinja2.Environment(autoescape=False, undefined=jinja2.StrictUndefined)
-
-    messages: list[dict[str, str]] = []
-    # Split on {% message <role> %} markers
-    parts = re.split(r"\{%\s*message\s+(\w+)\s*%\}", raw)
-    # parts[0] = before first message (usually empty)
-    # parts[1] = role, parts[2] = content, parts[3] = role, ...
-    i = 1
-    while i < len(parts):
-        role = parts[i].strip()
-        content_raw = parts[i + 1] if i + 1 < len(parts) else ""
-        # Remove {% endmessage %} tags
-        content_raw = re.sub(r"\{%\s*endmessage\s*%\}", "", content_raw)
-        # Render Jinja2 variables ({{ var }}) and conditionals ({% if %})
-        content = env.from_string(content_raw).render(**kwargs).strip()
-        if content:
-            messages.append({"role": role, "content": content})
-        i += 2
-
-    return messages
-
-
-def _call_llm_structured(
-    messages: list[dict[str, str]],
-    *,
-    model: str,
-    response_model: type,
-    temperature: float = 0.2,
-    num_retries: int = 2,
-) -> dict:
-    """Call LLM with structured JSON output using litellm."""
-    schema = response_model.model_json_schema()
-
-    for attempt in range(1 + num_retries):
-        try:
-            response = litellm.completion(
-                model=model,
-                messages=messages,
-                temperature=temperature,
-                response_format={
-                    "type": "json_schema",
-                    "json_schema": {
-                        "name": response_model.__name__,
-                        "strict": True,
-                        "schema": schema,
-                    },
-                },
+def ensure_azure_env(model: str) -> None:
+    """Require Azure credentials when the model uses azure_ai/ or azure/."""
+    if not (model.startswith("azure_ai/") or model.startswith("azure/")):
+        return
+    if not os.getenv("AZURE_AI_API_KEY"):
+        raise SystemExit("Missing required environment variable: AZURE_AI_API_KEY")
+    if not os.getenv("AZURE_AI_ENDPOINT"):
+        api_base = os.getenv("AZURE_AI_API_BASE")
+        if not api_base:
+            raise SystemExit(
+                "Missing required environment variable: AZURE_AI_ENDPOINT "
+                "(or AZURE_AI_API_BASE as a fallback)"
             )
-            content = response.choices[0].message.content
-            return json.loads(content)
-        except Exception:
-            if attempt < num_retries:
-                LOG.warning("LLM call attempt %d failed, retrying...", attempt + 1)
-                continue
-            raise
+        os.environ["AZURE_AI_ENDPOINT"] = api_base
+
+
+def _configure_prompts() -> None:
+    global _PROMPTS_CONFIGURED
+    if _PROMPTS_CONFIGURED:
+        return
+    add_prompts_path(_PROMPTS_DIR, "release-notes")
+    _PROMPTS_CONFIGURED = True
+
+
+def build_generator(*, model: str) -> GiskardLLMGenerator:
+    _configure_prompts()
+    ensure_azure_env(model)
+    return GiskardLLMGenerator(model=model)
+
+
+def _linear_block(linear_issues: list[LinearIssue]) -> str:
+    if not linear_issues:
+        return ""
+    lines = ["Linear issues referenced by this commit:", ""]
+    for iss in linear_issues:
+        lines.append(f"- {iss.identifier}: {iss.title}")
+        if iss.url:
+            lines.append(f"  URL: {iss.url}")
+        if iss.description.strip():
+            lines.append("  Description:")
+            lines.append("  -----")
+            for ln in iss.description.rstrip().splitlines():
+                lines.append(f"  {ln}")
+            lines.append("  -----")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _github_block(github_issues: list[GitHubIssue] | None) -> str:
+    if not github_issues:
+        return ""
+    lines = ["GitHub issues/PRs referenced by this commit:", ""]
+    for gh in github_issues:
+        kind = "PR" if gh.is_pull_request else "Issue"
+        lines.append(f"- #{gh.number} ({kind}): {gh.title}")
+        if gh.url:
+            lines.append(f"  URL: {gh.url}")
+        if gh.labels:
+            lines.append(f"  Labels: {', '.join(gh.labels)}")
+        if gh.body and gh.body.strip():
+            lines.append("  Body:")
+            lines.append("  -----")
+            for ln in gh.body.rstrip().splitlines():
+                lines.append(f"  {ln}")
+            lines.append("  -----")
+    return "\n".join(lines).rstrip() + "\n"
 
 
 async def consolidate_commit(
@@ -101,67 +104,35 @@ async def consolidate_commit(
     repo_root: Path,
     manifest_paths: tuple[str, ...],
 ) -> ConsolidatedCommit:
-    linear_block = ""
-    if linear_issues:
-        lines = ["Linear issues referenced by this commit:", ""]
-        for iss in linear_issues:
-            lines.append(f"- {iss.identifier}: {iss.title}")
-            if iss.url:
-                lines.append(f"  URL: {iss.url}")
-            if iss.description.strip():
-                lines.append("  Description:")
-                lines.append("  -----")
-                for ln in iss.description.rstrip().splitlines():
-                    lines.append(f"  {ln}")
-                lines.append("  -----")
-        linear_block = "\n".join(lines).rstrip() + "\n"
+    """Consolidate a commit digest via giskard-agents structured output.
 
-    github_block = ""
-    if github_issues:
-        lines = ["GitHub issues/PRs referenced by this commit:", ""]
-        for gh in github_issues:
-            kind = "PR" if gh.is_pull_request else "Issue"
-            lines.append(f"- #{gh.number} ({kind}): {gh.title}")
-            if gh.url:
-                lines.append(f"  URL: {gh.url}")
-            if gh.labels:
-                lines.append(f"  Labels: {', '.join(gh.labels)}")
-            if gh.body and gh.body.strip():
-                lines.append("  Body:")
-                lines.append("  -----")
-                for ln in gh.body.rstrip().splitlines():
-                    lines.append(f"  {ln}")
-                lines.append("  -----")
-        github_block = "\n".join(lines).rstrip() + "\n"
-
+    Untrusted digest/issue text is interpolated through sandboxed Jinja (escaped).
+    Canonical git fields are overwritten from parsed data after the LLM returns.
+    """
     dep_updates = dependency_updates_for_commit(
         commit_digest, repo_root=repo_root, manifest_paths=manifest_paths
     )
     dep_updates_json = json.dumps([u.model_dump() for u in dep_updates], ensure_ascii=False)
 
-    # Build the output schema description for the template
-    output_schema = json.dumps(ConsolidatedCommit.model_json_schema(), indent=2)
-
-    messages = _render_messages(
-        "commit_consolidation.j2",
-        commit_digest=commit_digest.digest,
-        dependency_updates_json=dep_updates_json,
-        linear_block=linear_block,
-        github_block=github_block,
-        _instr_output=output_schema,
+    generator = build_generator(model=model)
+    workflow = (
+        generator.template("release-notes::commit_consolidation.j2")
+        .with_inputs(
+            commit_digest=commit_digest.digest,
+            dependency_updates_json=dep_updates_json,
+            linear_block=_linear_block(linear_issues),
+            github_block=_github_block(github_issues),
+        )
+        .with_output(ConsolidatedCommit, strict=True, num_retries=2)
     )
-
     started = time.perf_counter()
-    raw = _call_llm_structured(messages, model=model, response_model=ConsolidatedCommit)
+    chat = await workflow.run()
     elapsed_s = time.perf_counter() - started
     LOG.info("Consolidated commit via LLM: sha=%s (%.2fs)", commit_digest.sha[:8], elapsed_s)
 
-    payload = ConsolidatedCommit.model_validate(raw)
+    payload: ConsolidatedCommit = chat.output
 
-    # Enforce canonical fields from git parsing
-    allowed_deps = {
-        (u.manifest_path, u.name, u.from_version, u.to_version): u for u in dep_updates
-    }
+    allowed_deps = {(u.manifest_path, u.name, u.from_version, u.to_version): u for u in dep_updates}
     filtered_deps: list[DependencyUpdate] = []
     for u in payload.dependency_updates:
         key = (u.manifest_path, u.name, u.from_version, u.to_version)
@@ -169,36 +140,36 @@ async def consolidate_commit(
             continue
         filtered_deps.append(
             DependencyUpdate(
-                manifest_path=u.manifest_path, name=u.name,
-                from_version=u.from_version, to_version=u.to_version,
-                note=(u.note or "").strip() or None,
-                note_reason=(u.note_reason or "").strip() or None,
+                manifest_path=u.manifest_path,
+                name=u.name,
+                from_version=u.from_version,
+                to_version=u.to_version,
+                note=(u.note or "").strip(),
+                note_reason=(u.note_reason or "").strip(),
             )
         )
 
     return ConsolidatedCommit(
         sha=commit_digest.sha,
         subject=commit_digest.subject,
-        pr_number=commit_digest.pr_number,
+        pr_number=commit_digest.pr_number or 0,
         linear_keys=commit_digest.linear_keys,
         short_name=payload.short_name.strip(),
         category=payload.category,
         consolidated_description=payload.consolidated_description.strip(),
-        why=(payload.why or "").strip() or None,
-        context=(payload.context or "").strip() or None,
+        why=payload.why.strip(),
+        context=payload.context.strip(),
         upgrade_notes=[u.strip() for u in payload.upgrade_notes if u.strip()],
         unknowns=[u.strip() for u in payload.unknowns if u.strip()],
         dependency_updates=filtered_deps,
     )
 
 
-async def synthesize_release_notes(
-    consolidations: list[ConsolidatedCommit], *, model: str
-) -> ReleaseNotesPayload:
+def _consolidations_text(consolidations: list[ConsolidatedCommit]) -> str:
     lines: list[str] = []
     for c in consolidations:
         header = f"- {c.sha[:8]} {c.subject}"
-        if c.pr_number is not None:
+        if c.pr_number:
             header += f" (#{c.pr_number})"
         lines.append(header)
         lines.append(f"  Category: {c.category}")
@@ -223,18 +194,28 @@ async def synthesize_release_notes(
             for u in c.unknowns:
                 lines.append(f"    - {u}")
         lines.append("")
-    consolidations_text = "\n".join(lines).rstrip() + "\n"
+    return "\n".join(lines).rstrip() + "\n"
 
-    output_schema = json.dumps(ReleaseNotesPayload.model_json_schema(), indent=2)
 
-    messages = _render_messages(
-        "release_notes_synthesis.j2",
-        consolidations_text=consolidations_text,
-        _instr_output=output_schema,
+async def synthesize_release_notes(
+    consolidations: list[ConsolidatedCommit],
+    *,
+    model: str,
+    config: ProjectConfig,
+) -> BaseModel:
+    """Synthesize structured release notes; output shape follows config.sections."""
+    payload_model = build_release_notes_payload_model(config)
+    generator = build_generator(model=model)
+    workflow = (
+        generator.template("release-notes::release_notes_synthesis.j2")
+        .with_inputs(
+            consolidations_text=_consolidations_text(consolidations),
+            section_descriptions=config.section_descriptions_for_llm(),
+        )
+        .with_output(payload_model, strict=True, num_retries=2)
     )
-
     started = time.perf_counter()
-    raw = _call_llm_structured(messages, model=model, response_model=ReleaseNotesPayload)
+    chat = await workflow.run()
     elapsed_s = time.perf_counter() - started
     LOG.info("Synthesis via LLM completed in %.2fs", elapsed_s)
-    return ReleaseNotesPayload.model_validate(raw)
+    return chat.output

@@ -1,104 +1,155 @@
 # giskard-release-notes
 
-Standalone CLI tool that generates structured, LLM-powered release notes from git history. Replaces GitHub's auto-generated "What's Changed" PR lists with categorized, human-readable summaries.
-
-Works with any git repository. Designed to be used locally or as a reusable GitHub Actions workflow.
+Standalone CLI and GitHub composite action that generates structured, LLM-powered release notes from git history. Uses **giskard-agents** for sandboxed Jinja prompts and **giskard-llm** for Azure completions.
 
 ## How it works
 
 1. Detects the tag range (e.g. `v2.2.1..v2.3.0`)
-2. Extracts per-commit diffs, prioritizing high-signal paths
-3. Fetches Linear issues referenced in commits (optional)
-4. Calls an LLM to consolidate each commit into a human description
-5. Calls the LLM again to synthesize all consolidations into structured release notes
-6. Renders a markdown file with configurable sections
+2. Extracts per-commit diffs, prioritizing high-signal paths from `.release-notes.json`
+3. Optionally fetches Linear issues and GitHub PRs/issues
+4. Consolidates each commit via giskard-agents structured output
+5. Synthesizes notes into the **sections declared in `.release-notes.json`**
+6. Applies **deterministic upgrade_rules** (git path matches), then keeps extra LLM upgrade bullets
+7. Renders markdown (optional appendix)
 
-## Quick start
+## Local setup (uv)
 
 ```bash
-# Install
-uv sync
+make setup          # uv sync --group dev
+make test           # uv run pytest
+make format
+make check_linting
+```
 
-# Dry run (no LLM calls, good for testing the pipeline)
+Or:
+
+```bash
+uv sync --group dev
+uv run generate-release-notes --help
+```
+
+### Dry run (no LLM)
+
+```bash
 uv run generate-release-notes \
   --version 2.3.0 \
   --repo /path/to/your-repo \
   --output output/v2.3.0.md \
   --dry-run
+```
 
-# Full run with LLM (needs API keys)
+### Full run
+
+Copy `.env.example` and set Azure keys. Then:
+
+```bash
 uv run generate-release-notes \
   --version 2.3.0 \
   --repo /path/to/your-repo \
   --output output/v2.3.0.md \
-  --env-file /path/to/your-repo/.env
+  --env-file .env
 ```
 
-## Configuration
+Required for Azure models (`azure_ai/…`): `AZURE_AI_API_KEY` and `AZURE_AI_ENDPOINT` (or `AZURE_AI_API_BASE`). Optional: `LINEAR_API_KEY`, `GITHUB_TOKEN`.
 
-### API keys
+Default model: `azure_ai/gpt-5.4`.
 
-The tool needs LLM API keys. You can provide them via:
+## GitHub Action
 
-- Environment variables (`AZURE_AI_API_KEY`, `AZURE_AI_API_BASE`, `AZURE_API_VERSION`)
-- `--env-file` flag pointing to a `.env` file that contains them
-- Linear enrichment (optional): `LINEAR_API_KEY`
+Consumers pass secrets on the **step `env:`**, never in `with:`:
 
-### Per-project config (`.release-notes.json`)
-
-Place a `.release-notes.json` at the root of the target repository to configure:
-
-```json
-{
-  "github_repository": "Giskard-AI/llm-hub",
-  "manifest_paths": ["backend/pyproject.toml", "frontend/package.json"],
-  "high_signal_prefixes": ["backend/src/backend/routers/", "frontend/src/app/"],
-  "ignored_basenames": ["uv.lock", "pnpm-lock.yaml"],
-  "sections": [
-    { "id": "summary" },
-    { "id": "features" },
-    { "id": "fixes" },
-    { "id": "ux_frontend", "enabled": false },
-    { "id": "api_backend" },
-    { "id": "upgrade_notes" },
-    { "id": "deps" },
-    { "id": "appendix" }
-  ]
-}
+```yaml
+permissions: {}
+jobs:
+  notes:
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@… # fetch-depth: 0, fetch-tags: true
+        # If manifest_paths include files inside a git submodule:
+        # with:
+        #   submodules: true
+      - uses: Giskard-AI/giskard-release-notes@<sha>
+        with:
+          version: "3.0.0"
+          include_appendix: "true"
+        env:
+          AZURE_AI_API_KEY: ${{ secrets.AZURE_AI_API_KEY }}
+          AZURE_AI_API_BASE: ${{ vars.AZURE_AI_API_BASE }}
+          AZURE_AI_ENDPOINT: ${{ vars.AZURE_AI_API_BASE }}
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY_READONLY }}
+          GITHUB_TOKEN: ${{ github.token }}
 ```
 
-| Field                  | Description                                                              |
-| ---------------------- | ------------------------------------------------------------------------ |
-| `github_repository`    | GitHub `owner/repo` slug for compare URLs                                |
-| `manifest_paths`       | Dependency files to track for version bumps                              |
-| `high_signal_prefixes` | Path prefixes to prioritize in diff extraction (ordered by priority)     |
-| `ignored_basenames`    | File names to exclude from diffs (e.g. lock files)                       |
-| `sections`             | Which sections to include in the output (set `"enabled": false` to skip) |
+Pin the action to a full commit SHA. Enable the **Renovate** GitHub App on this repo so action digests and Python deps stay current.
 
-### Available sections
+## `.release-notes.json`
 
-| Section ID      | Description                                  |
-| --------------- | -------------------------------------------- |
-| `summary`       | High-level release summary                   |
-| `features`      | New capabilities                             |
-| `fixes`         | Bug fixes                                    |
-| `ux_frontend`   | UI/UX changes                                |
-| `api_backend`   | API/backend changes                          |
-| `infra_deps`    | Infrastructure and CI changes                |
-| `upgrade_notes` | Migrations, config changes, breaking changes |
-| `deps`          | Dependency version bump table                |
-| `appendix`      | Diff stats, commit list, per-commit details  |
+Place at the **target repo** root (not this tool repo). See `examples/`.
 
-## CLI options
+| Field | Meaning |
+| --- | --- |
+| `github_repository` | `owner/repo` for compare URLs |
+| `manifest_paths` | pyproject.toml / package.json / pom.xml to diff for the deps table |
+| `high_signal_prefixes` | Paths that get per-file diffs in commit digests |
+| `file_diffs` | Paths whose unified tag-range diff is pasted into the markdown |
+| `ignored_basenames` / `ignored_path_prefixes` | Filter lockfiles and noise from stats |
+| `sections` | Output contract: `id`, optional `title`, `description` (LLM writing instructions), `enabled` |
+| `upgrade_rules` | Git-only upgrade bullets (`paths`, `path_prefixes`, optional `filename_keywords`) |
 
+Special section ids (not sent to the LLM): `deps`, `appendix`. `upgrade_notes` is hybrid: rules always apply, LLM extras are kept if their `short_name` is new.
+
+Section lists differ by product. llm-hub uses UX/API/Helm; lidar uses `python_api` and no frontend/Helm. Copy `examples/llm-hub.release-notes.json` or `examples/lidar.release-notes.json`.
+
+## Submodules / vendor manifests
+
+`git show vX:backend/vendor/lidar/pyproject.toml` does **not** work when lidar is a **gitlink**. This tool:
+
+1. Detects mode `160000` gitlinks on the parent tag
+2. Reads the nested file at the gitlink SHA from the submodule checkout
+
+**Consumers** that list submodule paths in `manifest_paths` must init those submodules **before** the action (`actions/checkout` `submodules: true`, or a GitHub App token checkout). If objects are missing, the tool logs a warning and skips that manifest instead of reporting an empty bump list.
+
+Initing lidar is **not** required to *run* this action (it `uv tool install`s itself from a lockfile export). It is only required to *diff* files inside that submodule.
+
+## Codex PR review (reusable)
+
+This repo ships a reusable workflow that other Giskard repos can call. Secret-bearing jobs load **trusted automation** from `github.workflow_sha` of the reusable workflow, and treat the PR head as review evidence only.
+
+In the **consumer** repo:
+
+1. Add `.github/codex/reviewer-map.json` mapping path prefixes to `.cursor/agents/<name>.md` reviewers.
+2. Add a thin workflow:
+
+```yaml
+name: Codex PR Code Review
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request number to review
+        required: true
+        type: string
+permissions: {}
+jobs:
+  review:
+    uses: Giskard-AI/giskard-release-notes/.github/workflows/codex-pr-review.reusable.yml@<sha>
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: write
+    secrets:
+      AZURE_AI_API_KEY: ${{ secrets.AZURE_AI_API_KEY }}
+      # Required when this private automation repo is not readable with github.token:
+      # AUTOMATION_GITHUB_TOKEN: ${{ secrets.AUTOMATION_GITHUB_TOKEN }}
 ```
---version         Release version (required, e.g. 2.3.0)
---output          Output markdown path (required)
---repo            Path to the git repository (default: current directory)
---model           LiteLLM model name (default: azure_ai/gpt-4.1)
---previous-tag    Override previous tag detection
---env-file        Path to a .env file to load
---dry-run         Skip LLM/Linear calls, produce debug output
---llm-concurrency Max concurrent LLM calls (default: 10)
---log-level       DEBUG, INFO, WARNING, ERROR (default: INFO)
-```
+
+Start a review with the `codex-review` label, `/review`, or `/codex-assess` from OWNER/MEMBER/COLLABORATOR. Azure jobs use the consumer `ci` environment and the same `vars.AZURE_AI_API_BASE` as the release-notes action.
+
+## Cursor
+
+This repo has a small agent roster under `.cursor/` (python-builder, prompt-engineer/critic, devops-helper, infra-reviewer, security-auditor). See `AGENTS.md`.
