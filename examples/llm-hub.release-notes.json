@@ -53,11 +53,11 @@
   "sections": [
     {
       "id": "summary",
-      "description": "3-6 highlight-reel bullets of user-visible Hub changes. Each item must state a benefit. Subset of What changed, not a superset."
+      "description": "3-6 highlight-reel bullets of user-visible Hub changes. Each item must state a benefit (e.g. 'This helps …', 'So you can …'). Subset of What changed, not a superset."
     },
     {
       "id": "features",
-      "description": "New Hub capabilities (product behavior users can do now)."
+      "description": "New Hub capabilities (product behavior users can do now). Each item must explicitly state the user benefit/outcome."
     },
     {
       "id": "fixes",

@@ -19,11 +19,11 @@
   "sections": [
     {
       "id": "summary",
-      "description": "3-6 highlight-reel bullets for lidar users (Python SDK / CLI). Each item must state a benefit."
+      "description": "3-6 highlight-reel bullets for lidar users (Python SDK / CLI). Each item must state a benefit (e.g. 'This helps …', 'So you can …')."
     },
     {
       "id": "features",
-      "description": "New scanning, detection, or SDK capabilities."
+      "description": "New scanning, detection, or SDK capabilities. Each item must explicitly state the user benefit/outcome."
     },
     {
       "id": "fixes",

@@ -17,13 +17,22 @@ DEFAULT_SECTIONS: list[dict] = [
     {
         "id": "summary",
         "title": "Summary",
-        "description": "3-6 high-signal, user-visible bullets summarizing the release.",
+        "description": (
+            "3-6 high-signal, user-visible bullets summarizing the release. "
+            "A subset of what changed, not a superset. "
+            "Each item must explicitly state the user benefit/outcome "
+            "(e.g. 'This helps …', 'So you can …', 'This reduces …')."
+        ),
         "enabled": True,
     },
     {
         "id": "features",
         "title": "Features",
-        "description": "New capabilities added in this release.",
+        "description": (
+            "New capabilities added in this release. "
+            "Each item must explicitly state the user benefit/outcome "
+            "(e.g. 'This helps …', 'So you can …', 'This reduces …')."
+        ),
         "enabled": True,
     },
     {
@@ -69,7 +78,10 @@ _KNOWN_SECTIONS: dict[str, dict] = {s["id"]: s for s in DEFAULT_SECTIONS} | {
     "upgrade_notes": {
         "id": "upgrade_notes",
         "title": "Upgrade notes",
-        "description": "Migrations, config changes, breaking changes.",
+        "description": (
+            "Operator actions required on upgrade (migrations, config, breaking API). "
+            "Deterministic git rules may add more notes later; only add extra items here."
+        ),
         "enabled": True,
     },
     "deps": {
