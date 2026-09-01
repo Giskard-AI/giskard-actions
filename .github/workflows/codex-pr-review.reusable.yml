@@ -209,6 +209,13 @@ jobs:
           printf 'repository=%s\n' "${repo}" >> "${GITHUB_OUTPUT}"
           printf 'ref=%s\n' "${ref}" >> "${GITHUB_OUTPUT}"
 
+      - name: Checkout pull request head as review evidence
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.resolve.outputs.head_sha }}
+          persist-credentials: false
+          path: pr-evidence
+
       - name: Checkout trusted automation
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -230,7 +237,15 @@ jobs:
           REVIEWER_NAME: ${{ matrix.name }}
         run: |
           set -euo pipefail
-          cp "$REVIEWER_PROMPT_FILE" assessment/reviewer-instructions.md
+          prompt_file="${REVIEWER_PROMPT_FILE}"
+          if [ -f "pr-evidence/${prompt_file}" ]; then
+            cp "pr-evidence/${prompt_file}" assessment/reviewer-instructions.md
+          elif [ -f "_giskard_codex/${prompt_file}" ]; then
+            cp "_giskard_codex/${prompt_file}" assessment/reviewer-instructions.md
+          else
+            echo "missing reviewer prompt: ${prompt_file}" >&2
+            exit 1
+          fi
           {
             cat _giskard_codex/.github/codex/prompts/pr-reviewer.md
             echo

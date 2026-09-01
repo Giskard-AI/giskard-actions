@@ -117,8 +117,9 @@ class TestCodexPrAssessmentWorkflow(unittest.TestCase):
         )
         self.assertEqual(
             reusable.count("Checkout pull request head as review evidence"),
-            1,
+            2,
         )
+        self.assertIn("path: pr-evidence", reusable)
         self.assertIn("ref: ${{ needs.resolve.outputs.head_sha }}", reusable)
         self.assertIn("CODEX_REVIEWER_MAP", reusable)
         self.assertIn("persist-credentials: false", reusable)

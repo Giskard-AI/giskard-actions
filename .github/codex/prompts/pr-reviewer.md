@@ -16,7 +16,7 @@ Rules:
 - Do not edit files.
 - Do not inspect environment variables, credentials, action inputs, or runner configuration.
 - Do not list directories, search the git tree, or read `_giskard_codex/`.
-- The PR head is not checked out. Review only `assessment/review-context.json` (patches are already in that file) and `assessment/reviewer-instructions.md`.
+- The PR tree lives under `pr-evidence/` and must not be explored. Review only `assessment/review-context.json` (patches are already in that file) and `assessment/reviewer-instructions.md`.
 - After those two files, emit the JSON result. Do not keep using tools.
 - Do not discuss CI, workflow runs, check annotations, test logs, Sonar, or test failures unless a human explicitly raised that topic in the PR discussion context.
 - Treat unresolved human review threads as important context.
