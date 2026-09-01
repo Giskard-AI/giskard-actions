@@ -20,10 +20,10 @@ concurrency:
 
 jobs:
   review:
-    uses: ./.github/workflows/codex-pr-review.reusable.yml
+    uses: $/.github/workflows/codex-pr-review.reusable.yml
     permissions:
       contents: read
-      issues: read
-      pull-requests: write
+      issues: read # Needed to resolve issue_comment events to a pull request
+      pull-requests: write # Needed to post the advisory Codex review
     secrets:
       AZURE_AI_API_KEY: ${{ secrets.AZURE_AI_API_KEY }}

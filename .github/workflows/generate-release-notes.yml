@@ -44,7 +44,7 @@ jobs:
           persist-credentials: false
 
       - name: Generate release notes
-        uses: ./
+        uses: $/
         with:
           version: ${{ github.event.inputs.version }}
           previous_tag: ${{ github.event.inputs.previous_tag || '' }}

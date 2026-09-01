@@ -57,8 +57,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      issues: read
-      pull-requests: read
+      issues: read # Needed to read issue_comment payloads for /review
+      pull-requests: read # Needed to resolve the PR number, SHAs, and labels
     outputs:
       should_run: ${{ steps.resolve.outputs.should_run }}
       pr_number: ${{ steps.resolve.outputs.pr_number }}
@@ -107,8 +107,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      issues: read
-      pull-requests: read
+      issues: read # Needed to include issue metadata in review context
+      pull-requests: read # Needed to list changed files and select reviewers
     outputs:
       has_reviewers: ${{ steps.select.outputs.has_reviewers }}
       reviewer_matrix: ${{ steps.select.outputs.matrix }}
@@ -443,7 +443,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: write
+      pull-requests: write # Needed to submit the GitHub pull request review
     steps:
       - name: Resolve automation source
         id: automation

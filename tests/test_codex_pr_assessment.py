@@ -99,7 +99,7 @@ class TestCodexPrAssessmentWorkflow(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn(
-            "uses: ./.github/workflows/codex-pr-review.reusable.yml",
+            "uses: $/.github/workflows/codex-pr-review.reusable.yml",
             caller,
         )
         self.assertNotIn("openai/codex-action", caller)
