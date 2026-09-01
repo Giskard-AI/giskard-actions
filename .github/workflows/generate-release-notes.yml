@@ -33,6 +33,7 @@ jobs:
     name: Generate release notes
     timeout-minutes: 180
     runs-on: ubuntu-latest
+    environment: ci
     permissions:
       contents: read
     steps:

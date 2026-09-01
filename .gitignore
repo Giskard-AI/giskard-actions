@@ -7,4 +7,6 @@ dist/
 .ruff_cache/
 output/
 .env
+*.cred
+apikey.cred
 .claude
