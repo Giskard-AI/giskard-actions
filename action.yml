@@ -55,20 +55,24 @@ runs:
       env:
         ACTION_PATH: ${{ github.action_path }}
       run: |
-        uv tool install --reinstall "${ACTION_PATH}"
+        set -euo pipefail
+        constraints="${RUNNER_TEMP}/giskard-release-notes-constraints.txt"
+        uv export --frozen --no-dev --no-hashes \
+          --directory "${ACTION_PATH}" \
+          --output-file "${constraints}"
+        uv tool install --reinstall --constraints "${constraints}" "${ACTION_PATH}"
 
     - name: Resolve output path
       id: resolve
       shell: bash
       env:
+        ACTION_PATH: ${{ github.action_path }}
         INPUT_OUTPUT_PATH: ${{ inputs.output_path }}
         INPUT_VERSION: ${{ inputs.version }}
       run: |
-        if [ -n "${INPUT_OUTPUT_PATH}" ]; then
-          echo "output=${INPUT_OUTPUT_PATH}" >> "${GITHUB_OUTPUT}"
-        else
-          echo "output=release_notes/v${INPUT_VERSION}.md" >> "${GITHUB_OUTPUT}"
-        fi
+        python3 "${ACTION_PATH}/scripts/ci/write_github_output.py" \
+          --github-output "${GITHUB_OUTPUT}" \
+          --resolve-output-path
 
     - name: Generate release notes
       shell: bash
@@ -103,12 +107,9 @@ runs:
       id: meta
       shell: bash
       env:
+        ACTION_PATH: ${{ github.action_path }}
         INPUT_METADATA_FILE: ${{ inputs.metadata_file }}
       run: |
-        {
-          echo "notes_path=$(jq -r '.output_path' "${INPUT_METADATA_FILE}")"
-          echo "compare_url=$(jq -r '.compare_url' "${INPUT_METADATA_FILE}")"
-          echo "summary<<EOFMETA"
-          jq -r '.summary' "${INPUT_METADATA_FILE}"
-          echo "EOFMETA"
-        } >> "${GITHUB_OUTPUT}"
+        python3 "${ACTION_PATH}/scripts/ci/write_github_output.py" \
+          --github-output "${GITHUB_OUTPUT}" \
+          --metadata-file "${INPUT_METADATA_FILE}"
