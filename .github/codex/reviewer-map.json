@@ -9,7 +9,8 @@
         ".cursor/rules/",
         ".cursor/skills/",
         ".agents/",
-        ".github/codex/"
+        ".github/codex/prompts/",
+        ".github/codex/schemas/"
       ],
       "path_names": ["AGENTS.md"],
       "path_contains": ["/prompts/"]

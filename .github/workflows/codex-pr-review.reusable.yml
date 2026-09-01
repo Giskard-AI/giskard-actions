@@ -180,6 +180,7 @@ jobs:
       - review-context
     if: needs.review-context.outputs.has_reviewers == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     environment:
       name: ${{ inputs.github_environment }}
       deployment: false
@@ -325,6 +326,7 @@ jobs:
       - reviewer
     if: always() && needs.resolve.outputs.should_run == 'true' && needs.review-context.result == 'success'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     environment:
       name: ${{ inputs.github_environment }}
       deployment: false
