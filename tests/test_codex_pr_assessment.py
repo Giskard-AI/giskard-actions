@@ -109,20 +109,34 @@ class TestCodexPrAssessmentWorkflow(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertNotIn("github.event.pull_request.head.sha", reusable)
-        self.assertIn("github.workflow_sha", reusable)
+        self.assertIn("GITHUB_WORKFLOW_SHA", reusable)
         self.assertIn("path: _giskard_codex", reusable)
         self.assertIn(
             "python3 _giskard_codex/scripts/ci/codex_pr_assessment.py",
             reusable,
         )
         self.assertEqual(
-            reusable.count("Checkout pull request head as review evidence"),
+            reusable.count("Checkout trusted consumer config"),
             2,
         )
-        self.assertIn("path: pr-evidence", reusable)
-        self.assertIn("ref: ${{ needs.resolve.outputs.head_sha }}", reusable)
+        self.assertIn("path: trusted-config", reusable)
+        self.assertIn("ref: ${{ needs.resolve.outputs.base_sha }}", reusable)
+        self.assertNotIn("Checkout pull request head as review evidence", reusable)
+        self.assertNotIn("path: pr-evidence", reusable)
+        self.assertNotIn("automation_repository", reusable)
+        self.assertIn("inputs.responses_api_base", reusable)
+        self.assertIn("AUTOMATION_APP_PRIVATE_KEY", reusable)
         self.assertIn("CODEX_REVIEWER_MAP", reusable)
         self.assertIn("persist-credentials: false", reusable)
+
+    def test_ci_reusable_loads_trusted_automation(self) -> None:
+        reusable = (REPO_ROOT / ".github/workflows/codex-ci-analysis.reusable.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("GITHUB_WORKFLOW_SHA", reusable)
+        self.assertIn("/codex-ci-assess", reusable)
+        self.assertNotIn("automation_repository", reusable)
+        self.assertIn("CODEX_CI_CONFIG", reusable)
 
     def test_codex_args_do_not_override_protected_multi_agent_feature(self) -> None:
         reusable = (REPO_ROOT / ".github/workflows/codex-pr-review.reusable.yml").read_text(
@@ -419,6 +433,25 @@ class TestReviewerSelection(unittest.TestCase):
             ["prompt-critic"],
         )
 
+    def test_reviewer_map_rejects_invalid_names(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            map_path = Path(tmpdir) / "reviewer-map.json"
+            map_path.write_text(
+                json.dumps(
+                    {
+                        "rules": [
+                            {
+                                "name": "../etc/passwd",
+                                "path_prefixes": ["src/"],
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "invalid reviewer name"):
+                codex_pr_assessment.select_reviewers(["src/foo.py"], map_path=map_path)
+
     def test_repo_reviewer_map_covers_action_and_prompts(self) -> None:
         reviewers = codex_pr_assessment.select_reviewers(
             ["action.yml", "src/release_notes/prompts/release_notes_synthesis.j2"],
@@ -637,7 +670,7 @@ class TestContextSeparation(unittest.TestCase):
         codex_pr_assessment.workflow_runs_for_sha = lambda repo, sha: [
             {"name": "Full CI", "status": "completed", "conclusion": "success"}
         ]
-        codex_pr_assessment.latest_workflow_runs = lambda repo, sha: {
+        codex_pr_assessment.latest_workflow_runs = lambda repo, sha, workflow_names=(): {
             "Full CI": {"name": "Full CI", "status": "completed", "conclusion": "success"}
         }
         codex_pr_assessment.collect_check_runs = lambda repo, sha: []
@@ -890,6 +923,14 @@ class TestFailedLogCollection(unittest.TestCase):
 
 
 class TestCiTriage(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.hub_ci_config = json.loads(
+            (REPO_ROOT / "examples" / "llm-hub.ci-config.json").read_text(encoding="utf-8")
+        )
+
+    def _triage(self, context: dict) -> dict:
+        return codex_pr_assessment.triage_ci({**context, "ci_config": self.hub_ci_config})
     def test_classifies_common_failure_modes(self) -> None:
         cases = [
             ("pytest", "AssertionError: failed", "failure", "test_failure"),
@@ -910,7 +951,7 @@ class TestCiTriage(unittest.TestCase):
                 )
 
     def test_triage_recommends_missing_and_rerunnable_ci(self) -> None:
-        triage = codex_pr_assessment.triage_ci(
+        triage = self._triage(
             {
                 "pr": {"head_sha": "abc"},
                 "files": [{"filename": "frontend/src/app/page.tsx"}],
@@ -959,7 +1000,7 @@ class TestCiTriage(unittest.TestCase):
         )
 
     def test_triage_ready_requires_terminal_key_workflows(self) -> None:
-        triage = codex_pr_assessment.triage_ci(
+        triage = self._triage(
             {
                 "pr": {"head_sha": "abc"},
                 "files": [],
@@ -985,7 +1026,7 @@ class TestCiTriage(unittest.TestCase):
         self.assertFalse(triage["ready"])
 
     def test_triage_recommends_package_ci_for_manifest_changes(self) -> None:
-        triage = codex_pr_assessment.triage_ci(
+        triage = self._triage(
             {
                 "pr": {"head_sha": "abc"},
                 "files": [
@@ -1034,7 +1075,7 @@ class TestCiTriage(unittest.TestCase):
         )
 
     def test_triage_recommends_local_eval_stress_label_for_local_eval_changes(self) -> None:
-        triage = codex_pr_assessment.triage_ci(
+        triage = self._triage(
             {
                 "pr": {"head_sha": "abc"},
                 "files": [{"filename": "backend/src/backend/services/evaluation.py"}],
@@ -1078,7 +1119,7 @@ class TestCiTriage(unittest.TestCase):
         )
 
     def test_triage_skips_local_eval_stress_label_when_workflow_ran(self) -> None:
-        triage = codex_pr_assessment.triage_ci(
+        triage = self._triage(
             {
                 "pr": {"head_sha": "abc"},
                 "files": [{"filename": "backend/src/backend/services/evaluation.py"}],
@@ -1144,9 +1185,13 @@ class TestEndpointPreflight(unittest.TestCase):
             with self.subTest(base_url=base_url):
                 self.assertEqual(codex_pr_assessment.ensure_responses_endpoint(base_url), expected)
 
+    def test_rejects_non_azure_host(self) -> None:
+        with self.assertRaisesRegex(ValueError, "allowlist"):
+            codex_pr_assessment.ensure_responses_endpoint("https://evil.example/openai/v1")
+
     def test_rejects_non_responses_base(self) -> None:
         with self.assertRaisesRegex(ValueError, "Responses-compatible"):
-            codex_pr_assessment.ensure_responses_endpoint("https://example.com/models")
+            codex_pr_assessment.ensure_responses_endpoint("https://example.openai.azure.com/models")
 
     def test_rejects_plaintext_responses_base(self) -> None:
         with self.assertRaisesRegex(ValueError, "absolute HTTPS URL"):
@@ -1397,6 +1442,7 @@ class TestAggregatorPrompt(unittest.TestCase):
 
         self.assertIn("carry forward every remaining valid reviewer finding", prompt)
         self.assertIn("do not drop valid findings for brevity", prompt)
+        self.assertIn("keep/reject", prompt)
 
 
 if __name__ == "__main__":

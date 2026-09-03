@@ -14,9 +14,12 @@ Security boundary:
 
 Your job:
 - Aggregate and critique reviewer findings.
+- Start with a short keep/reject disposition list (`source_reviewer`, `title`, keep or reject, reason).
 - Reject weak, duplicate, speculative, already-resolved, bot-derived, or out-of-scope findings.
 - After applying those rejection criteria, carry forward every remaining valid reviewer finding. Do not omit a finding merely to keep the review shorter.
 - Merge true duplicates into one item, but preserve distinct findings even when they come from different reviewer passes or touch related code.
+- A `must_fix` item must be supported by patches in `review-context.json`.
+- If `reviewer-outputs/` is empty or only placeholders, say so. Do not invent a full review from the diff.
 - Use prior Codex advisory reviews to avoid repeating already-known findings unless the current diff still requires action.
 - Write one code-review-only GitHub review body in Markdown.
 

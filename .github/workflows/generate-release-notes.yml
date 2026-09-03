@@ -33,7 +33,9 @@ jobs:
     name: Generate release notes
     timeout-minutes: 180
     runs-on: ubuntu-latest
-    environment: ci
+    environment:
+      name: ci
+      deployment: false
     permissions:
       contents: read
     steps:
@@ -45,7 +47,7 @@ jobs:
           persist-credentials: false
 
       - name: Generate release notes
-        uses: $/
+        uses: ./
         with:
           version: ${{ github.event.inputs.version }}
           previous_tag: ${{ github.event.inputs.previous_tag || '' }}

@@ -1,0 +1,362 @@
+name: Codex CI analysis (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      responses_api_base:
+        description: Azure Responses-compatible API base URL
+        type: string
+        required: true
+    secrets:
+      AZURE_AI_API_KEY:
+        required: true
+      AUTOMATION_APP_PRIVATE_KEY:
+        description: GitHub App private key for cross-repo automation checkout
+        required: false
+      SONAR_QUBE_TOKEN:
+        required: false
+
+permissions: {}
+
+env:
+  # Keep .github/codex/azure-model-catalog.json in sync when bumping this pin.
+  CODEX_CLI_VERSION: "0.146.1"
+
+jobs:
+  resolve:
+    name: Resolve pull request
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch' ||
+        (
+          github.event_name == 'issue_comment' &&
+          github.event.issue.pull_request &&
+          github.event.comment.body == '/codex-ci-assess' &&
+          contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+        )
+      }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    outputs:
+      should_run: ${{ steps.resolve.outputs.should_run }}
+      pr_number: ${{ steps.resolve.outputs.pr_number }}
+      head_sha: ${{ steps.resolve.outputs.head_sha }}
+      base_sha: ${{ steps.resolve.outputs.base_sha }}
+    steps:
+      - name: Resolve trusted automation source
+        id: src
+        run: |
+          set -euo pipefail
+          repo="${GITHUB_WORKFLOW_REF%%/.github/*}"
+          ref="${GITHUB_WORKFLOW_SHA}"
+          repo="${repo//$'\r'/}"; repo="${repo//$'\n'/}"
+          ref="${ref//$'\r'/}"; ref="${ref//$'\n'/}"
+          needs_app=false
+          if [ "$GITHUB_REPOSITORY" != "$repo" ]; then needs_app=true; fi
+          printf 'repository=%s\n' "${repo}" >> "${GITHUB_OUTPUT}"
+          printf 'ref=%s\n' "${ref}" >> "${GITHUB_OUTPUT}"
+          printf 'owner=%s\n' "${repo%%/*}" >> "${GITHUB_OUTPUT}"
+          printf 'repo_name=%s\n' "${repo#*/}" >> "${GITHUB_OUTPUT}"
+          printf 'needs_app=%s\n' "${needs_app}" >> "${GITHUB_OUTPUT}"
+
+      - name: Create automation app token
+        if: steps.src.outputs.needs_app == 'true'
+        id: app
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.AUTOMATION_APP_ID }}
+          private-key: ${{ secrets.AUTOMATION_APP_PRIVATE_KEY }}
+          owner: ${{ steps.src.outputs.owner }}
+          repositories: ${{ steps.src.outputs.repo_name }}
+          permission-contents: read
+
+      - name: Checkout trusted automation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.src.outputs.repository }}
+          ref: ${{ steps.src.outputs.ref }}
+          persist-credentials: false
+          token: ${{ steps.app.outputs.token || github.token }}
+
+      - name: Resolve pull request
+        id: resolve
+        env:
+          CODEX_ASSESS_COMMENT_COMMAND: /codex-ci-assess
+          CODEX_ASSESS_REQUIRE_SAME_REPO: "true"
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/codex_pr_assessment.py resolve --output "$GITHUB_OUTPUT"
+
+  ci-context:
+    name: Collect and triage CI context
+    needs: resolve
+    if: needs.resolve.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: ci
+      deployment: false
+    permissions:
+      actions: read
+      checks: read
+      contents: read
+      pull-requests: read
+    outputs:
+      ci_ready: ${{ steps.triage.outputs.ci_ready }}
+      ci_needs_ai: ${{ steps.triage.outputs.ci_needs_ai }}
+    steps:
+      - name: Resolve trusted automation source
+        id: src
+        run: |
+          set -euo pipefail
+          repo="${GITHUB_WORKFLOW_REF%%/.github/*}"
+          ref="${GITHUB_WORKFLOW_SHA}"
+          repo="${repo//$'\r'/}"; repo="${repo//$'\n'/}"
+          ref="${ref//$'\r'/}"; ref="${ref//$'\n'/}"
+          needs_app=false
+          if [ "$GITHUB_REPOSITORY" != "$repo" ]; then needs_app=true; fi
+          printf 'repository=%s\n' "${repo}" >> "${GITHUB_OUTPUT}"
+          printf 'ref=%s\n' "${ref}" >> "${GITHUB_OUTPUT}"
+          printf 'owner=%s\n' "${repo%%/*}" >> "${GITHUB_OUTPUT}"
+          printf 'repo_name=%s\n' "${repo#*/}" >> "${GITHUB_OUTPUT}"
+          printf 'needs_app=%s\n' "${needs_app}" >> "${GITHUB_OUTPUT}"
+
+      - name: Create automation app token
+        if: steps.src.outputs.needs_app == 'true'
+        id: app
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.AUTOMATION_APP_ID }}
+          private-key: ${{ secrets.AUTOMATION_APP_PRIVATE_KEY }}
+          owner: ${{ steps.src.outputs.owner }}
+          repositories: ${{ steps.src.outputs.repo_name }}
+          permission-contents: read
+
+      - name: Checkout trusted consumer config
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ needs.resolve.outputs.base_sha }}
+          path: trusted-config
+          persist-credentials: false
+
+      - name: Checkout trusted automation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.src.outputs.repository }}
+          ref: ${{ steps.src.outputs.ref }}
+          path: _giskard_codex
+          persist-credentials: false
+          token: ${{ steps.app.outputs.token || github.token }}
+
+      - name: Collect CI context
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          SONAR_QUBE_TOKEN: ${{ secrets.SONAR_QUBE_TOKEN }}
+          CODEX_CI_CONFIG: ${{ github.workspace }}/trusted-config/.github/codex/ci-config.json
+        run: >-
+          python3 _giskard_codex/scripts/ci/codex_pr_assessment.py collect-ci
+          --pr-number "$PR_NUMBER"
+          --output assessment/ci-context.json
+
+      - name: Triage CI context
+        id: triage
+        env:
+          CODEX_CI_CONFIG: ${{ github.workspace }}/trusted-config/.github/codex/ci-config.json
+        run: >-
+          python3 _giskard_codex/scripts/ci/codex_pr_assessment.py triage-ci
+          --context assessment/ci-context.json
+          --output assessment/ci-triage.json
+          --github-output "$GITHUB_OUTPUT"
+
+      - name: Upload CI context
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: codex-ci-context
+          path: |
+            assessment/ci-context.json
+            assessment/ci-triage.json
+          if-no-files-found: error
+          retention-days: 5
+
+  diagnose:
+    name: Diagnose CI failure
+    needs:
+      - resolve
+      - ci-context
+    if: >-
+      ${{
+        needs.resolve.outputs.should_run == 'true' &&
+        needs.ci-context.outputs.ci_needs_ai == 'true'
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: ci
+      deployment: false
+    permissions:
+      contents: read
+    steps:
+      - name: Resolve trusted automation source
+        id: src
+        run: |
+          set -euo pipefail
+          repo="${GITHUB_WORKFLOW_REF%%/.github/*}"
+          ref="${GITHUB_WORKFLOW_SHA}"
+          repo="${repo//$'\r'/}"; repo="${repo//$'\n'/}"
+          ref="${ref//$'\r'/}"; ref="${ref//$'\n'/}"
+          needs_app=false
+          if [ "$GITHUB_REPOSITORY" != "$repo" ]; then needs_app=true; fi
+          printf 'repository=%s\n' "${repo}" >> "${GITHUB_OUTPUT}"
+          printf 'ref=%s\n' "${ref}" >> "${GITHUB_OUTPUT}"
+          printf 'owner=%s\n' "${repo%%/*}" >> "${GITHUB_OUTPUT}"
+          printf 'repo_name=%s\n' "${repo#*/}" >> "${GITHUB_OUTPUT}"
+          printf 'needs_app=%s\n' "${needs_app}" >> "${GITHUB_OUTPUT}"
+
+      - name: Create automation app token
+        if: steps.src.outputs.needs_app == 'true'
+        id: app
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.AUTOMATION_APP_ID }}
+          private-key: ${{ secrets.AUTOMATION_APP_PRIVATE_KEY }}
+          owner: ${{ steps.src.outputs.owner }}
+          repositories: ${{ steps.src.outputs.repo_name }}
+          permission-contents: read
+
+      - name: Checkout trusted automation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.src.outputs.repository }}
+          ref: ${{ steps.src.outputs.ref }}
+          persist-credentials: false
+          token: ${{ steps.app.outputs.token || github.token }}
+
+      - name: Download CI context
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: codex-ci-context
+          path: assessment
+
+      - name: Prepare CI diagnosis prompt
+        env:
+          GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          {
+            cat .github/codex/prompts/ci-diagnosis.md
+            echo
+            echo "Workflow run URL: ${GITHUB_RUN_URL}"
+          } > assessment/ci-diagnosis-task.md
+
+      - name: Validate Azure Responses endpoint
+        id: endpoint
+        env:
+          AZURE_AI_API_BASE: ${{ inputs.responses_api_base }}
+        run: >-
+          python3 scripts/ci/codex_pr_assessment.py endpoint
+          --base-url "$AZURE_AI_API_BASE"
+          --github-output "$GITHUB_OUTPUT"
+
+      - name: Run Codex CI diagnosis
+        uses: openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e # v1.12
+        with:
+          openai-api-key: ${{ secrets.AZURE_AI_API_KEY }}
+          responses-api-endpoint: ${{ steps.endpoint.outputs.responses_endpoint }}
+          # Pin until openai/codex#37380 is fixed (0.147+ Azure empty namespace description).
+          # Catalog override is required for gpt-5.6-* on Azure (openai/codex#31882).
+          # Keep .github/codex/azure-model-catalog.json in sync with CODEX_CLI_VERSION.
+          # Disable multi-agent v2 in that catalog (multi_agent_version: null). openai/codex-action
+          # v1.12+ rejects `--config features.multi_agent_v2=...` with drop-sudo.
+          codex-version: ${{ env.CODEX_CLI_VERSION }}
+          model: gpt-5.6-terra
+          effort: high
+          prompt-file: assessment/ci-diagnosis-task.md
+          output-file: assessment/final-ci-analysis.md
+          sandbox: read-only
+          safety-strategy: drop-sudo
+          allow-bots: true
+          allow-bot-users: "github-actions[bot],cursor[bot],renovate[bot]"
+          codex-args: >-
+            ["--ephemeral","--config","model_catalog_json=\"${{ github.workspace }}/.github/codex/azure-model-catalog.json\""]
+
+      - name: Sanitize final CI analysis
+        run: >-
+          python3 scripts/ci/codex_pr_assessment.py sanitize-review
+          --input assessment/final-ci-analysis.md
+          --output assessment/final-ci-analysis.md
+          --title "Codex advisory CI analysis"
+
+      - name: Ensure final CI analysis exists
+        run: test -s assessment/final-ci-analysis.md
+
+      - name: Upload final CI analysis
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: codex-final-ci-analysis
+          path: assessment/final-ci-analysis.md
+          if-no-files-found: error
+          retention-days: 5
+
+  post-analysis:
+    name: Post GitHub CI analysis
+    needs:
+      - resolve
+      - diagnose
+    if: needs.resolve.outputs.should_run == 'true' && needs.diagnose.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Resolve trusted automation source
+        id: src
+        run: |
+          set -euo pipefail
+          repo="${GITHUB_WORKFLOW_REF%%/.github/*}"
+          ref="${GITHUB_WORKFLOW_SHA}"
+          repo="${repo//$'\r'/}"; repo="${repo//$'\n'/}"
+          ref="${ref//$'\r'/}"; ref="${ref//$'\n'/}"
+          needs_app=false
+          if [ "$GITHUB_REPOSITORY" != "$repo" ]; then needs_app=true; fi
+          printf 'repository=%s\n' "${repo}" >> "${GITHUB_OUTPUT}"
+          printf 'ref=%s\n' "${ref}" >> "${GITHUB_OUTPUT}"
+          printf 'owner=%s\n' "${repo%%/*}" >> "${GITHUB_OUTPUT}"
+          printf 'repo_name=%s\n' "${repo#*/}" >> "${GITHUB_OUTPUT}"
+          printf 'needs_app=%s\n' "${needs_app}" >> "${GITHUB_OUTPUT}"
+
+      - name: Create automation app token
+        if: steps.src.outputs.needs_app == 'true'
+        id: app
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.AUTOMATION_APP_ID }}
+          private-key: ${{ secrets.AUTOMATION_APP_PRIVATE_KEY }}
+          owner: ${{ steps.src.outputs.owner }}
+          repositories: ${{ steps.src.outputs.repo_name }}
+          permission-contents: read
+
+      - name: Checkout trusted automation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.src.outputs.repository }}
+          ref: ${{ steps.src.outputs.ref }}
+          persist-credentials: false
+          token: ${{ steps.app.outputs.token || github.token }}
+
+      - name: Download final CI analysis
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: codex-final-ci-analysis
+          path: assessment
+
+      - name: Post advisory GitHub review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+        run: >-
+          python3 scripts/ci/codex_pr_assessment.py post-review
+          --pr-number "$PR_NUMBER"
+          --body-file assessment/final-ci-analysis.md

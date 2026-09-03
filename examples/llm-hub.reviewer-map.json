@@ -1,0 +1,63 @@
+{
+  "rules": [
+    {
+      "name": "clean-arch-guard",
+      "model_kind": "normal",
+      "path_prefixes": ["backend/"],
+      "path_suffixes": [".py"]
+    },
+    {
+      "name": "migration-reviewer",
+      "model_kind": "critical",
+      "path_prefixes": ["backend/migrations/", "backend/migrations_control/"]
+    },
+    {
+      "name": "frontend-reviewer",
+      "model_kind": "normal",
+      "path_prefixes": ["frontend/"]
+    },
+    {
+      "name": "user-advocate",
+      "model_kind": "normal",
+      "path_prefixes": ["frontend/src/app/", "frontend/src/components/"],
+      "path_suffixes": [".tsx"]
+    },
+    {
+      "name": "security-auditor",
+      "model_kind": "critical",
+      "path_prefixes": [".github/workflows/", "scripts/ci/"],
+      "path_contains": ["secret", "auth", "token", "permission", "keycloak"]
+    },
+    {
+      "name": "infra-reviewer",
+      "model_kind": "normal",
+      "path_prefixes": [
+        ".github/workflows/",
+        "scripts/ci/",
+        "helm/",
+        "db/",
+        "keycloak/",
+        "local-install/",
+        ".devcontainer/",
+        "ssl/"
+      ],
+      "path_names": ["Dockerfile", "Makefile"],
+      "path_contains": ["docker-compose"]
+    },
+    {
+      "name": "prompt-critic",
+      "model_kind": "normal",
+      "path_prefixes": [
+        ".cursor/agents/",
+        ".cursor/rules/",
+        ".cursor/skills/",
+        ".agents/",
+        ".github/codex/",
+        "backend/src/backend/evaluation/",
+        "backend/tests/evaluators/"
+      ],
+      "path_names": ["AGENTS.md"],
+      "path_contains": ["/prompts/", "/assertions/"]
+    }
+  ]
+}

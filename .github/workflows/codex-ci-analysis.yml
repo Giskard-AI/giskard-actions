@@ -1,0 +1,33 @@
+name: Codex CI Failure Analysis
+
+on:
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request number to analyze
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.issue.number || inputs.pr_number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name != 'issue_comment' }}
+
+jobs:
+  analysis:
+    uses: $/.github/workflows/codex-ci-analysis.reusable.yml
+    permissions:
+      actions: read
+      checks: read
+      contents: read
+      issues: read
+      pull-requests: write
+    with:
+      responses_api_base: ${{ vars.AZURE_AI_RESPONSES_BASE != '' && vars.AZURE_AI_RESPONSES_BASE || vars.AZURE_AI_API_BASE }}
+    secrets:
+      AZURE_AI_API_KEY: ${{ secrets.AZURE_AI_API_KEY }}
+      AUTOMATION_APP_PRIVATE_KEY: ${{ secrets.AUTOMATION_APP_PRIVATE_KEY }}
+      SONAR_QUBE_TOKEN: ${{ secrets.SONAR_QUBE_TOKEN }}

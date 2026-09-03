@@ -13,8 +13,15 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
 
-KEY_WORKFLOWS = ("Full CI", "End-to-end frontend tests")
+KEY_WORKFLOWS = ()
 TRUSTED_ASSOCIATIONS = {"OWNER", "MEMBER", "COLLABORATOR"}
+REVIEWER_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
+MAX_REVIEWERS = 12
+DEFAULT_AZURE_HOST_SUFFIXES = (
+    ".openai.azure.com",
+    ".cognitiveservices.azure.com",
+    ".services.ai.azure.com",
+)
 TERMINAL_STATUS = "completed"
 LOG_LIMIT = 20_000
 ANNOTATION_LIMIT = 50
@@ -410,6 +417,42 @@ def workflow_runs_for_sha(repo: GitHubRepo, head_sha: str) -> list[dict[str, Any
     return result
 
 
+def azure_host_allowlist() -> tuple[str, ...]:
+    raw = os.environ.get("CODEX_AZURE_HOST_ALLOWLIST", "").strip()
+    if raw:
+        return tuple(item.strip() for item in raw.split(",") if item.strip())
+    return DEFAULT_AZURE_HOST_SUFFIXES
+
+
+def host_is_allowed_azure(hostname: str, suffixes: tuple[str, ...]) -> bool:
+    host = hostname.lower().rstrip(".")
+    for suffix in suffixes:
+        token = suffix.lower().lstrip(".")
+        if host == token or host.endswith(f".{token}"):
+            return True
+    return False
+
+
+def load_ci_config(path: str | Path | None = None) -> dict[str, Any]:
+    candidate = path or os.environ.get("CODEX_CI_CONFIG", "").strip() or None
+    if not candidate:
+        return {"key_workflows": [], "recommendations": []}
+    resolved = Path(candidate)
+    if not resolved.is_file():
+        return {"key_workflows": [], "recommendations": []}
+    payload = load_json(resolved)
+    if not isinstance(payload, dict):
+        raise ValueError("ci-config must be a JSON object")
+    key_workflows = payload.get("key_workflows") or []
+    recommendations = payload.get("recommendations") or []
+    if not isinstance(key_workflows, list) or not isinstance(recommendations, list):
+        raise ValueError("ci-config key_workflows and recommendations must be arrays")
+    return {
+        "key_workflows": [str(item) for item in key_workflows],
+        "recommendations": [item for item in recommendations if isinstance(item, dict)],
+    }
+
+
 def latest_workflow_runs(
     repo: GitHubRepo, head_sha: str, workflow_names: tuple[str, ...] = KEY_WORKFLOWS
 ) -> dict[str, dict[str, Any]]:
@@ -578,7 +621,9 @@ def collect_ci_context(pr_number: int) -> dict[str, Any]:
     pr = get_pr(repo, pr_number)
     head_sha = pr["head"]["sha"]
     workflow_runs = workflow_runs_for_sha(repo, head_sha)
-    key_workflow_runs = latest_workflow_runs(repo, head_sha)
+    ci_config = load_ci_config()
+    key_names = tuple(ci_config["key_workflows"])
+    key_workflow_runs = latest_workflow_runs(repo, head_sha, workflow_names=key_names)
     return {
         **pr_metadata(pr_number, pr, repo),
         "files": [
@@ -590,6 +635,7 @@ def collect_ci_context(pr_number: int) -> dict[str, Any]:
         "check_runs": collect_check_runs(repo, head_sha),
         "failed_logs": collect_failed_logs(repo, workflow_runs),
         "sonar": collect_sonar(repo, pr_number),
+        "ci_config": ci_config,
     }
 
 
@@ -600,6 +646,8 @@ def is_non_green_status(status: str | None, conclusion: str | None) -> bool:
 
 
 def has_terminal_or_skipped_key_workflows(workflow_runs: dict[str, dict[str, Any]]) -> bool:
+    if not workflow_runs:
+        return True
     for run in workflow_runs.values():
         status = run.get("status")
         if status != TERMINAL_STATUS:
@@ -699,7 +747,10 @@ def triage_ci(context: dict[str, Any]) -> dict[str, Any]:
         )
 
     recommendations = recommend_additional_ci(
-        context, key_workflow_runs, workflows_needing_attention
+        context,
+        key_workflow_runs,
+        workflows_needing_attention,
+        ci_config=context.get("ci_config"),
     )
     ready = has_terminal_or_skipped_key_workflows(key_workflow_runs)
     needs_attention = bool(
@@ -736,10 +787,39 @@ def triage_ci(context: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _path_matches_prefixes(path: str, prefixes: list[str]) -> bool:
+    normalized = normalize_path(path)
+    for prefix in prefixes:
+        token = normalize_path(str(prefix))
+        if not token:
+            continue
+        if normalized == token.rstrip("/") or normalized.startswith(token):
+            return True
+    return False
+
+
+def _rule_matches_changed_files(rule: dict[str, Any], changed_files: list[str]) -> bool:
+    when = str(rule.get("when") or "")
+    if when == "package_related":
+        return any(is_package_related_path(path) for path in changed_files)
+    prefixes = [str(item) for item in (rule.get("when_path_prefixes") or [])]
+    paths = {normalize_path(str(item)) for item in (rule.get("when_paths") or [])}
+    path_prefix_starts = [str(item) for item in (rule.get("when_path_prefixes_also") or [])]
+    if prefixes or paths or path_prefix_starts:
+        return any(
+            path in paths
+            or _path_matches_prefixes(path, prefixes)
+            or _path_matches_prefixes(path, path_prefix_starts)
+            for path in changed_files
+        )
+    return True
+
+
 def recommend_additional_ci(
     context: dict[str, Any],
     key_workflow_runs: dict[str, dict[str, Any]],
     workflows_needing_attention: list[dict[str, Any]],
+    ci_config: dict[str, Any] | None = None,
 ) -> list[dict[str, str]]:
     recommendations: list[dict[str, str]] = []
     for name, run in key_workflow_runs.items():
@@ -764,64 +844,26 @@ def recommend_additional_ci(
 
     changed_files = [str(item.get("filename") or "") for item in context.get("files") or []]
     workflow_names = {str(item.get("name") or "") for item in context.get("workflow_runs") or []}
-    has_frontend_change = any(path.startswith("frontend/") for path in changed_files)
-    if has_frontend_change and "End-to-end frontend tests" not in workflow_names:
+    config = ci_config if ci_config is not None else load_ci_config()
+    for rule in config.get("recommendations") or []:
+        action = str(rule.get("action") or "")
+        target = str(rule.get("target") or "")
+        reason = str(rule.get("reason") or "")
+        if not action or not target:
+            continue
+        if not _rule_matches_changed_files(rule, changed_files):
+            continue
+        missing_workflow = str(rule.get("missing_workflow") or "")
+        if missing_workflow and missing_workflow in workflow_names:
+            continue
+        missing_any = {str(item) for item in (rule.get("missing_any_workflows") or [])}
+        if missing_any and missing_any & workflow_names:
+            continue
         recommendations.append(
             {
-                "action": "run_workflow",
-                "target": "End-to-end frontend tests",
-                "reason": "Frontend files changed but no e2e workflow run was found for this head SHA.",
-            }
-        )
-
-    has_package_change = any(is_package_related_path(path) for path in changed_files)
-    if has_package_change and "Test Local Package" not in workflow_names:
-        recommendations.append(
-            {
-                "action": "apply_label",
-                "target": "test-package",
-                "reason": "Package-related files changed and the label-triggered local package workflow has no run for this head SHA.",
-            }
-        )
-
-    has_stress_relevant_change = any(
-        path.startswith("backend/") or path.startswith("docker-compose") or path.startswith("helm/")
-        for path in changed_files
-    )
-    if has_stress_relevant_change and not (
-        {
-            "DB pool starvation test",
-            "Stress test (paginated endpoints)",
-        }
-        & workflow_names
-    ):
-        recommendations.append(
-            {
-                "action": "apply_label",
-                "target": "stress-test",
-                "reason": "Backend or deployment files changed and stress-test label-triggered workflows have no run for this head SHA.",
-            }
-        )
-
-    has_local_eval_stress_change = any(
-        path
-        in {
-            ".github/workflows/ci-local-eval-stress.yml",
-            "scripts/ci/test_local_eval_output_stress.sh",
-            "backend/src/backend/services/evaluation.py",
-            "backend/src/backend/services/evaluation_runner.py",
-            "backend/src/backend/services/job_submission.py",
-            "backend/src/backend/handlers/evaluation.py",
-        }
-        or path.startswith("backend/src/backend/jobs/")
-        for path in changed_files
-    )
-    if has_local_eval_stress_change and "Local eval output stress test" not in workflow_names:
-        recommendations.append(
-            {
-                "action": "apply_label",
-                "target": "local-eval-stress",
-                "reason": "Local evaluation submission code changed and the label-triggered local-eval stress workflow has no run for this head SHA.",
+                "action": action,
+                "target": target,
+                "reason": reason or f"{action} {target}",
             }
         )
 
@@ -933,10 +975,19 @@ def is_infra_path(path: str) -> bool:
     )
 
 
+def validate_reviewer_name(name: str) -> str:
+    if not REVIEWER_NAME_RE.fullmatch(name):
+        raise ValueError(
+            f"invalid reviewer name {name!r}; expected {REVIEWER_NAME_RE.pattern}"
+        )
+    return name
+
+
 def _reviewer_entry(name: str, model_kind: str = "normal") -> dict[str, str]:
+    safe_name = validate_reviewer_name(name)
     return {
-        "name": name,
-        "prompt_file": f".cursor/agents/{name}.md",
+        "name": safe_name,
+        "prompt_file": f".cursor/agents/{safe_name}.md",
         "model_kind": model_kind,
     }
 
@@ -977,6 +1028,7 @@ def load_reviewer_map(map_path: str | Path) -> list[dict[str, Any]]:
     for rule in rules:
         if not isinstance(rule, dict) or not rule.get("name"):
             raise ValueError("each reviewer map rule needs a name")
+        validate_reviewer_name(str(rule["name"]))
         parsed.append(rule)
     return parsed
 
@@ -993,6 +1045,10 @@ def select_reviewers_from_map(
             name = str(rule["name"])
             model_kind = str(rule.get("model_kind") or "normal")
             selected[name] = _reviewer_entry(name, model_kind)
+            if len(selected) >= MAX_REVIEWERS:
+                break
+        if len(selected) >= MAX_REVIEWERS:
+            break
     return sorted(selected.values(), key=lambda item: item["name"])
 
 
@@ -1046,7 +1102,7 @@ def select_reviewers(
         if is_security_sensitive_path(path):
             add("security-auditor", "critical")
 
-    return sorted(selected.values(), key=lambda item: item["name"])
+    return sorted(selected.values(), key=lambda item: item["name"])[:MAX_REVIEWERS]
 
 
 def is_security_sensitive_path(path: str) -> bool:
@@ -1069,6 +1125,11 @@ def ensure_responses_endpoint(base_url: str) -> str:
     parsed = urlparse(base_url)
     if parsed.scheme != "https" or not parsed.netloc:
         raise ValueError("AZURE_AI_API_BASE must be an absolute HTTPS URL")
+    if not host_is_allowed_azure(parsed.netloc, azure_host_allowlist()):
+        allowed = ", ".join(azure_host_allowlist())
+        raise ValueError(
+            f"Responses endpoint host {parsed.netloc!r} is not in the Azure allowlist ({allowed})"
+        )
     if parsed.path.endswith("/responses"):
         return base_url
     if parsed.path.endswith("/openai/v1"):

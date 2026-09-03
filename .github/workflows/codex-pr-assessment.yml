@@ -25,5 +25,8 @@ jobs:
       contents: read
       issues: read # Needed to resolve issue_comment events to a pull request
       pull-requests: write # Needed to post the advisory Codex review
+    with:
+      responses_api_base: ${{ vars.AZURE_AI_RESPONSES_BASE != '' && vars.AZURE_AI_RESPONSES_BASE || vars.AZURE_AI_API_BASE }}
     secrets:
       AZURE_AI_API_KEY: ${{ secrets.AZURE_AI_API_KEY }}
+      AUTOMATION_APP_PRIVATE_KEY: ${{ secrets.AUTOMATION_APP_PRIVATE_KEY }}
