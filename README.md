@@ -5,10 +5,10 @@ Private Giskard GitHub Actions repo. Intended GitHub name: **`Giskard-AI/giskard
 | Product | Form | Consumer leftover |
 | --- | --- | --- |
 | Release notes | Composite `action.yml` + CLI `generate-release-notes` | `.release-notes.json` + thin workflow |
-| Codex PR review | `.github/workflows/codex-pr-review.reusable.yml` | `.github/codex/reviewer-map.json` + shim |
-| Codex CI analysis | `.github/workflows/codex-ci-analysis.reusable.yml` | `.github/codex/ci-config.json` + shim |
+| Codex PR review | `.github/actions/codex-pr-review` + `codex-post-review` | `.github/codex/reviewer-map.json` + shim jobs |
+| Codex CI analysis | `.github/actions/codex-ci-collect` + `codex-ci-diagnose` + post | `.github/codex/ci-config.json` + shim jobs |
 
-Trusted automation always comes from `${{ github.workflow_sha }}` of this repo. Callers cannot retarget the helper. Codex overlays load from the **consumer PR base SHA**, not PR head.
+Trusted automation is the pinned unpack (`github.action_path`). Callers cannot retarget the helper. Codex overlays load from the **consumer PR base SHA**, not PR head. Consumers own `environment:`, job `if:`, and permissions.
 
 ## Release notes
 
@@ -127,15 +127,15 @@ Section lists differ by product. llm-hub uses UX/API/Helm; lidar uses `python_ap
 
 Initing lidar is **not** required to *run* this action (it `uv tool install`s itself from a lockfile export). It is only required to *diff* files inside that submodule.
 
-## Codex PR review (reusable)
+## Codex PR review (composite)
 
-Secret-bearing jobs load **trusted automation** from `github.workflow_sha`. Reviewer maps and agent overlays load from the consumer **base SHA**.
+Trusted helper code is this repo at the pinned SHA (`github.action_path`). Reviewer maps and agent overlays load from the consumer **base SHA**. Put `environment: ci` on the analyze job only. Post with `pull-requests: write` and no Azure.
 
 In the **consumer** repo:
 
-1. Copy `examples/llm-hub.reviewer-map.json` to `.github/codex/reviewer-map.json` (adjust paths).
-2. Keep `.cursor/agents/<name>.md` (and optional `references/`) on the default branch.
-3. Add a thin workflow. Never use `secrets: inherit`. Cross-repo checkout needs a GitHub App with `contents: read` on this automation repo (`vars.AUTOMATION_APP_ID` + `secrets.AUTOMATION_APP_PRIVATE_KEY` on the caller, bound to environment `ci`).
+1. Copy `examples/llm-hub.reviewer-map.json` to `.github/codex/reviewer-map.json` (adjust paths). Use `role_references` basenames only.
+2. Keep `.cursor/agents/<name>.md` and optional `.cursor/agents/references/` on the default branch.
+3. Add thin jobs. Never use `secrets: inherit`. Never `python3 scripts/ci/` from the consumer workspace. Pin the **same SHA** as notes.
 
 ```yaml
 name: Codex PR Code Review
@@ -156,47 +156,94 @@ concurrency:
   cancel-in-progress: ${{ github.event_name != 'issue_comment' }}
 jobs:
   review:
-    uses: Giskard-AI/giskard-release-notes/.github/workflows/codex-pr-review.reusable.yml@<sha>
+    if: >-
+      (
+        github.event_name == 'pull_request' &&
+        contains(github.event.pull_request.labels.*.name, 'codex-review')
+      ) ||
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request &&
+        contains(fromJSON('["/review","/codex-assess"]'), github.event.comment.body) &&
+        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    environment:
+      name: ci
+      deployment: false
     permissions:
       contents: read
       issues: read
+      pull-requests: read
+    outputs:
+      should_run: ${{ steps.codex.outputs.should_run }}
+      pr_number: ${{ steps.codex.outputs.pr_number }}
+    steps:
+      - id: codex
+        uses: Giskard-AI/giskard-release-notes/.github/actions/codex-pr-review@<sha>
+        with:
+          responses_api_base: ${{ vars.AZURE_AI_RESPONSES_BASE }}
+          azure_ai_api_key: ${{ secrets.AZURE_AI_API_KEY }}
+          github_token: ${{ github.token }}
+  post:
+    needs: review
+    if: needs.review.result == 'success' && needs.review.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
       pull-requests: write
-    with:
-      responses_api_base: ${{ vars.AZURE_AI_RESPONSES_BASE }}
-    secrets:
-      AZURE_AI_API_KEY: ${{ secrets.AZURE_AI_API_KEY }}
-      AUTOMATION_APP_PRIVATE_KEY: ${{ secrets.AUTOMATION_APP_PRIVATE_KEY }}
+    steps:
+      - uses: actions/download-artifact@<sha>
+        with:
+          name: codex-reviewer-outputs
+          path: .
+      - uses: Giskard-AI/giskard-release-notes/.github/actions/codex-post-review@<sha>
+        with:
+          github_token: ${{ github.token }}
+          pr_number: ${{ needs.review.outputs.pr_number }}
 ```
 
 Start a review with the `codex-review` label, `/review`, or `/codex-assess` from OWNER/MEMBER/COLLABORATOR.
 
 Codex uses **`AZURE_AI_RESPONSES_BASE`** (Responses API). Release notes use **`AZURE_AI_API_BASE`** (giskard-llm). Do not collapse those URLs.
 
-## Codex CI analysis (reusable)
+## Codex CI analysis (composite)
 
-Copy `examples/llm-hub.ci-config.json` to `.github/codex/ci-config.json`. Thin shim:
+Copy `examples/llm-hub.ci-config.json` to `.github/codex/ci-config.json`. Thin jobs: collect (`environment: ci` + Sonar) → diagnose (`ci` + Azure, skip when triage says no AI) → post (write, no Azure).
 
 ```yaml
 jobs:
-  analysis:
-    uses: Giskard-AI/giskard-release-notes/.github/workflows/codex-ci-analysis.reusable.yml@<sha>
+  collect:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request &&
+        github.event.comment.body == '/codex-ci-assess' &&
+        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+      )
+    runs-on: ubuntu-latest
+    environment:
+      name: ci
+      deployment: false
     permissions:
       actions: read
       checks: read
       contents: read
       issues: read
-      pull-requests: write
-    with:
-      responses_api_base: ${{ vars.AZURE_AI_RESPONSES_BASE }}
-    secrets:
-      AZURE_AI_API_KEY: ${{ secrets.AZURE_AI_API_KEY }}
-      AUTOMATION_APP_PRIVATE_KEY: ${{ secrets.AUTOMATION_APP_PRIVATE_KEY }}
-      SONAR_QUBE_TOKEN: ${{ secrets.SONAR_QUBE_TOKEN }}
+      pull-requests: read
+    steps:
+      - uses: Giskard-AI/giskard-release-notes/.github/actions/codex-ci-collect@<sha>
+        with:
+          github_token: ${{ github.token }}
+          sonar_qube_token: ${{ secrets.SONAR_QUBE_TOKEN }}
 ```
 
 Trigger: `/codex-ci-assess` from OWNER/MEMBER/COLLABORATOR, or `workflow_dispatch`.
 
-Org: allow this private repo's actions/workflows for each consumer. The Automation GitHub App must be installed on this repo with contents:read.
+Org: allow this private repo's actions for each consumer. Codex unpack does not need an Automation App. zizmor's `impostor-commit` check may.
 
 ## Cursor
 

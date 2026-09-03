@@ -1,7 +1,7 @@
 [project]
 name = "giskard-release-notes"
 version = "0.3.0"
-description = "Internal Giskard GitHub Actions: release notes CLI plus Codex review/CI reusable workflows"
+description = "Internal Giskard GitHub Actions: release notes CLI plus Codex composite actions"
 requires-python = ">=3.12"
 dependencies = [
     "giskard-agents==1.0.2",

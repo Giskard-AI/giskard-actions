@@ -1,0 +1,29 @@
+name: Codex post review
+description: Post a previously generated Codex advisory review body to the pull request.
+
+inputs:
+  github_token:
+    description: Token with pull-requests write
+    required: true
+  pr_number:
+    description: Pull request number
+    required: true
+  body_file:
+    description: Path to the sanitized Markdown body
+    required: false
+    default: assessment/final-review.md
+
+runs:
+  using: composite
+  steps:
+    - name: Post advisory GitHub review
+      env:
+        ACTION_LIB: ${{ github.action_path }}/../_lib
+        GH_TOKEN: ${{ inputs.github_token }}
+        PR_NUMBER: ${{ inputs.pr_number }}
+        BODY_FILE: ${{ inputs.body_file }}
+      run: >-
+        bash "${ACTION_LIB}/run-assess.sh" post-review
+        --pr-number "$PR_NUMBER"
+        --body-file "$BODY_FILE"
+      shell: bash

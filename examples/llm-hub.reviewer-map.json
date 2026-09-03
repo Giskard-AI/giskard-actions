@@ -4,29 +4,34 @@
       "name": "clean-arch-guard",
       "model_kind": "normal",
       "path_prefixes": ["backend/"],
-      "path_suffixes": [".py"]
+      "path_suffixes": [".py"],
+      "role_references": ["backend-architecture.md"]
     },
     {
       "name": "migration-reviewer",
       "model_kind": "critical",
-      "path_prefixes": ["backend/migrations/", "backend/migrations_control/"]
+      "path_prefixes": ["backend/migrations/", "backend/migrations_control/"],
+      "role_references": ["backend-architecture.md"]
     },
     {
       "name": "frontend-reviewer",
       "model_kind": "normal",
-      "path_prefixes": ["frontend/"]
+      "path_prefixes": ["frontend/"],
+      "role_references": ["frontend-patterns.md"]
     },
     {
       "name": "user-advocate",
       "model_kind": "normal",
       "path_prefixes": ["frontend/src/app/", "frontend/src/components/"],
-      "path_suffixes": [".tsx"]
+      "path_suffixes": [".tsx"],
+      "role_references": ["page-archetypes.md", "frontend-patterns.md"]
     },
     {
       "name": "security-auditor",
       "model_kind": "critical",
       "path_prefixes": [".github/workflows/", "scripts/ci/"],
-      "path_contains": ["secret", "auth", "token", "permission", "keycloak"]
+      "path_contains": ["secret", "auth", "token", "permission", "keycloak"],
+      "role_references": ["security-patterns.md"]
     },
     {
       "name": "infra-reviewer",
@@ -42,7 +47,8 @@
         "ssl/"
       ],
       "path_names": ["Dockerfile", "Makefile"],
-      "path_contains": ["docker-compose"]
+      "path_contains": ["docker-compose"],
+      "role_references": ["infrastructure.md"]
     },
     {
       "name": "prompt-critic",
@@ -57,7 +63,8 @@
         "backend/tests/evaluators/"
       ],
       "path_names": ["AGENTS.md"],
-      "path_contains": ["/prompts/", "/assertions/"]
+      "path_contains": ["/prompts/", "/assertions/"],
+      "role_references": ["llm-prompts.md"]
     }
   ]
 }

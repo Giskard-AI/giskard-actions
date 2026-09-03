@@ -983,13 +983,31 @@ def validate_reviewer_name(name: str) -> str:
     return name
 
 
-def _reviewer_entry(name: str, model_kind: str = "normal") -> dict[str, str]:
+def _reviewer_entry(
+    name: str, model_kind: str = "normal", role_references: list[str] | None = None
+) -> dict[str, str]:
     safe_name = validate_reviewer_name(name)
+    refs = parse_role_references(role_references or [])
     return {
         "name": safe_name,
         "prompt_file": f".cursor/agents/{safe_name}.md",
         "model_kind": model_kind,
+        "role_references": ",".join(refs),
     }
+
+
+def parse_role_references(values: list[Any]) -> list[str]:
+    parsed: list[str] = []
+    for raw in values:
+        name = str(raw).strip()
+        if not name:
+            continue
+        if "/" in name or "\\" in name or name in {".", ".."} or ".." in name:
+            raise ValueError(f"invalid role reference {name!r}; expected a basename")
+        if Path(name).name != name:
+            raise ValueError(f"invalid role reference {name!r}; expected a basename")
+        parsed.append(name)
+    return parsed
 
 
 def _rule_matches_path(path: str, rule: dict[str, Any]) -> bool:
@@ -1044,7 +1062,8 @@ def select_reviewers_from_map(
                 continue
             name = str(rule["name"])
             model_kind = str(rule.get("model_kind") or "normal")
-            selected[name] = _reviewer_entry(name, model_kind)
+            refs = parse_role_references(list(rule.get("role_references") or []))
+            selected[name] = _reviewer_entry(name, model_kind, refs)
             if len(selected) >= MAX_REVIEWERS:
                 break
         if len(selected) >= MAX_REVIEWERS:
@@ -1376,13 +1395,23 @@ def main_select(args: argparse.Namespace) -> int:
     payload = {"reviewers": reviewers}
     write_json(args.output, payload)
     if args.github_output:
-        append_github_output(
-            args.github_output,
-            {
-                "has_reviewers": "true" if reviewers else "false",
-                "matrix": json.dumps({"include": reviewers}, separators=(",", ":")),
-            },
-        )
+        values = {
+            "has_reviewers": "true" if reviewers else "false",
+            "reviewer_count": str(len(reviewers)),
+            "matrix": json.dumps({"include": reviewers}, separators=(",", ":")),
+        }
+        for index in range(MAX_REVIEWERS):
+            if index < len(reviewers):
+                values[f"reviewer_{index}_name"] = reviewers[index]["name"]
+                values[f"reviewer_{index}_model_kind"] = reviewers[index]["model_kind"]
+                values[f"reviewer_{index}_refs"] = reviewers[index].get(
+                    "role_references", ""
+                )
+            else:
+                values[f"reviewer_{index}_name"] = ""
+                values[f"reviewer_{index}_model_kind"] = ""
+                values[f"reviewer_{index}_refs"] = ""
+        append_github_output(args.github_output, values)
     print(json.dumps(payload, sort_keys=True))
     return 0
 
@@ -1471,6 +1500,46 @@ def add_post_review_parser(subparsers: argparse._SubParsersAction) -> None:
     parser.set_defaults(func=main_post_review)
 
 
+def main_stage_overlay(args: argparse.Namespace) -> int:
+    name = validate_reviewer_name(args.name)
+    trusted = Path(args.trusted_config)
+    overlay = trusted / ".cursor" / "agents" / f"{name}.md"
+    if not overlay.is_file():
+        print(f"missing reviewer overlay: {overlay}", file=sys.stderr)
+        return 1
+    dest = Path(args.output)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(overlay.read_text(encoding="utf-8"), encoding="utf-8")
+    refs_dir = Path(args.references_output)
+    if refs_dir.exists():
+        for child in refs_dir.iterdir():
+            if child.is_file() or child.is_symlink():
+                child.unlink()
+            elif child.is_dir():
+                raise ValueError(f"unexpected directory in role-references: {child}")
+    refs_dir.mkdir(parents=True, exist_ok=True)
+    source_dir = trusted / ".cursor" / "agents" / "references"
+    for basename in parse_role_references(
+        [part for part in args.role_references.split(",") if part]
+    ):
+        source = source_dir / basename
+        if not source.is_file():
+            print(f"missing role reference: {source}", file=sys.stderr)
+            return 1
+        (refs_dir / basename).write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+    return 0
+
+
+def add_stage_overlay_parser(subparsers: argparse._SubParsersAction) -> None:
+    parser = subparsers.add_parser("stage-overlay")
+    parser.add_argument("--name", required=True)
+    parser.add_argument("--trusted-config", required=True)
+    parser.add_argument("--output", required=True)
+    parser.add_argument("--references-output", required=True)
+    parser.add_argument("--role-references", default="")
+    parser.set_defaults(func=main_stage_overlay)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Codex PR assessment CI helper")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1483,6 +1552,7 @@ def main() -> int:
     add_prepare_azure_catalog_parser(subparsers)
     add_sanitize_review_parser(subparsers)
     add_post_review_parser(subparsers)
+    add_stage_overlay_parser(subparsers)
     args = parser.parse_args()
     return args.func(args)
 

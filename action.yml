@@ -52,14 +52,19 @@ runs:
 
     - name: Install release-notes tool
       shell: bash
+      working-directory: ${{ github.action_path }}
       env:
         ACTION_PATH: ${{ github.action_path }}
       run: |
         set -euo pipefail
         constraints="${RUNNER_TEMP}/giskard-release-notes-constraints.txt"
-        uv export --frozen --no-dev --no-hashes \
+        uv export --frozen --no-dev --no-hashes --no-emit-project \
           --directory "${ACTION_PATH}" \
           --output-file "${constraints}"
+        if grep -E '^(file://|-e[[:space:]])' "${constraints}"; then
+          echo "constraints file must not contain unnamed file:// or -e entries" >&2
+          exit 1
+        fi
         uv tool install --reinstall --constraints "${constraints}" "${ACTION_PATH}"
 
     - name: Resolve output path

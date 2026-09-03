@@ -94,62 +94,86 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 class TestCodexPrAssessmentWorkflow(unittest.TestCase):
-    def test_caller_delegates_to_reusable_workflow(self) -> None:
+    def test_self_test_uses_local_composites_not_reusables(self) -> None:
         caller = (REPO_ROOT / ".github/workflows/codex-pr-assessment.yml").read_text(
             encoding="utf-8"
         )
-        self.assertIn(
-            "uses: $/.github/workflows/codex-pr-review.reusable.yml",
-            caller,
-        )
-        self.assertNotIn("openai/codex-action", caller)
+        ci = (REPO_ROOT / ".github/workflows/codex-ci-analysis.yml").read_text(encoding="utf-8")
+        self.assertIn("uses: ./.github/actions/codex-pr-review", caller)
+        self.assertIn("uses: ./.github/actions/codex-post-review", caller)
+        self.assertIn("uses: ./.github/actions/codex-ci-collect", ci)
+        self.assertIn("uses: ./.github/actions/codex-ci-diagnose", ci)
+        self.assertNotIn(".reusable.yml", caller)
+        self.assertNotIn(".reusable.yml", ci)
+        self.assertNotIn("secrets: inherit", caller)
+        self.assertNotIn("secrets: inherit", ci)
+        self.assertNotIn("pull_request_target", caller)
+        self.assertNotIn("GITHUB_WORKFLOW_SHA", caller)
+        self.assertNotIn("GITHUB_WORKFLOW_REF", caller)
 
-    def test_secret_jobs_load_trusted_automation_not_pr_head(self) -> None:
-        reusable = (REPO_ROOT / ".github/workflows/codex-pr-review.reusable.yml").read_text(
+    def test_review_composite_loads_base_sha_overlays_not_pr_head(self) -> None:
+        review = (REPO_ROOT / ".github/actions/codex-pr-review/action.yml").read_text(
             encoding="utf-8"
         )
-        self.assertNotIn("github.event.pull_request.head.sha", reusable)
-        self.assertIn("GITHUB_WORKFLOW_SHA", reusable)
-        self.assertIn("path: _giskard_codex", reusable)
-        self.assertIn(
-            "python3 _giskard_codex/scripts/ci/codex_pr_assessment.py",
-            reusable,
-        )
-        self.assertEqual(
-            reusable.count("Checkout trusted consumer config"),
-            2,
-        )
-        self.assertIn("path: trusted-config", reusable)
-        self.assertIn("ref: ${{ needs.resolve.outputs.base_sha }}", reusable)
-        self.assertNotIn("Checkout pull request head as review evidence", reusable)
-        self.assertNotIn("path: pr-evidence", reusable)
-        self.assertNotIn("automation_repository", reusable)
-        self.assertIn("inputs.responses_api_base", reusable)
-        self.assertIn("AUTOMATION_APP_PRIVATE_KEY", reusable)
-        self.assertIn("CODEX_REVIEWER_MAP", reusable)
-        self.assertIn("persist-credentials: false", reusable)
-
-    def test_ci_reusable_loads_trusted_automation(self) -> None:
-        reusable = (REPO_ROOT / ".github/workflows/codex-ci-analysis.reusable.yml").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("GITHUB_WORKFLOW_SHA", reusable)
-        self.assertIn("/codex-ci-assess", reusable)
-        self.assertNotIn("automation_repository", reusable)
-        self.assertIn("CODEX_CI_CONFIG", reusable)
-
-    def test_codex_args_do_not_override_protected_multi_agent_feature(self) -> None:
-        reusable = (REPO_ROOT / ".github/workflows/codex-pr-review.reusable.yml").read_text(
-            encoding="utf-8"
-        )
+        wrapper = (REPO_ROOT / ".github/actions/_lib/run-assess.sh").read_text(encoding="utf-8")
+        self.assertNotIn("github.event.pull_request.head.sha", review)
+        self.assertNotIn("GITHUB_WORKFLOW_SHA", review)
+        self.assertNotIn("GITHUB_WORKFLOW_REF", review)
+        self.assertNotIn("path: _giskard_codex", review)
+        self.assertNotIn("python3 scripts/ci/codex_pr_assessment.py", review)
+        self.assertNotIn("AUTOMATION_APP_PRIVATE_KEY", review)
+        self.assertIn("path: trusted-config", review)
+        self.assertIn("ref: ${{ steps.resolve.outputs.base_sha }}", review)
+        self.assertIn("persist-credentials: false", review)
+        self.assertIn("CODEX_REVIEWER_MAP", review)
+        self.assertIn("CODEX_ASSESS_REQUIRE_SAME_REPO", review)
+        self.assertIn("run-assess.sh", review)
+        self.assertIn("ACTION_ROOT", wrapper)
+        self.assertNotIn("environment:", review)
+        self.assertIn("openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e", review)
         arg_lines = [
             line
-            for line in reusable.splitlines()
+            for line in review.splitlines()
             if "codex-args:" in line or line.lstrip().startswith('["--')
         ]
         self.assertTrue(arg_lines)
         self.assertFalse(any("features.multi_agent_v2" in line for line in arg_lines))
-        self.assertIn("openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e", reusable)
+
+    def test_ci_composites_do_not_clone_workflow_sha(self) -> None:
+        collect = (REPO_ROOT / ".github/actions/codex-ci-collect/action.yml").read_text(
+            encoding="utf-8"
+        )
+        diagnose = (REPO_ROOT / ".github/actions/codex-ci-diagnose/action.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("CODEX_CI_CONFIG", collect)
+        self.assertIn("/codex-ci-assess", collect)
+        self.assertNotIn("GITHUB_WORKFLOW_SHA", collect)
+        self.assertNotIn("AUTOMATION_APP_PRIVATE_KEY", collect)
+        self.assertNotIn("AUTOMATION_APP_PRIVATE_KEY", diagnose)
+        self.assertIn("openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e", diagnose)
+
+    def test_notes_action_exports_constraints_without_workspace_project(self) -> None:
+        action = (REPO_ROOT / "action.yml").read_text(encoding="utf-8")
+        self.assertIn("uv export --frozen --no-dev --no-hashes --no-emit-project", action)
+        self.assertIn("working-directory: ${{ github.action_path }}", action)
+        result = subprocess.run(
+            [
+                "uv",
+                "export",
+                "--frozen",
+                "--no-dev",
+                "--no-hashes",
+                "--no-emit-project",
+                "--directory",
+                str(REPO_ROOT),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotIn("file://", result.stdout)
+        self.assertFalse(any(line.startswith("-e ") for line in result.stdout.splitlines()))
 
 
 class TestReviewContextCollection(unittest.TestCase):
@@ -287,16 +311,19 @@ class TestReviewerSelection(unittest.TestCase):
                     "name": "clean-arch-guard",
                     "prompt_file": ".cursor/agents/clean-arch-guard.md",
                     "model_kind": "normal",
+                    "role_references": "",
                 },
                 {
                     "name": "infra-reviewer",
                     "prompt_file": ".cursor/agents/infra-reviewer.md",
                     "model_kind": "normal",
+                    "role_references": "",
                 },
                 {
                     "name": "security-auditor",
                     "prompt_file": ".cursor/agents/security-auditor.md",
                     "model_kind": "critical",
+                    "role_references": "",
                 },
             ],
         )
@@ -451,6 +478,56 @@ class TestReviewerSelection(unittest.TestCase):
             )
             with self.assertRaisesRegex(ValueError, "invalid reviewer name"):
                 codex_pr_assessment.select_reviewers(["src/foo.py"], map_path=map_path)
+
+    def test_parse_role_references_accepts_basenames(self) -> None:
+        self.assertEqual(
+            codex_pr_assessment.parse_role_references(["backend-architecture.md", ""]),
+            ["backend-architecture.md"],
+        )
+
+    def test_parse_role_references_rejects_paths(self) -> None:
+        for value in ("../x.md", "a/b.md", "/abs.md", ".."):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(ValueError, "invalid role reference"):
+                    codex_pr_assessment.parse_role_references([value])
+
+    def test_example_hub_map_emits_role_references(self) -> None:
+        reviewers = {
+            item["name"]: item["role_references"]
+            for item in codex_pr_assessment.select_reviewers(
+                ["backend/src/backend/services/auth.py"],
+                map_path=REPO_ROOT / "examples" / "llm-hub.reviewer-map.json",
+            )
+        }
+        self.assertEqual(reviewers["clean-arch-guard"], "backend-architecture.md")
+        self.assertEqual(reviewers["security-auditor"], "security-patterns.md")
+
+    def test_stage_overlay_copies_allowlisted_basenames_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            trusted = tmp / "trusted-config"
+            agents = trusted / ".cursor" / "agents"
+            refs = agents / "references"
+            refs.mkdir(parents=True)
+            (agents / "clean-arch-guard.md").write_text("role overlay", encoding="utf-8")
+            (refs / "backend-architecture.md").write_text("architecture", encoding="utf-8")
+            (refs / "secret.md").write_text("do not copy", encoding="utf-8")
+            dest = tmp / "assessment" / "reviewer-instructions.md"
+            refs_out = tmp / "assessment" / "role-references"
+            args = argparse.Namespace(
+                name="clean-arch-guard",
+                trusted_config=str(trusted),
+                output=str(dest),
+                references_output=str(refs_out),
+                role_references="backend-architecture.md",
+            )
+            self.assertEqual(codex_pr_assessment.main_stage_overlay(args), 0)
+            self.assertEqual(dest.read_text(encoding="utf-8"), "role overlay")
+            self.assertEqual(
+                (refs_out / "backend-architecture.md").read_text(encoding="utf-8"),
+                "architecture",
+            )
+            self.assertFalse((refs_out / "secret.md").exists())
 
     def test_repo_reviewer_map_covers_action_and_prompts(self) -> None:
         reviewers = codex_pr_assessment.select_reviewers(
@@ -1423,11 +1500,13 @@ class TestSelectorOutput(unittest.TestCase):
                         "name": "clean-arch-guard",
                         "prompt_file": ".cursor/agents/clean-arch-guard.md",
                         "model_kind": "normal",
+                        "role_references": "",
                     },
                     {
                         "name": "migration-reviewer",
                         "prompt_file": ".cursor/agents/migration-reviewer.md",
                         "model_kind": "critical",
+                        "role_references": "",
                     },
                 ],
             )
