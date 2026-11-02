@@ -147,7 +147,6 @@ runs:
       id: codex_0
       if: steps.resolve.outputs.should_run == 'true' && steps.select.outputs.reviewer_0_name != ''
       continue-on-error: true
-      timeout-minutes: 8
       uses: openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e # v1.12
       with:
         openai-api-key: ${{ inputs.azure_ai_api_key }}
@@ -237,7 +236,6 @@ runs:
       id: codex_1
       if: steps.resolve.outputs.should_run == 'true' && steps.select.outputs.reviewer_1_name != ''
       continue-on-error: true
-      timeout-minutes: 8
       uses: openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e # v1.12
       with:
         openai-api-key: ${{ inputs.azure_ai_api_key }}
@@ -327,7 +325,6 @@ runs:
       id: codex_2
       if: steps.resolve.outputs.should_run == 'true' && steps.select.outputs.reviewer_2_name != ''
       continue-on-error: true
-      timeout-minutes: 8
       uses: openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e # v1.12
       with:
         openai-api-key: ${{ inputs.azure_ai_api_key }}
@@ -417,7 +414,6 @@ runs:
       id: codex_3
       if: steps.resolve.outputs.should_run == 'true' && steps.select.outputs.reviewer_3_name != ''
       continue-on-error: true
-      timeout-minutes: 8
       uses: openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e # v1.12
       with:
         openai-api-key: ${{ inputs.azure_ai_api_key }}
@@ -507,7 +503,6 @@ runs:
       id: codex_4
       if: steps.resolve.outputs.should_run == 'true' && steps.select.outputs.reviewer_4_name != ''
       continue-on-error: true
-      timeout-minutes: 8
       uses: openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e # v1.12
       with:
         openai-api-key: ${{ inputs.azure_ai_api_key }}
@@ -597,7 +592,6 @@ runs:
       id: codex_5
       if: steps.resolve.outputs.should_run == 'true' && steps.select.outputs.reviewer_5_name != ''
       continue-on-error: true
-      timeout-minutes: 8
       uses: openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e # v1.12
       with:
         openai-api-key: ${{ inputs.azure_ai_api_key }}
@@ -687,7 +681,6 @@ runs:
       id: codex_6
       if: steps.resolve.outputs.should_run == 'true' && steps.select.outputs.reviewer_6_name != ''
       continue-on-error: true
-      timeout-minutes: 8
       uses: openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e # v1.12
       with:
         openai-api-key: ${{ inputs.azure_ai_api_key }}
@@ -777,7 +770,6 @@ runs:
       id: codex_7
       if: steps.resolve.outputs.should_run == 'true' && steps.select.outputs.reviewer_7_name != ''
       continue-on-error: true
-      timeout-minutes: 8
       uses: openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e # v1.12
       with:
         openai-api-key: ${{ inputs.azure_ai_api_key }}
@@ -867,7 +859,6 @@ runs:
       id: codex_8
       if: steps.resolve.outputs.should_run == 'true' && steps.select.outputs.reviewer_8_name != ''
       continue-on-error: true
-      timeout-minutes: 8
       uses: openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e # v1.12
       with:
         openai-api-key: ${{ inputs.azure_ai_api_key }}
@@ -957,7 +948,6 @@ runs:
       id: codex_9
       if: steps.resolve.outputs.should_run == 'true' && steps.select.outputs.reviewer_9_name != ''
       continue-on-error: true
-      timeout-minutes: 8
       uses: openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e # v1.12
       with:
         openai-api-key: ${{ inputs.azure_ai_api_key }}
@@ -1047,7 +1037,6 @@ runs:
       id: codex_10
       if: steps.resolve.outputs.should_run == 'true' && steps.select.outputs.reviewer_10_name != ''
       continue-on-error: true
-      timeout-minutes: 8
       uses: openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e # v1.12
       with:
         openai-api-key: ${{ inputs.azure_ai_api_key }}
@@ -1137,7 +1126,6 @@ runs:
       id: codex_11
       if: steps.resolve.outputs.should_run == 'true' && steps.select.outputs.reviewer_11_name != ''
       continue-on-error: true
-      timeout-minutes: 8
       uses: openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e # v1.12
       with:
         openai-api-key: ${{ inputs.azure_ai_api_key }}
@@ -1223,7 +1211,6 @@ runs:
 
     - name: Run Codex code-review aggregator
       if: steps.resolve.outputs.should_run == 'true'
-      timeout-minutes: 8
       uses: openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e # v1.12
       with:
         openai-api-key: ${{ inputs.azure_ai_api_key }}

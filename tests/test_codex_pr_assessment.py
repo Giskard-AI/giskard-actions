@@ -125,6 +125,7 @@ class TestCodexPrAssessmentWorkflow(unittest.TestCase):
         self.assertIn("run-assess.sh", review)
         self.assertIn("ACTION_ROOT", wrapper)
         self.assertNotIn("environment:", review)
+        self.assertNotIn("timeout-minutes:", review)
         self.assertIn("openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e", review)
         arg_lines = [
             line
