@@ -10,9 +10,21 @@ inputs:
     required: false
     default: ""
   model:
-    description: "giskard-llm model name (Azure AI), e.g. azure_ai/gpt-5.4"
+    description: "Default giskard-llm model name (e.g. azure_ai/gpt-5.4). Empty falls back to .release-notes.json or azure_ai/gpt-5.4."
     required: false
-    default: "azure_ai/gpt-5.4"
+    default: ""
+  consolidation_model:
+    description: "Optional model override for Stage 2 per-commit consolidation"
+    required: false
+    default: ""
+  synthesis_model:
+    description: "Optional model override for Stage 3 release notes synthesis"
+    required: false
+    default: ""
+  llm_concurrency:
+    description: "Optional max parallel LLM calls during Stage 2 consolidation"
+    required: false
+    default: ""
   dry_run:
     description: "Skip LLM calls, produce debug output"
     required: false
@@ -83,6 +95,9 @@ runs:
       shell: bash
       env:
         RELEASE_NOTES_MODEL: ${{ inputs.model }}
+        RELEASE_NOTES_CONSOLIDATION_MODEL: ${{ inputs.consolidation_model }}
+        RELEASE_NOTES_SYNTHESIS_MODEL: ${{ inputs.synthesis_model }}
+        INPUT_LLM_CONCURRENCY: ${{ inputs.llm_concurrency }}
         INPUT_VERSION: ${{ inputs.version }}
         INPUT_OUTPUT: ${{ steps.resolve.outputs.output }}
         INPUT_METADATA_FILE: ${{ inputs.metadata_file }}
@@ -99,6 +114,9 @@ runs:
         )
         if [ -n "${INPUT_PREVIOUS_TAG}" ]; then
           args+=(--previous-tag "${INPUT_PREVIOUS_TAG}")
+        fi
+        if [ -n "${INPUT_LLM_CONCURRENCY}" ]; then
+          args+=(--llm-concurrency "${INPUT_LLM_CONCURRENCY}")
         fi
         if [ "${INPUT_DRY_RUN}" = "true" ]; then
           args+=(--dry-run)

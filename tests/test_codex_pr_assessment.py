@@ -292,18 +292,24 @@ class TestReviewerSelection(unittest.TestCase):
                     "name": "clean-arch-guard",
                     "prompt_file": ".cursor/agents/clean-arch-guard.md",
                     "model_kind": "normal",
+                    "model": "gpt-5.6-luna",
+                    "effort": "medium",
                     "role_references": "",
                 },
                 {
                     "name": "infra-reviewer",
                     "prompt_file": ".cursor/agents/infra-reviewer.md",
                     "model_kind": "normal",
+                    "model": "gpt-5.6-luna",
+                    "effort": "medium",
                     "role_references": "",
                 },
                 {
                     "name": "security-auditor",
                     "prompt_file": ".cursor/agents/security-auditor.md",
                     "model_kind": "critical",
+                    "model": "gpt-5.6-terra",
+                    "effort": "high",
                     "role_references": "",
                 },
             ],
@@ -1482,17 +1488,62 @@ class TestSelectorOutput(unittest.TestCase):
                         "name": "clean-arch-guard",
                         "prompt_file": ".cursor/agents/clean-arch-guard.md",
                         "model_kind": "normal",
+                        "model": "gpt-5.6-luna",
+                        "effort": "medium",
                         "role_references": "",
                     },
                     {
                         "name": "migration-reviewer",
                         "prompt_file": ".cursor/agents/migration-reviewer.md",
                         "model_kind": "critical",
+                        "model": "gpt-5.6-terra",
+                        "effort": "high",
                         "role_references": "",
                     },
                 ],
             )
             self.assertIn("has_reviewers=true", github_output.read_text(encoding="utf-8"))
+
+    def test_custom_models_and_efforts_in_reviewer_map_and_env(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            map_path = tmp / "reviewer-map.json"
+            map_path.write_text(
+                json.dumps(
+                    {
+                        "defaults": {
+                            "normal_model": "custom-normal",
+                            "normal_effort": "low",
+                            "critical_model": "custom-critical",
+                            "critical_effort": "high",
+                            "aggregator_model": "custom-agg",
+                            "aggregator_effort": "medium",
+                        },
+                        "rules": [
+                            {
+                                "name": "clean-arch-guard",
+                                "model_kind": "normal",
+                                "path_prefixes": ["backend/"],
+                            },
+                            {
+                                "name": "security-auditor",
+                                "model_kind": "critical",
+                                "model": "per-rule-override",
+                                "effort": "medium",
+                                "path_prefixes": ["backend/"],
+                            },
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            reviewers = codex_pr_assessment.select_reviewers(["backend/app.py"], map_path=map_path)
+            self.assertEqual(reviewers[0]["name"], "clean-arch-guard")
+            self.assertEqual(reviewers[0]["model"], "custom-normal")
+            self.assertEqual(reviewers[0]["effort"], "low")
+            self.assertEqual(reviewers[1]["name"], "security-auditor")
+            self.assertEqual(reviewers[1]["model"], "per-rule-override")
+            self.assertEqual(reviewers[1]["effort"], "medium")
 
 
 class TestAggregatorPrompt(unittest.TestCase):

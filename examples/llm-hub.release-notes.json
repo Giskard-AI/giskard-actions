@@ -1,5 +1,6 @@
 {
   "github_repository": "Giskard-AI/llm-hub",
+  "model": "azure_ai/gpt-5.4",
   "manifest_paths": [
     "backend/pyproject.toml",
     "demo_models/pyproject.toml",

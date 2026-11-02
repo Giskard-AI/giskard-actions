@@ -11,6 +11,38 @@ inputs:
   github_token:
     description: Token for GitHub API reads
     required: true
+  normal_model:
+    description: Default model for normal reviewer passes (overrides reviewer-map.json defaults if set)
+    required: false
+    default: ""
+  normal_effort:
+    description: Default reasoning effort for normal reviewer passes (low, medium, high)
+    required: false
+    default: ""
+  critical_model:
+    description: Default model for critical reviewer passes (overrides reviewer-map.json defaults if set)
+    required: false
+    default: ""
+  critical_effort:
+    description: Default reasoning effort for critical reviewer passes (low, medium, high)
+    required: false
+    default: ""
+  aggregator_model:
+    description: Model for the aggregator pass (overrides reviewer-map.json defaults if set)
+    required: false
+    default: ""
+  aggregator_effort:
+    description: Reasoning effort for the aggregator pass (low, medium, high)
+    required: false
+    default: ""
+  codex_version:
+    description: Codex CLI version pin
+    required: false
+    default: "0.146.1"
+  model_catalog_path:
+    description: Optional path to a custom model_catalog_json (defaults to the action's bundled Azure catalog)
+    required: false
+    default: ""
 
 outputs:
   should_run:
@@ -62,6 +94,12 @@ runs:
       env:
         ACTION_LIB: ${{ github.action_path }}/../_lib
         CODEX_REVIEWER_MAP: ${{ github.workspace }}/trusted-config/.github/codex/reviewer-map.json
+        CODEX_NORMAL_MODEL: ${{ inputs.normal_model }}
+        CODEX_NORMAL_EFFORT: ${{ inputs.normal_effort }}
+        CODEX_CRITICAL_MODEL: ${{ inputs.critical_model }}
+        CODEX_CRITICAL_EFFORT: ${{ inputs.critical_effort }}
+        CODEX_AGGREGATOR_MODEL: ${{ inputs.aggregator_model }}
+        CODEX_AGGREGATOR_EFFORT: ${{ inputs.aggregator_effort }}
       run: >-
         bash "${ACTION_LIB}/run-assess.sh" select
         --context assessment/review-context.json
@@ -114,9 +152,9 @@ runs:
       with:
         openai-api-key: ${{ inputs.azure_ai_api_key }}
         responses-api-endpoint: ${{ steps.endpoint.outputs.responses_endpoint }}
-        codex-version: "0.146.1"
-        model: ${{ steps.select.outputs.reviewer_0_model_kind == 'critical' && 'gpt-5.6-terra' || 'gpt-5.6-luna' }}
-        effort: ${{ steps.select.outputs.reviewer_0_model_kind == 'critical' && 'high' || 'medium' }}
+        codex-version: ${{ inputs.codex_version }}
+        model: ${{ steps.select.outputs.reviewer_0_model }}
+        effort: ${{ steps.select.outputs.reviewer_0_effort }}
         prompt-file: assessment/reviewer-task.md
         output-file: assessment/reviewer-output-${{ steps.select.outputs.reviewer_0_name }}.json
         sandbox: read-only
@@ -124,7 +162,7 @@ runs:
         allow-bots: true
         allow-bot-users: "github-actions[bot],cursor[bot],renovate[bot]"
         codex-args: >-
-          ["--output-schema","${{ github.action_path }}/../../../.github/codex/schemas/reviewer-output.schema.json","--ephemeral","--config","model_catalog_json=\"${{ github.action_path }}/../../../.github/codex/azure-model-catalog.json\""]
+          ["--output-schema","${{ github.action_path }}/../../../.github/codex/schemas/reviewer-output.schema.json","--ephemeral","--config","model_catalog_json=\"${{ inputs.model_catalog_path != '' && inputs.model_catalog_path || format('{0}/../../../.github/codex/azure-model-catalog.json', github.action_path) }}\""]
 
     - name: Placeholder or stash reviewer 0
       if: steps.resolve.outputs.should_run == 'true' && steps.select.outputs.reviewer_0_name != ''
@@ -204,9 +242,9 @@ runs:
       with:
         openai-api-key: ${{ inputs.azure_ai_api_key }}
         responses-api-endpoint: ${{ steps.endpoint.outputs.responses_endpoint }}
-        codex-version: "0.146.1"
-        model: ${{ steps.select.outputs.reviewer_1_model_kind == 'critical' && 'gpt-5.6-terra' || 'gpt-5.6-luna' }}
-        effort: ${{ steps.select.outputs.reviewer_1_model_kind == 'critical' && 'high' || 'medium' }}
+        codex-version: ${{ inputs.codex_version }}
+        model: ${{ steps.select.outputs.reviewer_1_model }}
+        effort: ${{ steps.select.outputs.reviewer_1_effort }}
         prompt-file: assessment/reviewer-task.md
         output-file: assessment/reviewer-output-${{ steps.select.outputs.reviewer_1_name }}.json
         sandbox: read-only
@@ -214,7 +252,7 @@ runs:
         allow-bots: true
         allow-bot-users: "github-actions[bot],cursor[bot],renovate[bot]"
         codex-args: >-
-          ["--output-schema","${{ github.action_path }}/../../../.github/codex/schemas/reviewer-output.schema.json","--ephemeral","--config","model_catalog_json=\"${{ github.action_path }}/../../../.github/codex/azure-model-catalog.json\""]
+          ["--output-schema","${{ github.action_path }}/../../../.github/codex/schemas/reviewer-output.schema.json","--ephemeral","--config","model_catalog_json=\"${{ inputs.model_catalog_path != '' && inputs.model_catalog_path || format('{0}/../../../.github/codex/azure-model-catalog.json', github.action_path) }}\""]
 
     - name: Placeholder or stash reviewer 1
       if: steps.resolve.outputs.should_run == 'true' && steps.select.outputs.reviewer_1_name != ''
@@ -294,9 +332,9 @@ runs:
       with:
         openai-api-key: ${{ inputs.azure_ai_api_key }}
         responses-api-endpoint: ${{ steps.endpoint.outputs.responses_endpoint }}
-        codex-version: "0.146.1"
-        model: ${{ steps.select.outputs.reviewer_2_model_kind == 'critical' && 'gpt-5.6-terra' || 'gpt-5.6-luna' }}
-        effort: ${{ steps.select.outputs.reviewer_2_model_kind == 'critical' && 'high' || 'medium' }}
+        codex-version: ${{ inputs.codex_version }}
+        model: ${{ steps.select.outputs.reviewer_2_model }}
+        effort: ${{ steps.select.outputs.reviewer_2_effort }}
         prompt-file: assessment/reviewer-task.md
         output-file: assessment/reviewer-output-${{ steps.select.outputs.reviewer_2_name }}.json
         sandbox: read-only
@@ -304,7 +342,7 @@ runs:
         allow-bots: true
         allow-bot-users: "github-actions[bot],cursor[bot],renovate[bot]"
         codex-args: >-
-          ["--output-schema","${{ github.action_path }}/../../../.github/codex/schemas/reviewer-output.schema.json","--ephemeral","--config","model_catalog_json=\"${{ github.action_path }}/../../../.github/codex/azure-model-catalog.json\""]
+          ["--output-schema","${{ github.action_path }}/../../../.github/codex/schemas/reviewer-output.schema.json","--ephemeral","--config","model_catalog_json=\"${{ inputs.model_catalog_path != '' && inputs.model_catalog_path || format('{0}/../../../.github/codex/azure-model-catalog.json', github.action_path) }}\""]
 
     - name: Placeholder or stash reviewer 2
       if: steps.resolve.outputs.should_run == 'true' && steps.select.outputs.reviewer_2_name != ''
@@ -384,9 +422,9 @@ runs:
       with:
         openai-api-key: ${{ inputs.azure_ai_api_key }}
         responses-api-endpoint: ${{ steps.endpoint.outputs.responses_endpoint }}
-        codex-version: "0.146.1"
-        model: ${{ steps.select.outputs.reviewer_3_model_kind == 'critical' && 'gpt-5.6-terra' || 'gpt-5.6-luna' }}
-        effort: ${{ steps.select.outputs.reviewer_3_model_kind == 'critical' && 'high' || 'medium' }}
+        codex-version: ${{ inputs.codex_version }}
+        model: ${{ steps.select.outputs.reviewer_3_model }}
+        effort: ${{ steps.select.outputs.reviewer_3_effort }}
         prompt-file: assessment/reviewer-task.md
         output-file: assessment/reviewer-output-${{ steps.select.outputs.reviewer_3_name }}.json
         sandbox: read-only
@@ -394,7 +432,7 @@ runs:
         allow-bots: true
         allow-bot-users: "github-actions[bot],cursor[bot],renovate[bot]"
         codex-args: >-
-          ["--output-schema","${{ github.action_path }}/../../../.github/codex/schemas/reviewer-output.schema.json","--ephemeral","--config","model_catalog_json=\"${{ github.action_path }}/../../../.github/codex/azure-model-catalog.json\""]
+          ["--output-schema","${{ github.action_path }}/../../../.github/codex/schemas/reviewer-output.schema.json","--ephemeral","--config","model_catalog_json=\"${{ inputs.model_catalog_path != '' && inputs.model_catalog_path || format('{0}/../../../.github/codex/azure-model-catalog.json', github.action_path) }}\""]
 
     - name: Placeholder or stash reviewer 3
       if: steps.resolve.outputs.should_run == 'true' && steps.select.outputs.reviewer_3_name != ''
@@ -474,9 +512,9 @@ runs:
       with:
         openai-api-key: ${{ inputs.azure_ai_api_key }}
         responses-api-endpoint: ${{ steps.endpoint.outputs.responses_endpoint }}
-        codex-version: "0.146.1"
-        model: ${{ steps.select.outputs.reviewer_4_model_kind == 'critical' && 'gpt-5.6-terra' || 'gpt-5.6-luna' }}
-        effort: ${{ steps.select.outputs.reviewer_4_model_kind == 'critical' && 'high' || 'medium' }}
+        codex-version: ${{ inputs.codex_version }}
+        model: ${{ steps.select.outputs.reviewer_4_model }}
+        effort: ${{ steps.select.outputs.reviewer_4_effort }}
         prompt-file: assessment/reviewer-task.md
         output-file: assessment/reviewer-output-${{ steps.select.outputs.reviewer_4_name }}.json
         sandbox: read-only
@@ -484,7 +522,7 @@ runs:
         allow-bots: true
         allow-bot-users: "github-actions[bot],cursor[bot],renovate[bot]"
         codex-args: >-
-          ["--output-schema","${{ github.action_path }}/../../../.github/codex/schemas/reviewer-output.schema.json","--ephemeral","--config","model_catalog_json=\"${{ github.action_path }}/../../../.github/codex/azure-model-catalog.json\""]
+          ["--output-schema","${{ github.action_path }}/../../../.github/codex/schemas/reviewer-output.schema.json","--ephemeral","--config","model_catalog_json=\"${{ inputs.model_catalog_path != '' && inputs.model_catalog_path || format('{0}/../../../.github/codex/azure-model-catalog.json', github.action_path) }}\""]
 
     - name: Placeholder or stash reviewer 4
       if: steps.resolve.outputs.should_run == 'true' && steps.select.outputs.reviewer_4_name != ''
@@ -564,9 +602,9 @@ runs:
       with:
         openai-api-key: ${{ inputs.azure_ai_api_key }}
         responses-api-endpoint: ${{ steps.endpoint.outputs.responses_endpoint }}
-        codex-version: "0.146.1"
-        model: ${{ steps.select.outputs.reviewer_5_model_kind == 'critical' && 'gpt-5.6-terra' || 'gpt-5.6-luna' }}
-        effort: ${{ steps.select.outputs.reviewer_5_model_kind == 'critical' && 'high' || 'medium' }}
+        codex-version: ${{ inputs.codex_version }}
+        model: ${{ steps.select.outputs.reviewer_5_model }}
+        effort: ${{ steps.select.outputs.reviewer_5_effort }}
         prompt-file: assessment/reviewer-task.md
         output-file: assessment/reviewer-output-${{ steps.select.outputs.reviewer_5_name }}.json
         sandbox: read-only
@@ -574,7 +612,7 @@ runs:
         allow-bots: true
         allow-bot-users: "github-actions[bot],cursor[bot],renovate[bot]"
         codex-args: >-
-          ["--output-schema","${{ github.action_path }}/../../../.github/codex/schemas/reviewer-output.schema.json","--ephemeral","--config","model_catalog_json=\"${{ github.action_path }}/../../../.github/codex/azure-model-catalog.json\""]
+          ["--output-schema","${{ github.action_path }}/../../../.github/codex/schemas/reviewer-output.schema.json","--ephemeral","--config","model_catalog_json=\"${{ inputs.model_catalog_path != '' && inputs.model_catalog_path || format('{0}/../../../.github/codex/azure-model-catalog.json', github.action_path) }}\""]
 
     - name: Placeholder or stash reviewer 5
       if: steps.resolve.outputs.should_run == 'true' && steps.select.outputs.reviewer_5_name != ''
@@ -654,9 +692,9 @@ runs:
       with:
         openai-api-key: ${{ inputs.azure_ai_api_key }}
         responses-api-endpoint: ${{ steps.endpoint.outputs.responses_endpoint }}
-        codex-version: "0.146.1"
-        model: ${{ steps.select.outputs.reviewer_6_model_kind == 'critical' && 'gpt-5.6-terra' || 'gpt-5.6-luna' }}
-        effort: ${{ steps.select.outputs.reviewer_6_model_kind == 'critical' && 'high' || 'medium' }}
+        codex-version: ${{ inputs.codex_version }}
+        model: ${{ steps.select.outputs.reviewer_6_model }}
+        effort: ${{ steps.select.outputs.reviewer_6_effort }}
         prompt-file: assessment/reviewer-task.md
         output-file: assessment/reviewer-output-${{ steps.select.outputs.reviewer_6_name }}.json
         sandbox: read-only
@@ -664,7 +702,7 @@ runs:
         allow-bots: true
         allow-bot-users: "github-actions[bot],cursor[bot],renovate[bot]"
         codex-args: >-
-          ["--output-schema","${{ github.action_path }}/../../../.github/codex/schemas/reviewer-output.schema.json","--ephemeral","--config","model_catalog_json=\"${{ github.action_path }}/../../../.github/codex/azure-model-catalog.json\""]
+          ["--output-schema","${{ github.action_path }}/../../../.github/codex/schemas/reviewer-output.schema.json","--ephemeral","--config","model_catalog_json=\"${{ inputs.model_catalog_path != '' && inputs.model_catalog_path || format('{0}/../../../.github/codex/azure-model-catalog.json', github.action_path) }}\""]
 
     - name: Placeholder or stash reviewer 6
       if: steps.resolve.outputs.should_run == 'true' && steps.select.outputs.reviewer_6_name != ''
@@ -744,9 +782,9 @@ runs:
       with:
         openai-api-key: ${{ inputs.azure_ai_api_key }}
         responses-api-endpoint: ${{ steps.endpoint.outputs.responses_endpoint }}
-        codex-version: "0.146.1"
-        model: ${{ steps.select.outputs.reviewer_7_model_kind == 'critical' && 'gpt-5.6-terra' || 'gpt-5.6-luna' }}
-        effort: ${{ steps.select.outputs.reviewer_7_model_kind == 'critical' && 'high' || 'medium' }}
+        codex-version: ${{ inputs.codex_version }}
+        model: ${{ steps.select.outputs.reviewer_7_model }}
+        effort: ${{ steps.select.outputs.reviewer_7_effort }}
         prompt-file: assessment/reviewer-task.md
         output-file: assessment/reviewer-output-${{ steps.select.outputs.reviewer_7_name }}.json
         sandbox: read-only
@@ -754,7 +792,7 @@ runs:
         allow-bots: true
         allow-bot-users: "github-actions[bot],cursor[bot],renovate[bot]"
         codex-args: >-
-          ["--output-schema","${{ github.action_path }}/../../../.github/codex/schemas/reviewer-output.schema.json","--ephemeral","--config","model_catalog_json=\"${{ github.action_path }}/../../../.github/codex/azure-model-catalog.json\""]
+          ["--output-schema","${{ github.action_path }}/../../../.github/codex/schemas/reviewer-output.schema.json","--ephemeral","--config","model_catalog_json=\"${{ inputs.model_catalog_path != '' && inputs.model_catalog_path || format('{0}/../../../.github/codex/azure-model-catalog.json', github.action_path) }}\""]
 
     - name: Placeholder or stash reviewer 7
       if: steps.resolve.outputs.should_run == 'true' && steps.select.outputs.reviewer_7_name != ''
@@ -834,9 +872,9 @@ runs:
       with:
         openai-api-key: ${{ inputs.azure_ai_api_key }}
         responses-api-endpoint: ${{ steps.endpoint.outputs.responses_endpoint }}
-        codex-version: "0.146.1"
-        model: ${{ steps.select.outputs.reviewer_8_model_kind == 'critical' && 'gpt-5.6-terra' || 'gpt-5.6-luna' }}
-        effort: ${{ steps.select.outputs.reviewer_8_model_kind == 'critical' && 'high' || 'medium' }}
+        codex-version: ${{ inputs.codex_version }}
+        model: ${{ steps.select.outputs.reviewer_8_model }}
+        effort: ${{ steps.select.outputs.reviewer_8_effort }}
         prompt-file: assessment/reviewer-task.md
         output-file: assessment/reviewer-output-${{ steps.select.outputs.reviewer_8_name }}.json
         sandbox: read-only
@@ -844,7 +882,7 @@ runs:
         allow-bots: true
         allow-bot-users: "github-actions[bot],cursor[bot],renovate[bot]"
         codex-args: >-
-          ["--output-schema","${{ github.action_path }}/../../../.github/codex/schemas/reviewer-output.schema.json","--ephemeral","--config","model_catalog_json=\"${{ github.action_path }}/../../../.github/codex/azure-model-catalog.json\""]
+          ["--output-schema","${{ github.action_path }}/../../../.github/codex/schemas/reviewer-output.schema.json","--ephemeral","--config","model_catalog_json=\"${{ inputs.model_catalog_path != '' && inputs.model_catalog_path || format('{0}/../../../.github/codex/azure-model-catalog.json', github.action_path) }}\""]
 
     - name: Placeholder or stash reviewer 8
       if: steps.resolve.outputs.should_run == 'true' && steps.select.outputs.reviewer_8_name != ''
@@ -924,9 +962,9 @@ runs:
       with:
         openai-api-key: ${{ inputs.azure_ai_api_key }}
         responses-api-endpoint: ${{ steps.endpoint.outputs.responses_endpoint }}
-        codex-version: "0.146.1"
-        model: ${{ steps.select.outputs.reviewer_9_model_kind == 'critical' && 'gpt-5.6-terra' || 'gpt-5.6-luna' }}
-        effort: ${{ steps.select.outputs.reviewer_9_model_kind == 'critical' && 'high' || 'medium' }}
+        codex-version: ${{ inputs.codex_version }}
+        model: ${{ steps.select.outputs.reviewer_9_model }}
+        effort: ${{ steps.select.outputs.reviewer_9_effort }}
         prompt-file: assessment/reviewer-task.md
         output-file: assessment/reviewer-output-${{ steps.select.outputs.reviewer_9_name }}.json
         sandbox: read-only
@@ -934,7 +972,7 @@ runs:
         allow-bots: true
         allow-bot-users: "github-actions[bot],cursor[bot],renovate[bot]"
         codex-args: >-
-          ["--output-schema","${{ github.action_path }}/../../../.github/codex/schemas/reviewer-output.schema.json","--ephemeral","--config","model_catalog_json=\"${{ github.action_path }}/../../../.github/codex/azure-model-catalog.json\""]
+          ["--output-schema","${{ github.action_path }}/../../../.github/codex/schemas/reviewer-output.schema.json","--ephemeral","--config","model_catalog_json=\"${{ inputs.model_catalog_path != '' && inputs.model_catalog_path || format('{0}/../../../.github/codex/azure-model-catalog.json', github.action_path) }}\""]
 
     - name: Placeholder or stash reviewer 9
       if: steps.resolve.outputs.should_run == 'true' && steps.select.outputs.reviewer_9_name != ''
@@ -1014,9 +1052,9 @@ runs:
       with:
         openai-api-key: ${{ inputs.azure_ai_api_key }}
         responses-api-endpoint: ${{ steps.endpoint.outputs.responses_endpoint }}
-        codex-version: "0.146.1"
-        model: ${{ steps.select.outputs.reviewer_10_model_kind == 'critical' && 'gpt-5.6-terra' || 'gpt-5.6-luna' }}
-        effort: ${{ steps.select.outputs.reviewer_10_model_kind == 'critical' && 'high' || 'medium' }}
+        codex-version: ${{ inputs.codex_version }}
+        model: ${{ steps.select.outputs.reviewer_10_model }}
+        effort: ${{ steps.select.outputs.reviewer_10_effort }}
         prompt-file: assessment/reviewer-task.md
         output-file: assessment/reviewer-output-${{ steps.select.outputs.reviewer_10_name }}.json
         sandbox: read-only
@@ -1024,7 +1062,7 @@ runs:
         allow-bots: true
         allow-bot-users: "github-actions[bot],cursor[bot],renovate[bot]"
         codex-args: >-
-          ["--output-schema","${{ github.action_path }}/../../../.github/codex/schemas/reviewer-output.schema.json","--ephemeral","--config","model_catalog_json=\"${{ github.action_path }}/../../../.github/codex/azure-model-catalog.json\""]
+          ["--output-schema","${{ github.action_path }}/../../../.github/codex/schemas/reviewer-output.schema.json","--ephemeral","--config","model_catalog_json=\"${{ inputs.model_catalog_path != '' && inputs.model_catalog_path || format('{0}/../../../.github/codex/azure-model-catalog.json', github.action_path) }}\""]
 
     - name: Placeholder or stash reviewer 10
       if: steps.resolve.outputs.should_run == 'true' && steps.select.outputs.reviewer_10_name != ''
@@ -1104,9 +1142,9 @@ runs:
       with:
         openai-api-key: ${{ inputs.azure_ai_api_key }}
         responses-api-endpoint: ${{ steps.endpoint.outputs.responses_endpoint }}
-        codex-version: "0.146.1"
-        model: ${{ steps.select.outputs.reviewer_11_model_kind == 'critical' && 'gpt-5.6-terra' || 'gpt-5.6-luna' }}
-        effort: ${{ steps.select.outputs.reviewer_11_model_kind == 'critical' && 'high' || 'medium' }}
+        codex-version: ${{ inputs.codex_version }}
+        model: ${{ steps.select.outputs.reviewer_11_model }}
+        effort: ${{ steps.select.outputs.reviewer_11_effort }}
         prompt-file: assessment/reviewer-task.md
         output-file: assessment/reviewer-output-${{ steps.select.outputs.reviewer_11_name }}.json
         sandbox: read-only
@@ -1114,7 +1152,7 @@ runs:
         allow-bots: true
         allow-bot-users: "github-actions[bot],cursor[bot],renovate[bot]"
         codex-args: >-
-          ["--output-schema","${{ github.action_path }}/../../../.github/codex/schemas/reviewer-output.schema.json","--ephemeral","--config","model_catalog_json=\"${{ github.action_path }}/../../../.github/codex/azure-model-catalog.json\""]
+          ["--output-schema","${{ github.action_path }}/../../../.github/codex/schemas/reviewer-output.schema.json","--ephemeral","--config","model_catalog_json=\"${{ inputs.model_catalog_path != '' && inputs.model_catalog_path || format('{0}/../../../.github/codex/azure-model-catalog.json', github.action_path) }}\""]
 
     - name: Placeholder or stash reviewer 11
       if: steps.resolve.outputs.should_run == 'true' && steps.select.outputs.reviewer_11_name != ''
@@ -1190,9 +1228,9 @@ runs:
       with:
         openai-api-key: ${{ inputs.azure_ai_api_key }}
         responses-api-endpoint: ${{ steps.agg_endpoint.outputs.responses_endpoint }}
-        codex-version: "0.146.1"
-        model: gpt-5.6-terra
-        effort: high
+        codex-version: ${{ inputs.codex_version }}
+        model: ${{ steps.select.outputs.aggregator_model }}
+        effort: ${{ steps.select.outputs.aggregator_effort }}
         prompt-file: assessment/aggregator-task.md
         output-file: assessment/final-review.md
         sandbox: read-only
@@ -1200,7 +1238,7 @@ runs:
         allow-bots: true
         allow-bot-users: "github-actions[bot],cursor[bot],renovate[bot]"
         codex-args: >-
-          ["--ephemeral","--config","model_catalog_json=\"${{ github.action_path }}/../../../.github/codex/azure-model-catalog.json\""]
+          ["--ephemeral","--config","model_catalog_json=\"${{ inputs.model_catalog_path != '' && inputs.model_catalog_path || format('{0}/../../../.github/codex/azure-model-catalog.json', github.action_path) }}\""]
 
     - name: Sanitize final review
       if: steps.resolve.outputs.should_run == 'true'

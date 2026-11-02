@@ -981,15 +981,44 @@ def validate_reviewer_name(name: str) -> str:
     return name
 
 
+DEFAULT_NORMAL_MODEL = "gpt-5.6-luna"
+DEFAULT_NORMAL_EFFORT = "medium"
+DEFAULT_CRITICAL_MODEL = "gpt-5.6-terra"
+DEFAULT_CRITICAL_EFFORT = "high"
+DEFAULT_AGGREGATOR_MODEL = "gpt-5.6-terra"
+DEFAULT_AGGREGATOR_EFFORT = "high"
+
+
 def _reviewer_entry(
-    name: str, model_kind: str = "normal", role_references: list[str] | None = None
+    name: str,
+    model_kind: str = "normal",
+    role_references: list[str] | None = None,
+    *,
+    model: str | None = None,
+    effort: str | None = None,
+    normal_model: str = DEFAULT_NORMAL_MODEL,
+    normal_effort: str = DEFAULT_NORMAL_EFFORT,
+    critical_model: str = DEFAULT_CRITICAL_MODEL,
+    critical_effort: str = DEFAULT_CRITICAL_EFFORT,
 ) -> dict[str, str]:
     safe_name = validate_reviewer_name(name)
     refs = parse_role_references(role_references or [])
+    resolved_model = (
+        model.strip()
+        if model and model.strip()
+        else (critical_model if model_kind == "critical" else normal_model)
+    )
+    resolved_effort = (
+        effort.strip()
+        if effort and effort.strip()
+        else (critical_effort if model_kind == "critical" else normal_effort)
+    )
     return {
         "name": safe_name,
         "prompt_file": f".cursor/agents/{safe_name}.md",
         "model_kind": model_kind,
+        "model": resolved_model,
+        "effort": resolved_effort,
         "role_references": ",".join(refs),
     }
 
@@ -1033,7 +1062,7 @@ def _rule_matches_path(path: str, rule: dict[str, Any]) -> bool:
     return False
 
 
-def load_reviewer_map(map_path: str | Path) -> list[dict[str, Any]]:
+def load_reviewer_map_config(map_path: str | Path) -> tuple[list[dict[str, Any]], dict[str, str]]:
     payload = load_json(map_path)
     if not isinstance(payload, dict):
         raise ValueError("reviewer map must be a JSON object")
@@ -1046,11 +1075,39 @@ def load_reviewer_map(map_path: str | Path) -> list[dict[str, Any]]:
             raise ValueError("each reviewer map rule needs a name")
         validate_reviewer_name(str(rule["name"]))
         parsed.append(rule)
-    return parsed
+    defaults_raw = payload.get("defaults") or payload.get("models") or {}
+    defaults: dict[str, str] = {}
+    if isinstance(defaults_raw, dict):
+        for k, v in defaults_raw.items():
+            if isinstance(v, str) and v.strip():
+                defaults[k] = v.strip()
+    for top_key in (
+        "normal_model",
+        "normal_effort",
+        "critical_model",
+        "critical_effort",
+        "aggregator_model",
+        "aggregator_effort",
+    ):
+        val = payload.get(top_key)
+        if isinstance(val, str) and val.strip():
+            defaults[top_key] = val.strip()
+    return parsed, defaults
+
+
+def load_reviewer_map(map_path: str | Path) -> list[dict[str, Any]]:
+    rules, _ = load_reviewer_map_config(map_path)
+    return rules
 
 
 def select_reviewers_from_map(
-    changed_files: list[str], rules: list[dict[str, Any]]
+    changed_files: list[str],
+    rules: list[dict[str, Any]],
+    *,
+    normal_model: str = DEFAULT_NORMAL_MODEL,
+    normal_effort: str = DEFAULT_NORMAL_EFFORT,
+    critical_model: str = DEFAULT_CRITICAL_MODEL,
+    critical_effort: str = DEFAULT_CRITICAL_EFFORT,
 ) -> list[dict[str, str]]:
     selected: dict[str, dict[str, str]] = {}
     for file_path in changed_files:
@@ -1060,8 +1117,20 @@ def select_reviewers_from_map(
                 continue
             name = str(rule["name"])
             model_kind = str(rule.get("model_kind") or "normal")
+            rule_model = str(rule.get("model") or "").strip() or None
+            rule_effort = str(rule.get("effort") or "").strip() or None
             refs = parse_role_references(list(rule.get("role_references") or []))
-            selected[name] = _reviewer_entry(name, model_kind, refs)
+            selected[name] = _reviewer_entry(
+                name,
+                model_kind,
+                refs,
+                model=rule_model,
+                effort=rule_effort,
+                normal_model=normal_model,
+                normal_effort=normal_effort,
+                critical_model=critical_model,
+                critical_effort=critical_effort,
+            )
             if len(selected) >= MAX_REVIEWERS:
                 break
         if len(selected) >= MAX_REVIEWERS:
@@ -1079,17 +1148,58 @@ def resolve_reviewer_map_path(map_path: str | Path | None = None) -> Path | None
     return None
 
 
+def _resolve_llm_defaults(map_defaults: dict[str, str] | None = None) -> dict[str, str]:
+    d = map_defaults or {}
+    return {
+        "normal_model": os.environ.get("CODEX_NORMAL_MODEL", "").strip()
+        or d.get("normal_model", "")
+        or DEFAULT_NORMAL_MODEL,
+        "normal_effort": os.environ.get("CODEX_NORMAL_EFFORT", "").strip()
+        or d.get("normal_effort", "")
+        or DEFAULT_NORMAL_EFFORT,
+        "critical_model": os.environ.get("CODEX_CRITICAL_MODEL", "").strip()
+        or d.get("critical_model", "")
+        or DEFAULT_CRITICAL_MODEL,
+        "critical_effort": os.environ.get("CODEX_CRITICAL_EFFORT", "").strip()
+        or d.get("critical_effort", "")
+        or DEFAULT_CRITICAL_EFFORT,
+        "aggregator_model": os.environ.get("CODEX_AGGREGATOR_MODEL", "").strip()
+        or d.get("aggregator_model", "")
+        or DEFAULT_AGGREGATOR_MODEL,
+        "aggregator_effort": os.environ.get("CODEX_AGGREGATOR_EFFORT", "").strip()
+        or d.get("aggregator_effort", "")
+        or DEFAULT_AGGREGATOR_EFFORT,
+    }
+
+
 def select_reviewers(
     changed_files: list[str], map_path: str | Path | None = None
 ) -> list[dict[str, str]]:
     resolved = resolve_reviewer_map_path(map_path)
     if resolved is not None:
-        return select_reviewers_from_map(changed_files, load_reviewer_map(resolved))
+        rules, map_defaults = load_reviewer_map_config(resolved)
+        llm_cfg = _resolve_llm_defaults(map_defaults)
+        return select_reviewers_from_map(
+            changed_files,
+            rules,
+            normal_model=llm_cfg["normal_model"],
+            normal_effort=llm_cfg["normal_effort"],
+            critical_model=llm_cfg["critical_model"],
+            critical_effort=llm_cfg["critical_effort"],
+        )
 
+    llm_cfg = _resolve_llm_defaults()
     selected: dict[str, dict[str, str]] = {}
 
     def add(name: str, model_kind: str = "normal") -> None:
-        selected[name] = _reviewer_entry(name, model_kind)
+        selected[name] = _reviewer_entry(
+            name,
+            model_kind,
+            normal_model=llm_cfg["normal_model"],
+            normal_effort=llm_cfg["normal_effort"],
+            critical_model=llm_cfg["critical_model"],
+            critical_effort=llm_cfg["critical_effort"],
+        )
 
     for file_path in changed_files:
         path = normalize_path(file_path)
@@ -1389,23 +1499,38 @@ def add_triage_ci_parser(subparsers: argparse._SubParsersAction) -> None:
 def main_select(args: argparse.Namespace) -> int:
     context = load_json(args.context)
     changed_files = [item["filename"] for item in context.get("files", []) if item.get("filename")]
+    resolved_map = resolve_reviewer_map_path(args.reviewer_map)
+    map_defaults: dict[str, str] = {}
+    if resolved_map is not None:
+        _, map_defaults = load_reviewer_map_config(resolved_map)
+    llm_cfg = _resolve_llm_defaults(map_defaults)
     reviewers = select_reviewers(changed_files, map_path=args.reviewer_map)
-    payload = {"reviewers": reviewers}
+    payload = {
+        "reviewers": reviewers,
+        "aggregator_model": llm_cfg["aggregator_model"],
+        "aggregator_effort": llm_cfg["aggregator_effort"],
+    }
     write_json(args.output, payload)
     if args.github_output:
         values = {
             "has_reviewers": "true" if reviewers else "false",
             "reviewer_count": str(len(reviewers)),
+            "aggregator_model": llm_cfg["aggregator_model"],
+            "aggregator_effort": llm_cfg["aggregator_effort"],
             "matrix": json.dumps({"include": reviewers}, separators=(",", ":")),
         }
         for index in range(MAX_REVIEWERS):
             if index < len(reviewers):
                 values[f"reviewer_{index}_name"] = reviewers[index]["name"]
                 values[f"reviewer_{index}_model_kind"] = reviewers[index]["model_kind"]
+                values[f"reviewer_{index}_model"] = reviewers[index]["model"]
+                values[f"reviewer_{index}_effort"] = reviewers[index]["effort"]
                 values[f"reviewer_{index}_refs"] = reviewers[index].get("role_references", "")
             else:
                 values[f"reviewer_{index}_name"] = ""
                 values[f"reviewer_{index}_model_kind"] = ""
+                values[f"reviewer_{index}_model"] = ""
+                values[f"reviewer_{index}_effort"] = ""
                 values[f"reviewer_{index}_refs"] = ""
         append_github_output(args.github_output, values)
     print(json.dumps(payload, sort_keys=True))

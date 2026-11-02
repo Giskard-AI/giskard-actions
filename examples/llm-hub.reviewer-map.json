@@ -1,4 +1,12 @@
 {
+  "defaults": {
+    "normal_model": "gpt-5.6-luna",
+    "normal_effort": "medium",
+    "critical_model": "gpt-5.6-terra",
+    "critical_effort": "high",
+    "aggregator_model": "gpt-5.6-terra",
+    "aggregator_effort": "high"
+  },
   "rules": [
     {
       "name": "clean-arch-guard",

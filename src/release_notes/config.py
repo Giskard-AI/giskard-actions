@@ -137,6 +137,10 @@ class ProjectConfig:
     ignored_path_prefixes: tuple[str, ...] = ()
     sections: tuple[SectionConfig, ...] = tuple(SectionConfig(**s) for s in DEFAULT_SECTIONS)
     upgrade_rules: tuple[UpgradeRule, ...] = ()
+    model: str | None = None
+    consolidation_model: str | None = None
+    synthesis_model: str | None = None
+    llm_concurrency: int | None = None
 
     def enabled_section_ids(self) -> set[str]:
         return {s.id for s in self.sections if s.enabled}
@@ -282,4 +286,8 @@ def load_project_config(repo_root: Path) -> ProjectConfig:
         ignored_path_prefixes=tuple(data.get("ignored_path_prefixes", [])),
         sections=_parse_sections(data.get("sections")),
         upgrade_rules=_parse_upgrade_rules(data.get("upgrade_rules")),
+        model=data.get("model"),
+        consolidation_model=data.get("consolidation_model"),
+        synthesis_model=data.get("synthesis_model"),
+        llm_concurrency=data.get("llm_concurrency"),
     )
