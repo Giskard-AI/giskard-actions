@@ -66,7 +66,7 @@ uv run generate-release-notes \
 
 Required for Azure models (`azure_ai/…`): `AZURE_AI_API_KEY` and `AZURE_AI_ENDPOINT` (or `AZURE_AI_API_BASE`). Optional: `LINEAR_API_KEY`, `GITHUB_TOKEN`.
 
-Default model: `azure_ai/gpt-5.4`.
+Default model: `azure_ai/gpt-5.6-luna` (`effort: "high"`).
 
 ## GitHub Action
 

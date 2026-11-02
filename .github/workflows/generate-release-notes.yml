@@ -15,7 +15,12 @@ on:
         description: "giskard-llm model name"
         required: false
         type: string
-        default: azure_ai/gpt-5.4
+        default: azure_ai/gpt-5.6-luna
+      effort:
+        description: "Reasoning effort (low, medium, high)"
+        required: false
+        type: string
+        default: high
       dry_run:
         description: "Skip LLM calls, produce debug output"
         required: false
@@ -51,7 +56,8 @@ jobs:
         with:
           version: ${{ github.event.inputs.version }}
           previous_tag: ${{ github.event.inputs.previous_tag || '' }}
-          model: ${{ github.event.inputs.model || 'azure_ai/gpt-5.4' }}
+          model: ${{ github.event.inputs.model || 'azure_ai/gpt-5.6-luna' }}
+          effort: ${{ github.event.inputs.effort || 'high' }}
           dry_run: ${{ github.event.inputs.dry_run }}
         env:
           AZURE_AI_API_KEY: ${{ secrets.AZURE_AI_API_KEY }}

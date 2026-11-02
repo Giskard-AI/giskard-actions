@@ -138,8 +138,11 @@ class ProjectConfig:
     sections: tuple[SectionConfig, ...] = tuple(SectionConfig(**s) for s in DEFAULT_SECTIONS)
     upgrade_rules: tuple[UpgradeRule, ...] = ()
     model: str | None = None
+    effort: str | None = None
     consolidation_model: str | None = None
+    consolidation_effort: str | None = None
     synthesis_model: str | None = None
+    synthesis_effort: str | None = None
     llm_concurrency: int | None = None
 
     def enabled_section_ids(self) -> set[str]:
@@ -287,7 +290,10 @@ def load_project_config(repo_root: Path) -> ProjectConfig:
         sections=_parse_sections(data.get("sections")),
         upgrade_rules=_parse_upgrade_rules(data.get("upgrade_rules")),
         model=data.get("model"),
+        effort=data.get("effort"),
         consolidation_model=data.get("consolidation_model"),
+        consolidation_effort=data.get("consolidation_effort"),
         synthesis_model=data.get("synthesis_model"),
+        synthesis_effort=data.get("synthesis_effort"),
         llm_concurrency=data.get("llm_concurrency"),
     )

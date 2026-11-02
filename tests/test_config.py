@@ -262,3 +262,23 @@ class TestCommitCategoryHelpers:
     def test_custom_section_default_description(self):
         sections = _parse_sections([{"id": "probes", "title": "Probes"}])
         assert sections[0].description == "Changes related to Probes."
+
+    def test_default_llm_model_and_effort(self):
+        from giskard.llm.translators import openai_chat
+        from giskard.llm.types import UserMessage
+
+        from release_notes.llm import (
+            DEFAULT_EFFORT,
+            DEFAULT_MODEL,
+            _ensure_reasoning_effort_support,
+        )
+
+        assert DEFAULT_MODEL == "azure_ai/gpt-5.6-luna"
+        assert DEFAULT_EFFORT == "high"
+        _ensure_reasoning_effort_support()
+        translated = openai_chat.OpenAIChatTranslator.to_openai(
+            "gpt-5.6-luna",
+            [UserMessage(role="user", content="hello")],
+            reasoning_effort="high",
+        )
+        assert translated["reasoning_effort"] == "high"
