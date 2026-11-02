@@ -3,9 +3,16 @@
 import argparse
 import json
 import os
+import re
 import secrets
+import subprocess
 import sys
+import tomllib
 from pathlib import Path
+
+_SEMVER_TAG_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
+_BREAKING_HEADER_RE = re.compile(r"^[a-z]+(?:\([^)]+\))?!:")
+_FEAT_HEADER_RE = re.compile(r"^feat(?:\([^)]+\))?:")
 
 
 def sanitize_scalar(value: object) -> str:
@@ -53,6 +60,91 @@ def write_metadata_outputs(github_output: Path, metadata: dict) -> None:
     )
 
 
+def _parse_semver_tag(tag: str) -> tuple[int, int, int] | None:
+    match = _SEMVER_TAG_RE.match(tag.strip())
+    if not match:
+        return None
+    return int(match.group(1)), int(match.group(2)), int(match.group(3))
+
+
+def compute_next_release_tag(repo_root: Path) -> dict[str, str]:
+    head_tags_out = subprocess.run(
+        ["git", "tag", "--points-at", "HEAD"],
+        cwd=repo_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    head_semver_tags = [
+        (parsed, tag.strip())
+        for tag in head_tags_out.splitlines()
+        if (parsed := _parse_semver_tag(tag)) is not None
+    ]
+    if head_semver_tags:
+        head_semver_tags.sort(key=lambda item: item[0])
+        existing_tag = head_semver_tags[-1][1]
+        return {
+            "should_release": "false",
+            "tag": existing_tag,
+            "previous_tag": existing_tag,
+        }
+
+    all_tags_out = subprocess.run(
+        ["git", "tag", "--merged", "HEAD"],
+        cwd=repo_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    semver_tags = [
+        (parsed, tag.strip())
+        for tag in all_tags_out.splitlines()
+        if (parsed := _parse_semver_tag(tag)) is not None
+    ]
+    if not semver_tags:
+        pyproject = tomllib.loads((repo_root / "pyproject.toml").read_text(encoding="utf-8"))
+        base_version = str(pyproject.get("project", {}).get("version", "0.1.0")).strip()
+        return {
+            "should_release": "true",
+            "tag": f"v{base_version.lstrip('v')}",
+            "previous_tag": "",
+        }
+
+    semver_tags.sort(key=lambda item: item[0])
+    (major, minor, patch), prev_tag = semver_tags[-1]
+
+    log_out = subprocess.run(
+        ["git", "log", f"{prev_tag}..HEAD", "--format=%B%x00"],
+        cwd=repo_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    messages = [msg.strip() for msg in log_out.split("\x00") if msg.strip()]
+
+    bump = "patch"
+    for msg in messages:
+        first_line = msg.splitlines()[0].strip()
+        if _BREAKING_HEADER_RE.match(first_line) or "BREAKING CHANGE:" in msg:
+            bump = "major"
+            break
+        if _FEAT_HEADER_RE.match(first_line):
+            bump = "minor"
+
+    if bump == "major":
+        next_tag = f"v{major + 1}.0.0"
+    elif bump == "minor":
+        next_tag = f"v{major}.{minor + 1}.0"
+    else:
+        next_tag = f"v{major}.{minor}.{patch + 1}"
+
+    return {
+        "should_release": "true",
+        "tag": next_tag,
+        "previous_tag": prev_tag,
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--github-output", required=True)
@@ -62,8 +154,25 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Write sanitized composite output path from OUTPUT_PATH/VERSION env vars",
     )
+    parser.add_argument(
+        "--compute-next-release-tag",
+        action="store_true",
+        help="Compute next SemVer Umbrella Release tag from git history",
+    )
+    parser.add_argument(
+        "--repo-root",
+        default=".",
+        help="Repository root directory for --compute-next-release-tag",
+    )
     args = parser.parse_args(argv)
     github_output = Path(args.github_output)
+
+    if args.compute_next_release_tag:
+        write_github_outputs(
+            github_output,
+            scalars=compute_next_release_tag(Path(args.repo_root)),
+        )
+        return 0
 
     if args.resolve_output_path:
         write_github_outputs(

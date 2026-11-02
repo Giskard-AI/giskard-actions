@@ -1,0 +1,48 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Cut SemVer Umbrella Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Create git tag and GitHub Release
+    steps:
+      - name: Checkout repository with tags
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Compute next SemVer tag
+        id: next
+        shell: bash
+        run: |
+          python3 scripts/ci/write_github_output.py \
+            --github-output "${GITHUB_OUTPUT}" \
+            --compute-next-release-tag
+
+      - name: Create GitHub Release and tag
+        if: steps.next.outputs.should_release == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEXT_TAG: ${{ steps.next.outputs.tag }}
+          TARGET_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          gh release create "${NEXT_TAG}" \
+            --target "${TARGET_SHA}" \
+            --title "${NEXT_TAG}" \
+            --generate-notes

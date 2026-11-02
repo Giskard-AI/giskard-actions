@@ -10,7 +10,7 @@
   ],
   "packageRules": [
     {
-      "matchManagers": ["pep621"],
+      "matchManagers": ["pep621", "pyenv"],
       "description": "Disable python versions from updating",
       "enabled": false,
       "matchPackageNames": ["/^python$/"]
