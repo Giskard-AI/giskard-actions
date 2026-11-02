@@ -6,7 +6,6 @@ Private Giskard GitHub Actions repo. Intended GitHub name: **`Giskard-AI/giskard
 | --- | --- | --- |
 | Release notes | Composite `action.yml` + CLI `generate-release-notes` | `.release-notes.json` + thin workflow |
 | Codex PR review | `.github/actions/codex-pr-review` + `codex-post-review` | `.github/codex/reviewer-map.json` + shim jobs |
-| Codex CI analysis | `.github/actions/codex-ci-collect` + `codex-ci-diagnose` + post | `.github/codex/ci-config.json` + shim jobs |
 
 Trusted automation is the pinned unpack (`github.action_path`). Callers cannot retarget the helper. Codex overlays load from the **consumer PR base SHA**, not PR head. Consumers own `environment:`, job `if:`, and permissions.
 
@@ -208,40 +207,6 @@ jobs:
 Start a review with the `codex-review` label, `/review`, or `/codex-assess` from OWNER/MEMBER/COLLABORATOR.
 
 Codex uses **`AZURE_AI_RESPONSES_BASE`** (Responses API). Release notes use **`AZURE_AI_API_BASE`** (giskard-llm). Do not collapse those URLs.
-
-## Codex CI analysis (composite)
-
-Copy `examples/llm-hub.ci-config.json` to `.github/codex/ci-config.json`. Thin jobs: collect (`environment: ci` + Sonar) → diagnose (`ci` + Azure, skip when triage says no AI) → post (write, no Azure).
-
-```yaml
-jobs:
-  collect:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (
-        github.event_name == 'issue_comment' &&
-        github.event.issue.pull_request &&
-        github.event.comment.body == '/codex-ci-assess' &&
-        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
-      )
-    runs-on: ubuntu-latest
-    environment:
-      name: ci
-      deployment: false
-    permissions:
-      actions: read
-      checks: read
-      contents: read
-      issues: read
-      pull-requests: read
-    steps:
-      - uses: Giskard-AI/giskard-release-notes/.github/actions/codex-ci-collect@<sha>
-        with:
-          github_token: ${{ github.token }}
-          sonar_qube_token: ${{ secrets.SONAR_QUBE_TOKEN }}
-```
-
-Trigger: `/codex-ci-assess` from OWNER/MEMBER/COLLABORATOR, or `workflow_dispatch`.
 
 Org: allow this private repo's actions for each consumer. Codex unpack does not need an Automation App. zizmor's `impostor-commit` check may.
 

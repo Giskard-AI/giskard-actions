@@ -98,15 +98,10 @@ class TestCodexPrAssessmentWorkflow(unittest.TestCase):
         caller = (REPO_ROOT / ".github/workflows/codex-pr-assessment.yml").read_text(
             encoding="utf-8"
         )
-        ci = (REPO_ROOT / ".github/workflows/codex-ci-analysis.yml").read_text(encoding="utf-8")
         self.assertIn("uses: ./.github/actions/codex-pr-review", caller)
         self.assertIn("uses: ./.github/actions/codex-post-review", caller)
-        self.assertIn("uses: ./.github/actions/codex-ci-collect", ci)
-        self.assertIn("uses: ./.github/actions/codex-ci-diagnose", ci)
         self.assertNotIn(".reusable.yml", caller)
-        self.assertNotIn(".reusable.yml", ci)
         self.assertNotIn("secrets: inherit", caller)
-        self.assertNotIn("secrets: inherit", ci)
         self.assertNotIn("pull_request_target", caller)
         self.assertNotIn("GITHUB_WORKFLOW_SHA", caller)
         self.assertNotIn("GITHUB_WORKFLOW_REF", caller)
@@ -138,20 +133,6 @@ class TestCodexPrAssessmentWorkflow(unittest.TestCase):
         ]
         self.assertTrue(arg_lines)
         self.assertFalse(any("features.multi_agent_v2" in line for line in arg_lines))
-
-    def test_ci_composites_do_not_clone_workflow_sha(self) -> None:
-        collect = (REPO_ROOT / ".github/actions/codex-ci-collect/action.yml").read_text(
-            encoding="utf-8"
-        )
-        diagnose = (REPO_ROOT / ".github/actions/codex-ci-diagnose/action.yml").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("CODEX_CI_CONFIG", collect)
-        self.assertIn("/codex-ci-assess", collect)
-        self.assertNotIn("GITHUB_WORKFLOW_SHA", collect)
-        self.assertNotIn("AUTOMATION_APP_PRIVATE_KEY", collect)
-        self.assertNotIn("AUTOMATION_APP_PRIVATE_KEY", diagnose)
-        self.assertIn("openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e", diagnose)
 
     def test_notes_action_exports_constraints_without_workspace_project(self) -> None:
         action = (REPO_ROOT / "action.yml").read_text(encoding="utf-8")
