@@ -1008,6 +1008,7 @@ class TestCiTriage(unittest.TestCase):
 
     def _triage(self, context: dict) -> dict:
         return codex_pr_assessment.triage_ci({**context, "ci_config": self.hub_ci_config})
+
     def test_classifies_common_failure_modes(self) -> None:
         cases = [
             ("pytest", "AssertionError: failed", "failure", "test_failure"),

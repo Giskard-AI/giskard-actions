@@ -162,6 +162,7 @@ async def main_async() -> None:
         version=args.version,
         previous_tag_override=args.previous_tag,
         repo_root=repo_root,
+        dry_run=bool(args.dry_run),
     )
 
     diff_stat = git_diff_stat(
@@ -308,6 +309,7 @@ async def main_async() -> None:
                     github_issues=gh_issues,
                     repo_root=repo_root,
                     manifest_paths=config.manifest_paths,
+                    config=config,
                 )
 
         consolidations = list(await asyncio.gather(*(consolidate_one(cd) for cd in commit_digests)))

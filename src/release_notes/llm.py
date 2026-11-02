@@ -18,6 +18,7 @@ from .models import (
     DependencyUpdate,
     GitHubIssue,
     LinearIssue,
+    build_consolidated_commit_model,
     build_release_notes_payload_model,
 )
 
@@ -103,16 +104,19 @@ async def consolidate_commit(
     github_issues: list[GitHubIssue] | None = None,
     repo_root: Path,
     manifest_paths: tuple[str, ...],
+    config: ProjectConfig | None = None,
 ) -> ConsolidatedCommit:
     """Consolidate a commit digest via giskard-agents structured output.
 
     Untrusted digest/issue text is interpolated through sandboxed Jinja (escaped).
     Canonical git fields are overwritten from parsed data after the LLM returns.
     """
+    cfg = config or ProjectConfig()
     dep_updates = dependency_updates_for_commit(
         commit_digest, repo_root=repo_root, manifest_paths=manifest_paths
     )
     dep_updates_json = json.dumps([u.model_dump() for u in dep_updates], ensure_ascii=False)
+    output_model = build_consolidated_commit_model(cfg)
 
     generator = build_generator(model=model)
     workflow = (
@@ -122,8 +126,9 @@ async def consolidate_commit(
             dependency_updates_json=dep_updates_json,
             linear_block=_linear_block(linear_issues),
             github_block=_github_block(github_issues),
+            category_descriptions=cfg.commit_category_descriptions_for_llm(),
         )
-        .with_output(ConsolidatedCommit, strict=True, num_retries=2)
+        .with_output(output_model, strict=True, num_retries=2)
     )
     started = time.perf_counter()
     chat = await workflow.run()

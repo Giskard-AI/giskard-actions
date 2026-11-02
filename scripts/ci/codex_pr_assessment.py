@@ -977,9 +977,7 @@ def is_infra_path(path: str) -> bool:
 
 def validate_reviewer_name(name: str) -> str:
     if not REVIEWER_NAME_RE.fullmatch(name):
-        raise ValueError(
-            f"invalid reviewer name {name!r}; expected {REVIEWER_NAME_RE.pattern}"
-        )
+        raise ValueError(f"invalid reviewer name {name!r}; expected {REVIEWER_NAME_RE.pattern}")
     return name
 
 
@@ -1404,9 +1402,7 @@ def main_select(args: argparse.Namespace) -> int:
             if index < len(reviewers):
                 values[f"reviewer_{index}_name"] = reviewers[index]["name"]
                 values[f"reviewer_{index}_model_kind"] = reviewers[index]["model_kind"]
-                values[f"reviewer_{index}_refs"] = reviewers[index].get(
-                    "role_references", ""
-                )
+                values[f"reviewer_{index}_refs"] = reviewers[index].get("role_references", "")
             else:
                 values[f"reviewer_{index}_name"] = ""
                 values[f"reviewer_{index}_model_kind"] = ""

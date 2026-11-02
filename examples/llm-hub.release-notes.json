@@ -65,11 +65,11 @@
     },
     {
       "id": "ux_frontend",
-      "description": "UI/UX and Next.js frontend changes (pages, components, forms, navigation)."
+      "description": "UI/UX and React / TanStack Router frontend changes (pages, components, forms, navigation)."
     },
     {
       "id": "api_backend",
-      "description": "Backend API, services, jobs, and worker behavior changes."
+      "description": "Backend API, services, jobs, worker behavior, and backend performance/latency/reliability changes."
     },
     {
       "id": "infra_deps",

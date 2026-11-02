@@ -148,6 +148,27 @@ class ProjectConfig:
         skip = {"summary", "upgrade_notes"} | DETERMINISTIC_SECTION_IDS
         return [s.id for s in self.sections if s.enabled and s.id not in skip]
 
+    def commit_category_ids(self) -> list[str]:
+        """Allowed category IDs for Stage 2 commit consolidation."""
+        ids = list(self.what_changed_section_ids())
+        if "other" not in ids:
+            ids.append("other")
+        return ids
+
+    def commit_category_descriptions_for_llm(self) -> str:
+        """Build a text block describing Stage 2 commit categories for the LLM."""
+        what_changed_ids = set(self.what_changed_section_ids())
+        lines: list[str] = []
+        for s in self.sections:
+            if s.id in what_changed_ids:
+                lines.append(f"- {s.id} ({s.title}): {s.description}")
+        if "other" not in what_changed_ids:
+            lines.append(
+                "- other (Other): Purely internal changes (tests, CI, refactors, chores) "
+                "that do not belong in any section above."
+            )
+        return "\n".join(lines)
+
     def section_title(self, section_id: str) -> str:
         for s in self.sections:
             if s.id == section_id:
@@ -174,17 +195,19 @@ class ProjectConfig:
 
 
 def _parse_sections(raw: list[dict] | None) -> tuple[SectionConfig, ...]:
-    """Parse the `sections` list from project config, overlaying onto known section metadata."""
+    """Parse the `sections` list from project config, overlaying onto known section metadata.
+
+    When `raw` is non-empty, only the explicitly listed sections are included (in that exact order).
+    When `raw` is None or empty, falls back to `DEFAULT_SECTIONS`.
+    """
     if not raw:
         return tuple(SectionConfig(**s) for s in DEFAULT_SECTIONS)
 
     result: list[SectionConfig] = []
-    seen_ids: set[str] = set()
     for entry in raw:
         sid = entry.get("id", "")
         if not sid:
             continue
-        seen_ids.add(sid)
         base = _KNOWN_SECTIONS.get(
             sid, {"id": sid, "title": sid, "description": "", "enabled": True}
         )
@@ -198,9 +221,8 @@ def _parse_sections(raw: list[dict] | None) -> tuple[SectionConfig, ...]:
             )
         )
 
-    for s in DEFAULT_SECTIONS:
-        if s["id"] not in seen_ids:
-            result.append(SectionConfig(**s))
+    if not result:
+        return tuple(SectionConfig(**s) for s in DEFAULT_SECTIONS)
 
     return tuple(result)
 

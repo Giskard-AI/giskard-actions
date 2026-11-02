@@ -66,13 +66,11 @@ class TestParseSections:
         ids = [s.id for s in result[:3]]
         assert ids == ["fixes", "features", "summary"]
 
-    def test_defaults_appended_for_missing(self):
+    def test_explicit_sections_are_authoritative_without_appending_defaults(self):
         raw = [{"id": "features"}]
         result = _parse_sections(raw)
         ids = [s.id for s in result]
-        # features is first (user listed), the other defaults are appended
-        assert ids[0] == "features"
-        assert set(ids) >= {"features", "summary", "fixes", "misc"}
+        assert ids == ["features"]
 
     def test_known_extended_section_gets_metadata(self):
         # ux_frontend is not a default but is a known section
@@ -193,3 +191,61 @@ class TestWithSectionDisabled:
         )
         new_cfg = cfg.with_section_disabled("fixes")
         assert new_cfg.upgrade_rules == cfg.upgrade_rules
+
+
+class TestCommitCategoryHelpers:
+    @pytest.mark.parametrize(
+        ("sections_raw", "expected_ids"),
+        [
+            (
+                None,
+                ["features", "fixes", "misc", "other"],
+            ),
+            (
+                [
+                    {"id": "summary"},
+                    {"id": "features"},
+                    {"id": "fixes"},
+                    {"id": "ux_frontend"},
+                    {"id": "api_backend"},
+                    {"id": "infra_deps"},
+                    {"id": "upgrade_notes"},
+                    {"id": "deps"},
+                    {"id": "appendix"},
+                ],
+                ["features", "fixes", "ux_frontend", "api_backend", "infra_deps", "other"],
+            ),
+            (
+                [
+                    {"id": "summary"},
+                    {"id": "features"},
+                    {"id": "probes", "title": "Probes", "description": "Adversarial probes."},
+                    {"id": "python_api"},
+                    {"id": "fixes", "enabled": False},
+                    {"id": "deps"},
+                ],
+                ["features", "probes", "python_api", "other"],
+            ),
+        ],
+        ids=["default_config", "llm_hub_sections", "custom_probes_and_disabled_fixes"],
+    )
+    def test_commit_category_ids(self, sections_raw, expected_ids):
+        cfg = ProjectConfig(sections=_parse_sections(sections_raw))
+        assert cfg.commit_category_ids() == expected_ids
+
+    def test_commit_category_descriptions_for_llm(self):
+        raw = [
+            {"id": "summary"},
+            {"id": "probes", "title": "Probes", "description": "Adversarial probes."},
+            {"id": "python_api"},
+            {"id": "upgrade_notes"},
+            {"id": "deps"},
+        ]
+        cfg = ProjectConfig(sections=_parse_sections(raw))
+        desc = cfg.commit_category_descriptions_for_llm()
+        assert "- probes (Probes): Adversarial probes." in desc
+        assert "- python_api (Python API):" in desc
+        assert "- other (Other):" in desc
+        assert "- summary" not in desc
+        assert "- upgrade_notes" not in desc
+        assert "- deps" not in desc

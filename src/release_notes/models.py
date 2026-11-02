@@ -82,7 +82,10 @@ class ConsolidatedCommit(BaseModel):
     pr_number: int = Field(default=0, description="PR number from subject like (#1234), 0 if none.")
     linear_keys: list[str] = Field(default_factory=list, description="Linear issue keys.")
     short_name: str = Field(default="", description="Short label (2-6 words).")
-    category: CommitCategory = Field(default=CommitCategory.OTHER, description="Change category.")
+    category: str = Field(
+        default=CommitCategory.OTHER,
+        description="Primary section ID from the configured 'What changed' sections, or 'other'.",
+    )
     consolidated_description: str = Field(default="", description="Human-readable description.")
     context: str = Field(
         default="", description="Context/motivation from issue tracker, empty string if none."
@@ -92,6 +95,28 @@ class ConsolidatedCommit(BaseModel):
     unknowns: list[str] = Field(default_factory=list, description="Ambiguities.")
     dependency_updates: list[DependencyUpdate] = Field(
         default_factory=list, description="Dependency updates for this commit."
+    )
+
+
+def build_consolidated_commit_model(config: ProjectConfig) -> type[ConsolidatedCommit]:
+    """Build a ConsolidatedCommit model whose `category` enum matches configured sections."""
+    category_ids = config.commit_category_ids()
+    enum_members = {cid.upper(): cid for cid in category_ids}
+    dynamic_enum = StrEnum("CommitCategoryDynamic", enum_members)
+    default_val = (
+        dynamic_enum("other") if "other" in category_ids else dynamic_enum(category_ids[0])
+    )
+    allowed_str = ", ".join(category_ids)
+    return create_model(
+        "ConsolidatedCommitDynamic",
+        __base__=ConsolidatedCommit,
+        category=(
+            dynamic_enum,
+            Field(
+                default=default_val,
+                description=f"Primary section ID from configured sections ({allowed_str}).",
+            ),
+        ),
     )
 
 

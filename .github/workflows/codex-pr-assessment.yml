@@ -1,6 +1,6 @@
 name: Codex PR Code Review
 
-on:
+on: # zizmor: ignore[dangerous-triggers] -- gated to OWNER/MEMBER/COLLABORATOR on /review or /codex-assess
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, labeled]
   issue_comment:
@@ -20,6 +20,7 @@ concurrency:
 
 jobs:
   review:
+    name: Run Codex PR review
     if: >-
       (
         github.event_name == 'pull_request' &&
@@ -38,9 +39,9 @@ jobs:
       name: ci
       deployment: false
     permissions:
-      contents: read
-      issues: read
-      pull-requests: read
+      contents: read # Checkout repository
+      issues: read # Read issue comments
+      pull-requests: read # Read PR diffs and metadata
     outputs:
       should_run: ${{ steps.codex.outputs.should_run }}
       pr_number: ${{ steps.codex.outputs.pr_number }}
@@ -52,19 +53,20 @@ jobs:
 
       - name: Run Codex PR review
         id: codex
-        uses: ./.github/actions/codex-pr-review
+        uses: ./.github/actions/codex-pr-review # zizmor: ignore[self-repository]
         with:
           responses_api_base: ${{ vars.AZURE_AI_RESPONSES_BASE != '' && vars.AZURE_AI_RESPONSES_BASE || vars.AZURE_AI_API_BASE }}
           azure_ai_api_key: ${{ secrets.AZURE_AI_API_KEY }}
           github_token: ${{ github.token }}
 
   post:
+    name: Post advisory review comment
     needs: review
     if: needs.review.result == 'success' && needs.review.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-      pull-requests: write
+      contents: read # Checkout repository
+      pull-requests: write # Post advisory PR review comment
     steps:
       - name: Checkout this repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -78,7 +80,7 @@ jobs:
           path: .
 
       - name: Post advisory review
-        uses: ./.github/actions/codex-post-review
+        uses: ./.github/actions/codex-post-review # zizmor: ignore[self-repository]
         with:
           github_token: ${{ github.token }}
           pr_number: ${{ needs.review.outputs.pr_number }}

@@ -117,14 +117,29 @@ def validate_version(version: str) -> None:
         raise SystemExit(f"Invalid version: {version!r}. Expected X.Y.Z[...]")
 
 
+def _tag_exists(tag: str, repo_root: Path) -> bool:
+    p = subprocess.run(
+        ["git", "rev-parse", "--verify", tag],
+        cwd=str(repo_root),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return p.returncode == 0
+
+
 def _ensure_tag_exists(tag: str, repo_root: Path) -> None:
     run_git(["rev-parse", "--verify", tag], repo_root=repo_root)
 
 
+def _list_version_tags(repo_root: Path) -> list[str]:
+    tags = run_git(["tag", "--list", "v*.*.*", "--sort=v:refname"], repo_root=repo_root)
+    return [t.strip() for t in tags.splitlines() if t.strip()]
+
+
 def _detect_previous_tag(current_tag: str, repo_root: Path) -> str:
     """Find the tag immediately before current_tag by sorting all v*.*.* tags."""
-    tags = run_git(["tag", "--list", "v*.*.*", "--sort=v:refname"], repo_root=repo_root)
-    ordered = [t.strip() for t in tags.splitlines() if t.strip()]
+    ordered = _list_version_tags(repo_root)
     if current_tag not in ordered:
         raise SystemExit(
             f"Current tag {current_tag!r} not found in repository tags "
@@ -138,22 +153,46 @@ def _detect_previous_tag(current_tag: str, repo_root: Path) -> str:
     return ordered[idx - 1]
 
 
-def detect_tag_range(version: str, previous_tag_override: str | None, repo_root: Path) -> TagRange:
+def detect_tag_range(
+    version: str,
+    previous_tag_override: str | None,
+    repo_root: Path,
+    *,
+    dry_run: bool = False,
+) -> TagRange:
     """Resolve the previous and current tags for a release.
 
-    The current tag is always v{version}. The previous tag is either the
-    --previous-tag override or auto-detected as the preceding v*.*.* tag.
-    Raises SystemExit if either tag is missing from the repository.
+    The current tag is v{version}. When dry_run=True and v{version} does not exist
+    (e.g. 'v0.0.0-pr' in PR CI checks), current_tag falls back to 'HEAD' and
+    previous_tag defaults to the latest existing v*.*.* tag in the repository.
     """
     validate_version(version)
     current_tag = f"v{version}"
     LOG.info("Detecting tag range for version=%s (current tag=%s)", version, current_tag)
-    _ensure_tag_exists(current_tag, repo_root=repo_root)
+
+    current_is_head_fallback = False
+    if _tag_exists(current_tag, repo_root=repo_root):
+        _ensure_tag_exists(current_tag, repo_root=repo_root)
+    elif dry_run:
+        LOG.info(
+            "Tag %s not found; falling back to HEAD for --dry-run.",
+            current_tag,
+        )
+        current_tag = "HEAD"
+        current_is_head_fallback = True
+    else:
+        _ensure_tag_exists(current_tag, repo_root=repo_root)
 
     if previous_tag_override:
         previous_tag = previous_tag_override.strip()
         LOG.info("Using --previous-tag override: %s", previous_tag)
         _ensure_tag_exists(previous_tag, repo_root=repo_root)
+    elif current_is_head_fallback:
+        ordered = _list_version_tags(repo_root)
+        if not ordered:
+            raise SystemExit("No v*.*.* tags found in repository; pass --previous-tag explicitly.")
+        previous_tag = ordered[-1]
+        LOG.info("Auto-detected latest tag as previous tag for dry-run: %s", previous_tag)
     else:
         previous_tag = _detect_previous_tag(current_tag=current_tag, repo_root=repo_root)
         LOG.info("Auto-detected previous tag: %s", previous_tag)
