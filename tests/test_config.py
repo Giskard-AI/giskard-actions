@@ -304,4 +304,3 @@ class TestCommitCategoryHelpers:
             "deps",
             "appendix",
         ]
-

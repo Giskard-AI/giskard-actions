@@ -1396,7 +1396,8 @@ def defang_mentions(text: str) -> str:
 
 
 def post_review(repo: GitHubRepo, pr_number: int, body_path: Path) -> None:
-    body = body_path.read_text(encoding="utf-8")
+    resolved_path = body_path if body_path.is_file() else Path(body_path.name)
+    body = resolved_path.read_text(encoding="utf-8")
     payload = json.dumps({"event": "COMMENT", "body": body})
     run_text(
         [

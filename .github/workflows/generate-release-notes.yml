@@ -66,10 +66,10 @@ jobs:
           effort: ${{ github.event.inputs.effort || 'high' }}
           dry_run: ${{ github.event_name == 'pull_request' || github.event.inputs.dry_run == 'true' }}
         env:
-          AZURE_AI_API_KEY: ${{ secrets.AZURE_AI_API_KEY }}
+          AZURE_AI_API_KEY: ${{ github.event_name == 'workflow_dispatch' && secrets.AZURE_AI_API_KEY || '' }}
           AZURE_AI_API_BASE: ${{ vars.AZURE_AI_API_BASE }}
           AZURE_AI_ENDPOINT: ${{ vars.AZURE_AI_API_BASE }}
-          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          LINEAR_API_KEY: ${{ github.event_name == 'workflow_dispatch' && secrets.LINEAR_API_KEY || '' }}
           GITHUB_TOKEN: ${{ github.token }}
 
       - name: Upload release notes artifact
