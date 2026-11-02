@@ -24,13 +24,18 @@ Produce a JSON object matching the output schema.
 Pick the single best-matching section ID for `category`:
 {{ category_descriptions }}
 
+Classification rules:
+- Prefer the most specific matching section (for example, if both `features`/`fixes` and a domain/surface section such as `ux_frontend`, `api_backend`, or `python_api` are present, use `features` for net-new user capabilities, `fixes` for bug fixes, and the surface section for enhancements or changes to that layer).
+- Use `other` ONLY if the commit is purely internal (tests, refactors, chores) and does not belong in any configured section above.
+
 Requirements:
 - category: one of the configured section IDs listed above (use "other" if the commit is purely internal and does not fit any section).
 - short_name: 2-6 words; should read well as a bullet prefix.
 - consolidated_description: 1-4 sentences explaining what changed in user-facing or operator-facing terms.
   - Include an explicit benefit/outcome sentence when the change provides user, operator, or performance/reliability benefits; do not fabricate user benefits for internal chores or tests.
   - Avoid low-level implementation details (routes, wrappers, query params) unless it directly affects users or API callers.
-- why/context: if Linear or GitHub issues provide motivation/background, fill these fields (do not mention Linear IDs or GitHub issue numbers in prose).
+- context: prior state or problem background from Linear or GitHub issues (leave empty if none; do not mention Linear IDs or GitHub issue numbers in prose).
+- why: goal or reason for making the change (leave empty if none or if already covered by context; do not mention Linear IDs or GitHub issue numbers in prose).
 - upgrade_notes: short bullets only when upgrade action is needed.
 - dependency_updates: use the provided deterministic list as the source of truth. You may add note/note_reason ONLY when non-routine and materially relevant.
   - Do NOT add items that are not present in the deterministic list.

@@ -51,7 +51,7 @@ jobs:
         with:
           version: ${{ github.event.inputs.version }}
           previous_tag: ${{ github.event.inputs.previous_tag || '' }}
-          model: ${{ github.event.inputs.model }}
+          model: ${{ github.event.inputs.model || 'azure_ai/gpt-5.4' }}
           dry_run: ${{ github.event.inputs.dry_run }}
         env:
           AZURE_AI_API_KEY: ${{ secrets.AZURE_AI_API_KEY }}

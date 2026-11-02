@@ -102,3 +102,15 @@ class TestBuildConsolidatedCommitModel:
 
         with pytest.raises(ValidationError):
             model(short_name="Invalid", category=invalid_category)
+
+    def test_llm_schema_excludes_canonical_git_fields_and_evidence_paths(self):
+        cfg = ProjectConfig()
+        commit_model = build_consolidated_commit_model(cfg)
+        assert "sha" not in commit_model.model_fields
+        assert "subject" not in commit_model.model_fields
+        assert "pr_number" not in commit_model.model_fields
+        assert "linear_keys" not in commit_model.model_fields
+
+        payload_model = build_release_notes_payload_model(cfg)
+        schema_str = str(payload_model.model_json_schema())
+        assert "evidence_paths" not in schema_str

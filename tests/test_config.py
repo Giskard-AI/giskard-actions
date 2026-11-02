@@ -249,3 +249,16 @@ class TestCommitCategoryHelpers:
         assert "- summary" not in desc
         assert "- upgrade_notes" not in desc
         assert "- deps" not in desc
+
+    @pytest.mark.parametrize(
+        "invalid_id",
+        ["ux-frontend", "_private", "123", "unknowns"],
+        ids=["hyphenated", "leading_underscore", "numeric", "reserved_unknowns"],
+    )
+    def test_invalid_section_id_raises(self, invalid_id):
+        with pytest.raises(SystemExit, match="Invalid section id"):
+            _parse_sections([{"id": invalid_id}])
+
+    def test_custom_section_default_description(self):
+        sections = _parse_sections([{"id": "probes", "title": "Probes"}])
+        assert sections[0].description == "Changes related to Probes."

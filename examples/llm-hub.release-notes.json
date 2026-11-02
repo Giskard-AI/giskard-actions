@@ -12,11 +12,13 @@
   "high_signal_prefixes": [
     "backend/src/backend/routers/",
     "backend/src/backend/http/",
+    "backend/src/backend/handlers/",
     "backend/src/backend/services/",
     "backend/src/backend/jobs/",
     "backend/src/backend/worker/",
     "backend/migrations/versions/",
     "helm/giskard-llm-hub/",
+    "frontend/src/routes/",
     "frontend/src/app/",
     "frontend/src/components/",
     ".github/workflows/",
@@ -53,7 +55,7 @@
   "sections": [
     {
       "id": "summary",
-      "description": "3-6 highlight-reel bullets of user-visible Hub changes. Each item must state a benefit (e.g. 'This helps …', 'So you can …'). Subset of What changed, not a superset."
+      "description": "3-6 highlight-reel bullets of user-visible Hub changes. Subset of What changed, not a superset. For features and improvements, explicitly state the user/operator benefit (e.g. 'This helps …', 'So you can …'); for bug fixes, state the resolved user-facing symptom directly."
     },
     {
       "id": "features",

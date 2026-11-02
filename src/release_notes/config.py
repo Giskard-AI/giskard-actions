@@ -20,8 +20,9 @@ DEFAULT_SECTIONS: list[dict] = [
         "description": (
             "3-6 high-signal, user-visible bullets summarizing the release. "
             "A subset of what changed, not a superset. "
-            "Each item must explicitly state the user benefit/outcome "
-            "(e.g. 'This helps …', 'So you can …', 'This reduces …')."
+            "For features and improvements, explicitly state the user benefit/outcome "
+            "(e.g. 'This helps …', 'So you can …', 'This reduces …'); "
+            "for bug fixes, state the resolved user-facing symptom directly."
         ),
         "enabled": True,
     },
@@ -163,10 +164,13 @@ class ProjectConfig:
             if s.id in what_changed_ids:
                 lines.append(f"- {s.id} ({s.title}): {s.description}")
         if "other" not in what_changed_ids:
-            lines.append(
-                "- other (Other): Purely internal changes (tests, CI, refactors, chores) "
-                "that do not belong in any section above."
-            )
+            if what_changed_ids:
+                lines.append(
+                    "- other (Other): Purely internal changes (tests, CI, refactors, chores) "
+                    "that do not belong in any section above."
+                )
+            else:
+                lines.append("- other (Other): General changes in this commit.")
         return "\n".join(lines)
 
     def section_title(self, section_id: str) -> str:
@@ -205,18 +209,24 @@ def _parse_sections(raw: list[dict] | None) -> tuple[SectionConfig, ...]:
 
     result: list[SectionConfig] = []
     for entry in raw:
-        sid = entry.get("id", "")
+        sid = (entry.get("id") or "").strip()
         if not sid:
             continue
+        if not sid.isidentifier() or sid.startswith("_") or sid == "unknowns":
+            raise SystemExit(
+                f"Invalid section id '{sid}': must be a valid identifier and not reserved."
+            )
         base = _KNOWN_SECTIONS.get(
             sid, {"id": sid, "title": sid, "description": "", "enabled": True}
         )
         merged = {**base, **entry}
+        title = merged["title"] or sid
+        description = merged["description"] or f"Changes related to {title}."
         result.append(
             SectionConfig(
-                id=merged["id"],
-                title=merged["title"],
-                description=merged["description"],
+                id=sid,
+                title=title,
+                description=description,
                 enabled=merged.get("enabled", True),
             )
         )
