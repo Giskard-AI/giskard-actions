@@ -15,6 +15,9 @@ jobs:
   release:
     name: Cut SemVer Umbrella Release
     runs-on: ubuntu-latest
+    environment:
+      name: ci
+      deployment: false
     permissions:
       contents: write # Create git tag and GitHub Release
     steps:
@@ -33,6 +36,32 @@ jobs:
             --github-output "${GITHUB_OUTPUT}" \
             --compute-next-release-tag
 
+      - name: Prepare local tag for release notes
+        id: prep
+        if: steps.next.outputs.should_release == 'true'
+        shell: bash
+        env:
+          NEXT_TAG: ${{ steps.next.outputs.tag }}
+          TARGET_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git tag -f "${NEXT_TAG}" "${TARGET_SHA}"
+          echo "version=${NEXT_TAG#v}" >> "${GITHUB_OUTPUT}"
+
+      - name: Generate release notes
+        if: steps.next.outputs.should_release == 'true' && steps.next.outputs.previous_tag != ''
+        continue-on-error: true
+        uses: ./ # zizmor: ignore[self-repository]
+        with:
+          version: ${{ steps.prep.outputs.version }}
+          previous_tag: ${{ steps.next.outputs.previous_tag }}
+        env:
+          AZURE_AI_API_KEY: ${{ secrets.AZURE_AI_API_KEY }}
+          AZURE_AI_API_BASE: ${{ vars.AZURE_AI_API_BASE }}
+          AZURE_AI_ENDPOINT: ${{ vars.AZURE_AI_API_BASE }}
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}
+
       - name: Create GitHub Release and tag
         if: steps.next.outputs.should_release == 'true'
         shell: bash
@@ -42,7 +71,15 @@ jobs:
           TARGET_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          gh release create "${NEXT_TAG}" \
-            --target "${TARGET_SHA}" \
-            --title "${NEXT_TAG}" \
-            --generate-notes
+          notes_file="release_notes/${NEXT_TAG}.md"
+          if [[ -s "${notes_file}" ]]; then
+            gh release create "${NEXT_TAG}" \
+              --target "${TARGET_SHA}" \
+              --title "${NEXT_TAG}" \
+              --notes-file "${notes_file}"
+          else
+            gh release create "${NEXT_TAG}" \
+              --target "${TARGET_SHA}" \
+              --title "${NEXT_TAG}" \
+              --generate-notes
+          fi

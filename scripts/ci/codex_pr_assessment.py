@@ -1624,10 +1624,15 @@ def add_post_review_parser(subparsers: argparse._SubParsersAction) -> None:
 def main_stage_overlay(args: argparse.Namespace) -> int:
     name = validate_reviewer_name(args.name)
     trusted = Path(args.trusted_config)
+    bundled_root = Path(__file__).resolve().parents[2]
     overlay = trusted / ".cursor" / "agents" / f"{name}.md"
     if not overlay.is_file():
-        print(f"missing reviewer overlay: {overlay}", file=sys.stderr)
-        return 1
+        bundled_overlay = bundled_root / ".cursor" / "agents" / f"{name}.md"
+        if bundled_overlay.is_file():
+            overlay = bundled_overlay
+        else:
+            print(f"missing reviewer overlay: {overlay}", file=sys.stderr)
+            return 1
     dest = Path(args.output)
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(overlay.read_text(encoding="utf-8"), encoding="utf-8")
@@ -1640,10 +1645,13 @@ def main_stage_overlay(args: argparse.Namespace) -> int:
                 raise ValueError(f"unexpected directory in role-references: {child}")
     refs_dir.mkdir(parents=True, exist_ok=True)
     source_dir = trusted / ".cursor" / "agents" / "references"
+    bundled_refs_dir = bundled_root / ".cursor" / "agents" / "references"
     for basename in parse_role_references(
         [part for part in args.role_references.split(",") if part]
     ):
         source = source_dir / basename
+        if not source.is_file() and (bundled_refs_dir / basename).is_file():
+            source = bundled_refs_dir / basename
         if not source.is_file():
             print(f"missing role reference: {source}", file=sys.stderr)
             return 1

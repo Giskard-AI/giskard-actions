@@ -1,6 +1,7 @@
 """Tests for config.py — defaults, overlay logic, file loading."""
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -282,3 +283,25 @@ class TestCommitCategoryHelpers:
             reasoning_effort="high",
         )
         assert translated["reasoning_effort"] == "high"
+
+    def test_repo_release_notes_config_is_valid(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        cfg = load_project_config(repo_root)
+        assert cfg.github_repository == "Giskard-AI/giskard-actions"
+        assert cfg.model == "azure_ai/gpt-5.6-luna"
+        assert cfg.effort == "high"
+        assert cfg.manifest_paths == ("pyproject.toml",)
+        assert "action.yml" in cfg.file_diffs
+        assert ".github/actions/codex-pr-review/action.yml" in cfg.file_diffs
+        assert len(cfg.upgrade_rules) == 1
+        assert cfg.upgrade_rules[0].id == "action_interface"
+        assert [s.id for s in cfg.sections] == [
+            "summary",
+            "features",
+            "fixes",
+            "infra_deps",
+            "upgrade_notes",
+            "deps",
+            "appendix",
+        ]
+

@@ -157,7 +157,7 @@ runs:
         prompt-file: assessment/reviewer-task.md
         output-file: assessment/reviewer-output-${{ steps.select.outputs.reviewer_0_name }}.json
         sandbox: read-only
-        safety-strategy: drop-sudo
+        safety-strategy: read-only
         allow-bots: true
         allow-bot-users: "github-actions[bot],cursor[bot],renovate[bot]"
         codex-args: >-
@@ -246,7 +246,7 @@ runs:
         prompt-file: assessment/reviewer-task.md
         output-file: assessment/reviewer-output-${{ steps.select.outputs.reviewer_1_name }}.json
         sandbox: read-only
-        safety-strategy: drop-sudo
+        safety-strategy: read-only
         allow-bots: true
         allow-bot-users: "github-actions[bot],cursor[bot],renovate[bot]"
         codex-args: >-
@@ -335,7 +335,7 @@ runs:
         prompt-file: assessment/reviewer-task.md
         output-file: assessment/reviewer-output-${{ steps.select.outputs.reviewer_2_name }}.json
         sandbox: read-only
-        safety-strategy: drop-sudo
+        safety-strategy: read-only
         allow-bots: true
         allow-bot-users: "github-actions[bot],cursor[bot],renovate[bot]"
         codex-args: >-
@@ -424,7 +424,7 @@ runs:
         prompt-file: assessment/reviewer-task.md
         output-file: assessment/reviewer-output-${{ steps.select.outputs.reviewer_3_name }}.json
         sandbox: read-only
-        safety-strategy: drop-sudo
+        safety-strategy: read-only
         allow-bots: true
         allow-bot-users: "github-actions[bot],cursor[bot],renovate[bot]"
         codex-args: >-
@@ -513,7 +513,7 @@ runs:
         prompt-file: assessment/reviewer-task.md
         output-file: assessment/reviewer-output-${{ steps.select.outputs.reviewer_4_name }}.json
         sandbox: read-only
-        safety-strategy: drop-sudo
+        safety-strategy: read-only
         allow-bots: true
         allow-bot-users: "github-actions[bot],cursor[bot],renovate[bot]"
         codex-args: >-
@@ -602,7 +602,7 @@ runs:
         prompt-file: assessment/reviewer-task.md
         output-file: assessment/reviewer-output-${{ steps.select.outputs.reviewer_5_name }}.json
         sandbox: read-only
-        safety-strategy: drop-sudo
+        safety-strategy: read-only
         allow-bots: true
         allow-bot-users: "github-actions[bot],cursor[bot],renovate[bot]"
         codex-args: >-
@@ -691,7 +691,7 @@ runs:
         prompt-file: assessment/reviewer-task.md
         output-file: assessment/reviewer-output-${{ steps.select.outputs.reviewer_6_name }}.json
         sandbox: read-only
-        safety-strategy: drop-sudo
+        safety-strategy: read-only
         allow-bots: true
         allow-bot-users: "github-actions[bot],cursor[bot],renovate[bot]"
         codex-args: >-
@@ -780,7 +780,7 @@ runs:
         prompt-file: assessment/reviewer-task.md
         output-file: assessment/reviewer-output-${{ steps.select.outputs.reviewer_7_name }}.json
         sandbox: read-only
-        safety-strategy: drop-sudo
+        safety-strategy: read-only
         allow-bots: true
         allow-bot-users: "github-actions[bot],cursor[bot],renovate[bot]"
         codex-args: >-
@@ -869,7 +869,7 @@ runs:
         prompt-file: assessment/reviewer-task.md
         output-file: assessment/reviewer-output-${{ steps.select.outputs.reviewer_8_name }}.json
         sandbox: read-only
-        safety-strategy: drop-sudo
+        safety-strategy: read-only
         allow-bots: true
         allow-bot-users: "github-actions[bot],cursor[bot],renovate[bot]"
         codex-args: >-
@@ -958,7 +958,7 @@ runs:
         prompt-file: assessment/reviewer-task.md
         output-file: assessment/reviewer-output-${{ steps.select.outputs.reviewer_9_name }}.json
         sandbox: read-only
-        safety-strategy: drop-sudo
+        safety-strategy: read-only
         allow-bots: true
         allow-bot-users: "github-actions[bot],cursor[bot],renovate[bot]"
         codex-args: >-
@@ -1047,7 +1047,7 @@ runs:
         prompt-file: assessment/reviewer-task.md
         output-file: assessment/reviewer-output-${{ steps.select.outputs.reviewer_10_name }}.json
         sandbox: read-only
-        safety-strategy: drop-sudo
+        safety-strategy: read-only
         allow-bots: true
         allow-bot-users: "github-actions[bot],cursor[bot],renovate[bot]"
         codex-args: >-
@@ -1136,7 +1136,7 @@ runs:
         prompt-file: assessment/reviewer-task.md
         output-file: assessment/reviewer-output-${{ steps.select.outputs.reviewer_11_name }}.json
         sandbox: read-only
-        safety-strategy: drop-sudo
+        safety-strategy: read-only
         allow-bots: true
         allow-bot-users: "github-actions[bot],cursor[bot],renovate[bot]"
         codex-args: >-
@@ -1221,7 +1221,7 @@ runs:
         prompt-file: assessment/aggregator-task.md
         output-file: assessment/final-review.md
         sandbox: read-only
-        safety-strategy: drop-sudo
+        safety-strategy: read-only
         allow-bots: true
         allow-bot-users: "github-actions[bot],cursor[bot],renovate[bot]"
         codex-args: >-
