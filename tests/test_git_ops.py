@@ -245,6 +245,7 @@ class TestDetectTagRange:
         from release_notes.git_ops import detect_tag_range
 
         repo = self._init_repo_with_tags(tmp_path)
+        self._git(repo, "tag", "vv.0.0.1-custom-ds")
         tr = detect_tag_range("0.0.0-pr", None, repo, dry_run=True)
         assert tr.previous_tag == "v0.2.0"
         assert tr.current_tag == "HEAD"

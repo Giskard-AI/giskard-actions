@@ -261,7 +261,7 @@ async def main_async() -> None:
             ConsolidatedCommit(
                 sha=cd.sha,
                 subject=cd.subject,
-                pr_number=cd.pr_number,
+                pr_number=cd.pr_number or 0,
                 linear_keys=cd.linear_keys,
                 category=CommitCategory.OTHER,
                 consolidated_description="DRY RUN: LLM skipped.",

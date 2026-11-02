@@ -132,9 +132,12 @@ def _ensure_tag_exists(tag: str, repo_root: Path) -> None:
     run_git(["rev-parse", "--verify", tag], repo_root=repo_root)
 
 
+_SEMVER_TAG_RE = re.compile(r"^v[0-9]+\.[0-9]+\.[0-9]+[A-Za-z0-9.+-]*$")
+
+
 def _list_version_tags(repo_root: Path) -> list[str]:
     tags = run_git(["tag", "--list", "v*.*.*", "--sort=v:refname"], repo_root=repo_root)
-    return [t.strip() for t in tags.splitlines() if t.strip()]
+    return [t.strip() for t in tags.splitlines() if t.strip() and _SEMVER_TAG_RE.match(t.strip())]
 
 
 def _detect_previous_tag(current_tag: str, repo_root: Path) -> str:
