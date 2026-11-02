@@ -204,7 +204,7 @@ runs:
         PY
         fi
         mv -f "$out" "assessment/reviewer-outputs/${REVIEWER_NAME}.json"
-        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md
+        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md "${HOME}/.codex/config.toml"
         rm -rf assessment/role-references
       shell: bash
 
@@ -293,7 +293,7 @@ runs:
         PY
         fi
         mv -f "$out" "assessment/reviewer-outputs/${REVIEWER_NAME}.json"
-        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md
+        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md "${HOME}/.codex/config.toml"
         rm -rf assessment/role-references
       shell: bash
 
@@ -382,7 +382,7 @@ runs:
         PY
         fi
         mv -f "$out" "assessment/reviewer-outputs/${REVIEWER_NAME}.json"
-        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md
+        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md "${HOME}/.codex/config.toml"
         rm -rf assessment/role-references
       shell: bash
 
@@ -471,7 +471,7 @@ runs:
         PY
         fi
         mv -f "$out" "assessment/reviewer-outputs/${REVIEWER_NAME}.json"
-        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md
+        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md "${HOME}/.codex/config.toml"
         rm -rf assessment/role-references
       shell: bash
 
@@ -560,7 +560,7 @@ runs:
         PY
         fi
         mv -f "$out" "assessment/reviewer-outputs/${REVIEWER_NAME}.json"
-        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md
+        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md "${HOME}/.codex/config.toml"
         rm -rf assessment/role-references
       shell: bash
 
@@ -649,7 +649,7 @@ runs:
         PY
         fi
         mv -f "$out" "assessment/reviewer-outputs/${REVIEWER_NAME}.json"
-        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md
+        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md "${HOME}/.codex/config.toml"
         rm -rf assessment/role-references
       shell: bash
 
@@ -738,7 +738,7 @@ runs:
         PY
         fi
         mv -f "$out" "assessment/reviewer-outputs/${REVIEWER_NAME}.json"
-        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md
+        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md "${HOME}/.codex/config.toml"
         rm -rf assessment/role-references
       shell: bash
 
@@ -827,7 +827,7 @@ runs:
         PY
         fi
         mv -f "$out" "assessment/reviewer-outputs/${REVIEWER_NAME}.json"
-        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md
+        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md "${HOME}/.codex/config.toml"
         rm -rf assessment/role-references
       shell: bash
 
@@ -916,7 +916,7 @@ runs:
         PY
         fi
         mv -f "$out" "assessment/reviewer-outputs/${REVIEWER_NAME}.json"
-        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md
+        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md "${HOME}/.codex/config.toml"
         rm -rf assessment/role-references
       shell: bash
 
@@ -1005,7 +1005,7 @@ runs:
         PY
         fi
         mv -f "$out" "assessment/reviewer-outputs/${REVIEWER_NAME}.json"
-        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md
+        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md "${HOME}/.codex/config.toml"
         rm -rf assessment/role-references
       shell: bash
 
@@ -1094,7 +1094,7 @@ runs:
         PY
         fi
         mv -f "$out" "assessment/reviewer-outputs/${REVIEWER_NAME}.json"
-        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md
+        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md "${HOME}/.codex/config.toml"
         rm -rf assessment/role-references
       shell: bash
 
@@ -1183,7 +1183,7 @@ runs:
         PY
         fi
         mv -f "$out" "assessment/reviewer-outputs/${REVIEWER_NAME}.json"
-        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md
+        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md "${HOME}/.codex/config.toml"
         rm -rf assessment/role-references
       shell: bash
 
@@ -1193,6 +1193,7 @@ runs:
         ACTION_LIB: ${{ github.action_path }}/../_lib
       run: |
         set -euo pipefail
+        rm -f "${HOME}/.codex/config.toml"
         mkdir -p assessment/reviewer-outputs
         cp "${ACTION_LIB}/../../../.github/codex/prompts/pr-aggregator.md" assessment/aggregator-task.md
       shell: bash
