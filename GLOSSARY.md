@@ -1,4 +1,4 @@
-# Glossary — `giskard-release-notes`
+# Glossary — `giskard-actions`
 
 Ubiquitous language for the release notes pipeline (`src/release_notes/`).
 

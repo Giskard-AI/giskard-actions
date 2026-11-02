@@ -1,6 +1,6 @@
-# giskard-actions (repo: `Giskard-AI/giskard-release-notes`)
+# giskard-actions (`Giskard-AI/giskard-actions`)
 
-Private Giskard GitHub Actions repo. Intended GitHub name: **`Giskard-AI/giskard-actions`**. Pin consumers to a **40-character commit SHA**.
+Private Giskard GitHub Actions repository. Pin consumers to a **40-character commit SHA**.
 
 | Product | Form | Consumer leftover |
 | --- | --- | --- |
@@ -83,7 +83,7 @@ jobs:
         # If manifest_paths include files inside a git submodule:
         # with:
         #   submodules: true
-      - uses: Giskard-AI/giskard-release-notes@<sha>
+      - uses: Giskard-AI/giskard-actions@<sha>
         with:
           version: "3.0.0"
           include_appendix: "true"
@@ -181,7 +181,7 @@ jobs:
       pr_number: ${{ steps.codex.outputs.pr_number }}
     steps:
       - id: codex
-        uses: Giskard-AI/giskard-release-notes/.github/actions/codex-pr-review@<sha>
+        uses: Giskard-AI/giskard-actions/.github/actions/codex-pr-review@<sha>
         with:
           responses_api_base: ${{ vars.AZURE_AI_RESPONSES_BASE }}
           azure_ai_api_key: ${{ secrets.AZURE_AI_API_KEY }}
@@ -198,7 +198,7 @@ jobs:
         with:
           name: codex-reviewer-outputs
           path: .
-      - uses: Giskard-AI/giskard-release-notes/.github/actions/codex-post-review@<sha>
+      - uses: Giskard-AI/giskard-actions/.github/actions/codex-post-review@<sha>
         with:
           github_token: ${{ github.token }}
           pr_number: ${{ needs.review.outputs.pr_number }}

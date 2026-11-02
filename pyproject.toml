@@ -1,5 +1,5 @@
 [project]
-name = "giskard-release-notes"
+name = "giskard-actions"
 version = "0.3.0"
 description = "Internal Giskard GitHub Actions: release notes CLI plus Codex composite actions"
 requires-python = ">=3.12"

@@ -192,6 +192,39 @@ wheels = [
 ]
 
 [[package]]
+name = "giskard-actions"
+version = "0.3.0"
+source = { editable = "." }
+dependencies = [
+    { name = "giskard-agents" },
+    { name = "giskard-llm", extra = ["azure"] },
+    { name = "pydantic" },
+    { name = "python-dotenv" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "giskard-agents", specifier = "==1.0.2" },
+    { name = "giskard-llm", extras = ["azure"], specifier = "==1.0.0" },
+    { name = "pydantic", specifier = "==2.13.5" },
+    { name = "python-dotenv", specifier = "==1.2.3" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = "==9.1.1" },
+    { name = "pytest-asyncio", specifier = "==1.4.0" },
+    { name = "ruff", specifier = "==0.16.5" },
+]
+
+[[package]]
 name = "giskard-agents"
 version = "1.0.2"
 source = { registry = "https://pypi.org/simple" }
@@ -240,39 +273,6 @@ wheels = [
 [package.optional-dependencies]
 azure = [
     { name = "openai" },
-]
-
-[[package]]
-name = "giskard-release-notes"
-version = "0.3.0"
-source = { editable = "." }
-dependencies = [
-    { name = "giskard-agents" },
-    { name = "giskard-llm", extra = ["azure"] },
-    { name = "pydantic" },
-    { name = "python-dotenv" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "giskard-agents", specifier = "==1.0.2" },
-    { name = "giskard-llm", extras = ["azure"], specifier = "==1.0.0" },
-    { name = "pydantic", specifier = "==2.13.5" },
-    { name = "python-dotenv", specifier = "==1.2.3" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pytest", specifier = "==9.1.1" },
-    { name = "pytest-asyncio", specifier = "==1.4.0" },
-    { name = "ruff", specifier = "==0.16.5" },
 ]
 
 [[package]]
