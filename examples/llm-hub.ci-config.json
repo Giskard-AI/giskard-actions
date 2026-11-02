@@ -1,0 +1,44 @@
+{
+  "key_workflows": ["Full CI", "End-to-end frontend tests"],
+  "recommendations": [
+    {
+      "action": "run_workflow",
+      "target": "End-to-end frontend tests",
+      "when_path_prefixes": ["frontend/"],
+      "missing_workflow": "End-to-end frontend tests",
+      "reason": "Frontend files changed but no e2e workflow run was found for this head SHA."
+    },
+    {
+      "action": "apply_label",
+      "target": "test-package",
+      "when": "package_related",
+      "missing_workflow": "Test Local Package",
+      "reason": "Package-related files changed and the label-triggered local package workflow has no run for this head SHA."
+    },
+    {
+      "action": "apply_label",
+      "target": "stress-test",
+      "when_path_prefixes": ["backend/", "helm/", "docker-compose"],
+      "missing_any_workflows": [
+        "DB pool starvation test",
+        "Stress test (paginated endpoints)"
+      ],
+      "reason": "Backend or deployment files changed and stress-test label-triggered workflows have no run for this head SHA."
+    },
+    {
+      "action": "apply_label",
+      "target": "local-eval-stress",
+      "when_paths": [
+        ".github/workflows/ci-local-eval-stress.yml",
+        "scripts/ci/test_local_eval_output_stress.sh",
+        "backend/src/backend/services/evaluation.py",
+        "backend/src/backend/services/evaluation_runner.py",
+        "backend/src/backend/services/job_submission.py",
+        "backend/src/backend/handlers/evaluation.py"
+      ],
+      "when_path_prefixes": ["backend/src/backend/jobs/"],
+      "missing_workflow": "Local eval output stress test",
+      "reason": "Local evaluation submission code changed and the label-triggered local-eval stress workflow has no run for this head SHA."
+    }
+  ]
+}

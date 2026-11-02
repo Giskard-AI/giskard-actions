@@ -20,8 +20,9 @@ DEFAULT_SECTIONS: list[dict] = [
         "description": (
             "3-6 high-signal, user-visible bullets summarizing the release. "
             "A subset of what changed, not a superset. "
-            "Each item must explicitly state the user benefit/outcome "
-            "(e.g. 'This helps …', 'So you can …', 'This reduces …')."
+            "For features and improvements, explicitly state the user benefit/outcome "
+            "(e.g. 'This helps …', 'So you can …', 'This reduces …'); "
+            "for bug fixes, state the resolved user-facing symptom directly."
         ),
         "enabled": True,
     },
@@ -136,6 +137,13 @@ class ProjectConfig:
     ignored_path_prefixes: tuple[str, ...] = ()
     sections: tuple[SectionConfig, ...] = tuple(SectionConfig(**s) for s in DEFAULT_SECTIONS)
     upgrade_rules: tuple[UpgradeRule, ...] = ()
+    model: str | None = None
+    effort: str | None = None
+    consolidation_model: str | None = None
+    consolidation_effort: str | None = None
+    synthesis_model: str | None = None
+    synthesis_effort: str | None = None
+    llm_concurrency: int | None = None
 
     def enabled_section_ids(self) -> set[str]:
         return {s.id for s in self.sections if s.enabled}
@@ -147,6 +155,30 @@ class ProjectConfig:
     def what_changed_section_ids(self) -> list[str]:
         skip = {"summary", "upgrade_notes"} | DETERMINISTIC_SECTION_IDS
         return [s.id for s in self.sections if s.enabled and s.id not in skip]
+
+    def commit_category_ids(self) -> list[str]:
+        """Allowed category IDs for Stage 2 commit consolidation."""
+        ids = list(self.what_changed_section_ids())
+        if "other" not in ids:
+            ids.append("other")
+        return ids
+
+    def commit_category_descriptions_for_llm(self) -> str:
+        """Build a text block describing Stage 2 commit categories for the LLM."""
+        what_changed_ids = set(self.what_changed_section_ids())
+        lines: list[str] = []
+        for s in self.sections:
+            if s.id in what_changed_ids:
+                lines.append(f"- {s.id} ({s.title}): {s.description}")
+        if "other" not in what_changed_ids:
+            if what_changed_ids:
+                lines.append(
+                    "- other (Other): Purely internal changes (tests, CI, refactors, chores) "
+                    "that do not belong in any section above."
+                )
+            else:
+                lines.append("- other (Other): General changes in this commit.")
+        return "\n".join(lines)
 
     def section_title(self, section_id: str) -> str:
         for s in self.sections:
@@ -174,33 +206,40 @@ class ProjectConfig:
 
 
 def _parse_sections(raw: list[dict] | None) -> tuple[SectionConfig, ...]:
-    """Parse the `sections` list from project config, overlaying onto known section metadata."""
+    """Parse the `sections` list from project config, overlaying onto known section metadata.
+
+    When `raw` is non-empty, only the explicitly listed sections are included (in that exact order).
+    When `raw` is None or empty, falls back to `DEFAULT_SECTIONS`.
+    """
     if not raw:
         return tuple(SectionConfig(**s) for s in DEFAULT_SECTIONS)
 
     result: list[SectionConfig] = []
-    seen_ids: set[str] = set()
     for entry in raw:
-        sid = entry.get("id", "")
+        sid = (entry.get("id") or "").strip()
         if not sid:
             continue
-        seen_ids.add(sid)
+        if not sid.isidentifier() or sid.startswith("_") or sid == "unknowns":
+            raise SystemExit(
+                f"Invalid section id '{sid}': must be a valid identifier and not reserved."
+            )
         base = _KNOWN_SECTIONS.get(
             sid, {"id": sid, "title": sid, "description": "", "enabled": True}
         )
         merged = {**base, **entry}
+        title = merged["title"] or sid
+        description = merged["description"] or f"Changes related to {title}."
         result.append(
             SectionConfig(
-                id=merged["id"],
-                title=merged["title"],
-                description=merged["description"],
+                id=sid,
+                title=title,
+                description=description,
                 enabled=merged.get("enabled", True),
             )
         )
 
-    for s in DEFAULT_SECTIONS:
-        if s["id"] not in seen_ids:
-            result.append(SectionConfig(**s))
+    if not result:
+        return tuple(SectionConfig(**s) for s in DEFAULT_SECTIONS)
 
     return tuple(result)
 
@@ -250,4 +289,11 @@ def load_project_config(repo_root: Path) -> ProjectConfig:
         ignored_path_prefixes=tuple(data.get("ignored_path_prefixes", [])),
         sections=_parse_sections(data.get("sections")),
         upgrade_rules=_parse_upgrade_rules(data.get("upgrade_rules")),
+        model=data.get("model"),
+        effort=data.get("effort"),
+        consolidation_model=data.get("consolidation_model"),
+        consolidation_effort=data.get("consolidation_effort"),
+        synthesis_model=data.get("synthesis_model"),
+        synthesis_effort=data.get("synthesis_effort"),
+        llm_concurrency=data.get("llm_concurrency"),
     )

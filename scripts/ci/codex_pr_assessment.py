@@ -13,8 +13,15 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
 
-KEY_WORKFLOWS = ("Full CI", "End-to-end frontend tests")
+KEY_WORKFLOWS = ()
 TRUSTED_ASSOCIATIONS = {"OWNER", "MEMBER", "COLLABORATOR"}
+REVIEWER_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
+MAX_REVIEWERS = 12
+DEFAULT_AZURE_HOST_SUFFIXES = (
+    ".openai.azure.com",
+    ".cognitiveservices.azure.com",
+    ".services.ai.azure.com",
+)
 TERMINAL_STATUS = "completed"
 LOG_LIMIT = 20_000
 ANNOTATION_LIMIT = 50
@@ -410,6 +417,42 @@ def workflow_runs_for_sha(repo: GitHubRepo, head_sha: str) -> list[dict[str, Any
     return result
 
 
+def azure_host_allowlist() -> tuple[str, ...]:
+    raw = os.environ.get("CODEX_AZURE_HOST_ALLOWLIST", "").strip()
+    if raw:
+        return tuple(item.strip() for item in raw.split(",") if item.strip())
+    return DEFAULT_AZURE_HOST_SUFFIXES
+
+
+def host_is_allowed_azure(hostname: str, suffixes: tuple[str, ...]) -> bool:
+    host = hostname.lower().rstrip(".")
+    for suffix in suffixes:
+        token = suffix.lower().lstrip(".")
+        if host == token or host.endswith(f".{token}"):
+            return True
+    return False
+
+
+def load_ci_config(path: str | Path | None = None) -> dict[str, Any]:
+    candidate = path or os.environ.get("CODEX_CI_CONFIG", "").strip() or None
+    if not candidate:
+        return {"key_workflows": [], "recommendations": []}
+    resolved = Path(candidate)
+    if not resolved.is_file():
+        return {"key_workflows": [], "recommendations": []}
+    payload = load_json(resolved)
+    if not isinstance(payload, dict):
+        raise ValueError("ci-config must be a JSON object")
+    key_workflows = payload.get("key_workflows") or []
+    recommendations = payload.get("recommendations") or []
+    if not isinstance(key_workflows, list) or not isinstance(recommendations, list):
+        raise ValueError("ci-config key_workflows and recommendations must be arrays")
+    return {
+        "key_workflows": [str(item) for item in key_workflows],
+        "recommendations": [item for item in recommendations if isinstance(item, dict)],
+    }
+
+
 def latest_workflow_runs(
     repo: GitHubRepo, head_sha: str, workflow_names: tuple[str, ...] = KEY_WORKFLOWS
 ) -> dict[str, dict[str, Any]]:
@@ -578,7 +621,9 @@ def collect_ci_context(pr_number: int) -> dict[str, Any]:
     pr = get_pr(repo, pr_number)
     head_sha = pr["head"]["sha"]
     workflow_runs = workflow_runs_for_sha(repo, head_sha)
-    key_workflow_runs = latest_workflow_runs(repo, head_sha)
+    ci_config = load_ci_config()
+    key_names = tuple(ci_config["key_workflows"])
+    key_workflow_runs = latest_workflow_runs(repo, head_sha, workflow_names=key_names)
     return {
         **pr_metadata(pr_number, pr, repo),
         "files": [
@@ -590,6 +635,7 @@ def collect_ci_context(pr_number: int) -> dict[str, Any]:
         "check_runs": collect_check_runs(repo, head_sha),
         "failed_logs": collect_failed_logs(repo, workflow_runs),
         "sonar": collect_sonar(repo, pr_number),
+        "ci_config": ci_config,
     }
 
 
@@ -600,6 +646,8 @@ def is_non_green_status(status: str | None, conclusion: str | None) -> bool:
 
 
 def has_terminal_or_skipped_key_workflows(workflow_runs: dict[str, dict[str, Any]]) -> bool:
+    if not workflow_runs:
+        return True
     for run in workflow_runs.values():
         status = run.get("status")
         if status != TERMINAL_STATUS:
@@ -699,7 +747,10 @@ def triage_ci(context: dict[str, Any]) -> dict[str, Any]:
         )
 
     recommendations = recommend_additional_ci(
-        context, key_workflow_runs, workflows_needing_attention
+        context,
+        key_workflow_runs,
+        workflows_needing_attention,
+        ci_config=context.get("ci_config"),
     )
     ready = has_terminal_or_skipped_key_workflows(key_workflow_runs)
     needs_attention = bool(
@@ -736,10 +787,39 @@ def triage_ci(context: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _path_matches_prefixes(path: str, prefixes: list[str]) -> bool:
+    normalized = normalize_path(path)
+    for prefix in prefixes:
+        token = normalize_path(str(prefix))
+        if not token:
+            continue
+        if normalized == token.rstrip("/") or normalized.startswith(token):
+            return True
+    return False
+
+
+def _rule_matches_changed_files(rule: dict[str, Any], changed_files: list[str]) -> bool:
+    when = str(rule.get("when") or "")
+    if when == "package_related":
+        return any(is_package_related_path(path) for path in changed_files)
+    prefixes = [str(item) for item in (rule.get("when_path_prefixes") or [])]
+    paths = {normalize_path(str(item)) for item in (rule.get("when_paths") or [])}
+    path_prefix_starts = [str(item) for item in (rule.get("when_path_prefixes_also") or [])]
+    if prefixes or paths or path_prefix_starts:
+        return any(
+            path in paths
+            or _path_matches_prefixes(path, prefixes)
+            or _path_matches_prefixes(path, path_prefix_starts)
+            for path in changed_files
+        )
+    return True
+
+
 def recommend_additional_ci(
     context: dict[str, Any],
     key_workflow_runs: dict[str, dict[str, Any]],
     workflows_needing_attention: list[dict[str, Any]],
+    ci_config: dict[str, Any] | None = None,
 ) -> list[dict[str, str]]:
     recommendations: list[dict[str, str]] = []
     for name, run in key_workflow_runs.items():
@@ -764,64 +844,26 @@ def recommend_additional_ci(
 
     changed_files = [str(item.get("filename") or "") for item in context.get("files") or []]
     workflow_names = {str(item.get("name") or "") for item in context.get("workflow_runs") or []}
-    has_frontend_change = any(path.startswith("frontend/") for path in changed_files)
-    if has_frontend_change and "End-to-end frontend tests" not in workflow_names:
+    config = ci_config if ci_config is not None else load_ci_config()
+    for rule in config.get("recommendations") or []:
+        action = str(rule.get("action") or "")
+        target = str(rule.get("target") or "")
+        reason = str(rule.get("reason") or "")
+        if not action or not target:
+            continue
+        if not _rule_matches_changed_files(rule, changed_files):
+            continue
+        missing_workflow = str(rule.get("missing_workflow") or "")
+        if missing_workflow and missing_workflow in workflow_names:
+            continue
+        missing_any = {str(item) for item in (rule.get("missing_any_workflows") or [])}
+        if missing_any and missing_any & workflow_names:
+            continue
         recommendations.append(
             {
-                "action": "run_workflow",
-                "target": "End-to-end frontend tests",
-                "reason": "Frontend files changed but no e2e workflow run was found for this head SHA.",
-            }
-        )
-
-    has_package_change = any(is_package_related_path(path) for path in changed_files)
-    if has_package_change and "Test Local Package" not in workflow_names:
-        recommendations.append(
-            {
-                "action": "apply_label",
-                "target": "test-package",
-                "reason": "Package-related files changed and the label-triggered local package workflow has no run for this head SHA.",
-            }
-        )
-
-    has_stress_relevant_change = any(
-        path.startswith("backend/") or path.startswith("docker-compose") or path.startswith("helm/")
-        for path in changed_files
-    )
-    if has_stress_relevant_change and not (
-        {
-            "DB pool starvation test",
-            "Stress test (paginated endpoints)",
-        }
-        & workflow_names
-    ):
-        recommendations.append(
-            {
-                "action": "apply_label",
-                "target": "stress-test",
-                "reason": "Backend or deployment files changed and stress-test label-triggered workflows have no run for this head SHA.",
-            }
-        )
-
-    has_local_eval_stress_change = any(
-        path
-        in {
-            ".github/workflows/ci-local-eval-stress.yml",
-            "scripts/ci/test_local_eval_output_stress.sh",
-            "backend/src/backend/services/evaluation.py",
-            "backend/src/backend/services/evaluation_runner.py",
-            "backend/src/backend/services/job_submission.py",
-            "backend/src/backend/handlers/evaluation.py",
-        }
-        or path.startswith("backend/src/backend/jobs/")
-        for path in changed_files
-    )
-    if has_local_eval_stress_change and "Local eval output stress test" not in workflow_names:
-        recommendations.append(
-            {
-                "action": "apply_label",
-                "target": "local-eval-stress",
-                "reason": "Local evaluation submission code changed and the label-triggered local-eval stress workflow has no run for this head SHA.",
+                "action": action,
+                "target": target,
+                "reason": reason or f"{action} {target}",
             }
         )
 
@@ -933,12 +975,66 @@ def is_infra_path(path: str) -> bool:
     )
 
 
-def _reviewer_entry(name: str, model_kind: str = "normal") -> dict[str, str]:
+def validate_reviewer_name(name: str) -> str:
+    if not REVIEWER_NAME_RE.fullmatch(name):
+        raise ValueError(f"invalid reviewer name {name!r}; expected {REVIEWER_NAME_RE.pattern}")
+    return name
+
+
+DEFAULT_NORMAL_MODEL = "gpt-5.6-luna"
+DEFAULT_NORMAL_EFFORT = "medium"
+DEFAULT_CRITICAL_MODEL = "gpt-5.6-terra"
+DEFAULT_CRITICAL_EFFORT = "high"
+DEFAULT_AGGREGATOR_MODEL = "gpt-5.6-terra"
+DEFAULT_AGGREGATOR_EFFORT = "high"
+
+
+def _reviewer_entry(
+    name: str,
+    model_kind: str = "normal",
+    role_references: list[str] | None = None,
+    *,
+    model: str | None = None,
+    effort: str | None = None,
+    normal_model: str = DEFAULT_NORMAL_MODEL,
+    normal_effort: str = DEFAULT_NORMAL_EFFORT,
+    critical_model: str = DEFAULT_CRITICAL_MODEL,
+    critical_effort: str = DEFAULT_CRITICAL_EFFORT,
+) -> dict[str, str]:
+    safe_name = validate_reviewer_name(name)
+    refs = parse_role_references(role_references or [])
+    resolved_model = (
+        model.strip()
+        if model and model.strip()
+        else (critical_model if model_kind == "critical" else normal_model)
+    )
+    resolved_effort = (
+        effort.strip()
+        if effort and effort.strip()
+        else (critical_effort if model_kind == "critical" else normal_effort)
+    )
     return {
-        "name": name,
-        "prompt_file": f".cursor/agents/{name}.md",
+        "name": safe_name,
+        "prompt_file": f".cursor/agents/{safe_name}.md",
         "model_kind": model_kind,
+        "model": resolved_model,
+        "effort": resolved_effort,
+        "role_references": ",".join(refs),
     }
+
+
+def parse_role_references(values: list[Any]) -> list[str]:
+    parsed: list[str] = []
+    for raw in values:
+        name = str(raw).strip()
+        if not name:
+            continue
+        if "/" in name or "\\" in name or name in {".", ".."} or ".." in name:
+            raise ValueError(f"invalid role reference {name!r}; expected a basename")
+        if Path(name).name != name:
+            raise ValueError(f"invalid role reference {name!r}; expected a basename")
+        parsed.append(name)
+    return parsed
 
 
 def _rule_matches_path(path: str, rule: dict[str, Any]) -> bool:
@@ -966,7 +1062,7 @@ def _rule_matches_path(path: str, rule: dict[str, Any]) -> bool:
     return False
 
 
-def load_reviewer_map(map_path: str | Path) -> list[dict[str, Any]]:
+def load_reviewer_map_config(map_path: str | Path) -> tuple[list[dict[str, Any]], dict[str, str]]:
     payload = load_json(map_path)
     if not isinstance(payload, dict):
         raise ValueError("reviewer map must be a JSON object")
@@ -977,12 +1073,41 @@ def load_reviewer_map(map_path: str | Path) -> list[dict[str, Any]]:
     for rule in rules:
         if not isinstance(rule, dict) or not rule.get("name"):
             raise ValueError("each reviewer map rule needs a name")
+        validate_reviewer_name(str(rule["name"]))
         parsed.append(rule)
-    return parsed
+    defaults_raw = payload.get("defaults") or payload.get("models") or {}
+    defaults: dict[str, str] = {}
+    if isinstance(defaults_raw, dict):
+        for k, v in defaults_raw.items():
+            if isinstance(v, str) and v.strip():
+                defaults[k] = v.strip()
+    for top_key in (
+        "normal_model",
+        "normal_effort",
+        "critical_model",
+        "critical_effort",
+        "aggregator_model",
+        "aggregator_effort",
+    ):
+        val = payload.get(top_key)
+        if isinstance(val, str) and val.strip():
+            defaults[top_key] = val.strip()
+    return parsed, defaults
+
+
+def load_reviewer_map(map_path: str | Path) -> list[dict[str, Any]]:
+    rules, _ = load_reviewer_map_config(map_path)
+    return rules
 
 
 def select_reviewers_from_map(
-    changed_files: list[str], rules: list[dict[str, Any]]
+    changed_files: list[str],
+    rules: list[dict[str, Any]],
+    *,
+    normal_model: str = DEFAULT_NORMAL_MODEL,
+    normal_effort: str = DEFAULT_NORMAL_EFFORT,
+    critical_model: str = DEFAULT_CRITICAL_MODEL,
+    critical_effort: str = DEFAULT_CRITICAL_EFFORT,
 ) -> list[dict[str, str]]:
     selected: dict[str, dict[str, str]] = {}
     for file_path in changed_files:
@@ -992,7 +1117,24 @@ def select_reviewers_from_map(
                 continue
             name = str(rule["name"])
             model_kind = str(rule.get("model_kind") or "normal")
-            selected[name] = _reviewer_entry(name, model_kind)
+            rule_model = str(rule.get("model") or "").strip() or None
+            rule_effort = str(rule.get("effort") or "").strip() or None
+            refs = parse_role_references(list(rule.get("role_references") or []))
+            selected[name] = _reviewer_entry(
+                name,
+                model_kind,
+                refs,
+                model=rule_model,
+                effort=rule_effort,
+                normal_model=normal_model,
+                normal_effort=normal_effort,
+                critical_model=critical_model,
+                critical_effort=critical_effort,
+            )
+            if len(selected) >= MAX_REVIEWERS:
+                break
+        if len(selected) >= MAX_REVIEWERS:
+            break
     return sorted(selected.values(), key=lambda item: item["name"])
 
 
@@ -1006,17 +1148,58 @@ def resolve_reviewer_map_path(map_path: str | Path | None = None) -> Path | None
     return None
 
 
+def _resolve_llm_defaults(map_defaults: dict[str, str] | None = None) -> dict[str, str]:
+    d = map_defaults or {}
+    return {
+        "normal_model": os.environ.get("CODEX_NORMAL_MODEL", "").strip()
+        or d.get("normal_model", "")
+        or DEFAULT_NORMAL_MODEL,
+        "normal_effort": os.environ.get("CODEX_NORMAL_EFFORT", "").strip()
+        or d.get("normal_effort", "")
+        or DEFAULT_NORMAL_EFFORT,
+        "critical_model": os.environ.get("CODEX_CRITICAL_MODEL", "").strip()
+        or d.get("critical_model", "")
+        or DEFAULT_CRITICAL_MODEL,
+        "critical_effort": os.environ.get("CODEX_CRITICAL_EFFORT", "").strip()
+        or d.get("critical_effort", "")
+        or DEFAULT_CRITICAL_EFFORT,
+        "aggregator_model": os.environ.get("CODEX_AGGREGATOR_MODEL", "").strip()
+        or d.get("aggregator_model", "")
+        or DEFAULT_AGGREGATOR_MODEL,
+        "aggregator_effort": os.environ.get("CODEX_AGGREGATOR_EFFORT", "").strip()
+        or d.get("aggregator_effort", "")
+        or DEFAULT_AGGREGATOR_EFFORT,
+    }
+
+
 def select_reviewers(
     changed_files: list[str], map_path: str | Path | None = None
 ) -> list[dict[str, str]]:
     resolved = resolve_reviewer_map_path(map_path)
     if resolved is not None:
-        return select_reviewers_from_map(changed_files, load_reviewer_map(resolved))
+        rules, map_defaults = load_reviewer_map_config(resolved)
+        llm_cfg = _resolve_llm_defaults(map_defaults)
+        return select_reviewers_from_map(
+            changed_files,
+            rules,
+            normal_model=llm_cfg["normal_model"],
+            normal_effort=llm_cfg["normal_effort"],
+            critical_model=llm_cfg["critical_model"],
+            critical_effort=llm_cfg["critical_effort"],
+        )
 
+    llm_cfg = _resolve_llm_defaults()
     selected: dict[str, dict[str, str]] = {}
 
     def add(name: str, model_kind: str = "normal") -> None:
-        selected[name] = _reviewer_entry(name, model_kind)
+        selected[name] = _reviewer_entry(
+            name,
+            model_kind,
+            normal_model=llm_cfg["normal_model"],
+            normal_effort=llm_cfg["normal_effort"],
+            critical_model=llm_cfg["critical_model"],
+            critical_effort=llm_cfg["critical_effort"],
+        )
 
     for file_path in changed_files:
         path = normalize_path(file_path)
@@ -1046,7 +1229,7 @@ def select_reviewers(
         if is_security_sensitive_path(path):
             add("security-auditor", "critical")
 
-    return sorted(selected.values(), key=lambda item: item["name"])
+    return sorted(selected.values(), key=lambda item: item["name"])[:MAX_REVIEWERS]
 
 
 def is_security_sensitive_path(path: str) -> bool:
@@ -1069,6 +1252,11 @@ def ensure_responses_endpoint(base_url: str) -> str:
     parsed = urlparse(base_url)
     if parsed.scheme != "https" or not parsed.netloc:
         raise ValueError("AZURE_AI_API_BASE must be an absolute HTTPS URL")
+    if not host_is_allowed_azure(parsed.netloc, azure_host_allowlist()):
+        allowed = ", ".join(azure_host_allowlist())
+        raise ValueError(
+            f"Responses endpoint host {parsed.netloc!r} is not in the Azure allowlist ({allowed})"
+        )
     if parsed.path.endswith("/responses"):
         return base_url
     if parsed.path.endswith("/openai/v1"):
@@ -1208,7 +1396,8 @@ def defang_mentions(text: str) -> str:
 
 
 def post_review(repo: GitHubRepo, pr_number: int, body_path: Path) -> None:
-    body = body_path.read_text(encoding="utf-8")
+    resolved_path = body_path if body_path.is_file() else Path(body_path.name)
+    body = resolved_path.read_text(encoding="utf-8")
     payload = json.dumps({"event": "COMMENT", "body": body})
     run_text(
         [
@@ -1311,17 +1500,40 @@ def add_triage_ci_parser(subparsers: argparse._SubParsersAction) -> None:
 def main_select(args: argparse.Namespace) -> int:
     context = load_json(args.context)
     changed_files = [item["filename"] for item in context.get("files", []) if item.get("filename")]
+    resolved_map = resolve_reviewer_map_path(args.reviewer_map)
+    map_defaults: dict[str, str] = {}
+    if resolved_map is not None:
+        _, map_defaults = load_reviewer_map_config(resolved_map)
+    llm_cfg = _resolve_llm_defaults(map_defaults)
     reviewers = select_reviewers(changed_files, map_path=args.reviewer_map)
-    payload = {"reviewers": reviewers}
+    payload = {
+        "reviewers": reviewers,
+        "aggregator_model": llm_cfg["aggregator_model"],
+        "aggregator_effort": llm_cfg["aggregator_effort"],
+    }
     write_json(args.output, payload)
     if args.github_output:
-        append_github_output(
-            args.github_output,
-            {
-                "has_reviewers": "true" if reviewers else "false",
-                "matrix": json.dumps({"include": reviewers}, separators=(",", ":")),
-            },
-        )
+        values = {
+            "has_reviewers": "true" if reviewers else "false",
+            "reviewer_count": str(len(reviewers)),
+            "aggregator_model": llm_cfg["aggregator_model"],
+            "aggregator_effort": llm_cfg["aggregator_effort"],
+            "matrix": json.dumps({"include": reviewers}, separators=(",", ":")),
+        }
+        for index in range(MAX_REVIEWERS):
+            if index < len(reviewers):
+                values[f"reviewer_{index}_name"] = reviewers[index]["name"]
+                values[f"reviewer_{index}_model_kind"] = reviewers[index]["model_kind"]
+                values[f"reviewer_{index}_model"] = reviewers[index]["model"]
+                values[f"reviewer_{index}_effort"] = reviewers[index]["effort"]
+                values[f"reviewer_{index}_refs"] = reviewers[index].get("role_references", "")
+            else:
+                values[f"reviewer_{index}_name"] = ""
+                values[f"reviewer_{index}_model_kind"] = ""
+                values[f"reviewer_{index}_model"] = ""
+                values[f"reviewer_{index}_effort"] = ""
+                values[f"reviewer_{index}_refs"] = ""
+        append_github_output(args.github_output, values)
     print(json.dumps(payload, sort_keys=True))
     return 0
 
@@ -1410,6 +1622,54 @@ def add_post_review_parser(subparsers: argparse._SubParsersAction) -> None:
     parser.set_defaults(func=main_post_review)
 
 
+def main_stage_overlay(args: argparse.Namespace) -> int:
+    name = validate_reviewer_name(args.name)
+    trusted = Path(args.trusted_config)
+    bundled_root = Path(__file__).resolve().parents[2]
+    overlay = trusted / ".cursor" / "agents" / f"{name}.md"
+    if not overlay.is_file():
+        bundled_overlay = bundled_root / ".cursor" / "agents" / f"{name}.md"
+        if bundled_overlay.is_file():
+            overlay = bundled_overlay
+        else:
+            print(f"missing reviewer overlay: {overlay}", file=sys.stderr)
+            return 1
+    dest = Path(args.output)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(overlay.read_text(encoding="utf-8"), encoding="utf-8")
+    refs_dir = Path(args.references_output)
+    if refs_dir.exists():
+        for child in refs_dir.iterdir():
+            if child.is_file() or child.is_symlink():
+                child.unlink()
+            elif child.is_dir():
+                raise ValueError(f"unexpected directory in role-references: {child}")
+    refs_dir.mkdir(parents=True, exist_ok=True)
+    source_dir = trusted / ".cursor" / "agents" / "references"
+    bundled_refs_dir = bundled_root / ".cursor" / "agents" / "references"
+    for basename in parse_role_references(
+        [part for part in args.role_references.split(",") if part]
+    ):
+        source = source_dir / basename
+        if not source.is_file() and (bundled_refs_dir / basename).is_file():
+            source = bundled_refs_dir / basename
+        if not source.is_file():
+            print(f"missing role reference: {source}", file=sys.stderr)
+            return 1
+        (refs_dir / basename).write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+    return 0
+
+
+def add_stage_overlay_parser(subparsers: argparse._SubParsersAction) -> None:
+    parser = subparsers.add_parser("stage-overlay")
+    parser.add_argument("--name", required=True)
+    parser.add_argument("--trusted-config", required=True)
+    parser.add_argument("--output", required=True)
+    parser.add_argument("--references-output", required=True)
+    parser.add_argument("--role-references", default="")
+    parser.set_defaults(func=main_stage_overlay)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Codex PR assessment CI helper")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1422,6 +1682,7 @@ def main() -> int:
     add_prepare_azure_catalog_parser(subparsers)
     add_sanitize_review_parser(subparsers)
     add_post_review_parser(subparsers)
+    add_stage_overlay_parser(subparsers)
     args = parser.parse_args()
     return args.func(args)
 

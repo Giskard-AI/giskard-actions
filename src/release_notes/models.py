@@ -5,17 +5,19 @@ from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, create_model
+from pydantic.json_schema import SkipJsonSchema
 
 from .config import ProjectConfig
 
 
 class CommitCategory(StrEnum):
-    FEATURE = "feature"
-    FIX = "fix"
-    UX = "ux"
-    API = "api"
-    INFRA = "infra"
-    UPGRADE = "upgrade"
+    FEATURES = "features"
+    FIXES = "fixes"
+    MISC = "misc"
+    UX_FRONTEND = "ux_frontend"
+    API_BACKEND = "api_backend"
+    PYTHON_API = "python_api"
+    INFRA_DEPS = "infra_deps"
     OTHER = "other"
 
 
@@ -76,16 +78,18 @@ class DependencyUpdate(BaseModel):
     )
 
 
-class ConsolidatedCommit(BaseModel):
-    sha: str = Field(default="", description="Full git SHA.")
-    subject: str = Field(default="", description="Commit subject line.")
-    pr_number: int = Field(default=0, description="PR number from subject like (#1234), 0 if none.")
-    linear_keys: list[str] = Field(default_factory=list, description="Linear issue keys.")
+class ConsolidatedCommitLLMOutput(BaseModel):
+    """Structured output schema for Stage 2 LLM commit consolidation."""
+
     short_name: str = Field(default="", description="Short label (2-6 words).")
-    category: CommitCategory = Field(default=CommitCategory.OTHER, description="Change category.")
+    category: str = Field(
+        default=CommitCategory.OTHER,
+        description="Primary section ID from the configured 'What changed' sections, or 'other'.",
+    )
     consolidated_description: str = Field(default="", description="Human-readable description.")
     context: str = Field(
-        default="", description="Context/motivation from issue tracker, empty string if none."
+        default="",
+        description="Prior state or background from issue tracker, empty string if none.",
     )
     why: str = Field(default="", description="Reason/goal for the change, empty string if none.")
     upgrade_notes: list[str] = Field(default_factory=list, description="Upgrade-impact notes.")
@@ -95,10 +99,43 @@ class ConsolidatedCommit(BaseModel):
     )
 
 
+class ConsolidatedCommit(ConsolidatedCommitLLMOutput):
+    sha: str = Field(default="", description="Full git SHA.")
+    subject: str = Field(default="", description="Commit subject line.")
+    pr_number: int = Field(default=0, description="PR number from subject like (#1234), 0 if none.")
+    linear_keys: list[str] = Field(default_factory=list, description="Linear issue keys.")
+
+
+def build_consolidated_commit_model(
+    config: ProjectConfig,
+) -> type[ConsolidatedCommitLLMOutput]:
+    """Build a Stage 2 LLM output model whose `category` enum matches configured sections."""
+    category_ids = config.commit_category_ids()
+    enum_members = {f"CAT_{idx}_{cid.upper()}": cid for idx, cid in enumerate(category_ids)}
+    dynamic_enum = StrEnum("CommitCategoryDynamic", enum_members)
+    default_val = (
+        dynamic_enum("other") if "other" in category_ids else dynamic_enum(category_ids[0])
+    )
+    allowed_str = ", ".join(category_ids)
+    return create_model(
+        "ConsolidatedCommitDynamic",
+        __base__=ConsolidatedCommitLLMOutput,
+        category=(
+            dynamic_enum,
+            Field(
+                default=default_val,
+                description=f"Primary section ID from configured sections ({allowed_str}).",
+            ),
+        ),
+    )
+
+
 class ReleaseNoteItem(BaseModel):
     short_name: str = Field(description="Short label (2-6 words).")
     description: str = Field(description="1-4 sentence description.")
-    evidence_paths: list[str] = Field(default_factory=list, description="Supporting file paths.")
+    evidence_paths: SkipJsonSchema[list[str]] = Field(
+        default_factory=list, description="Supporting file paths."
+    )
 
 
 class ReleaseNotesPayload(BaseModel):

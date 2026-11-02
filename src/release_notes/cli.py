@@ -22,7 +22,7 @@ from .git_ops import (
     list_commits,
     run_git,
 )
-from .llm import DEFAULT_MODEL, consolidate_commit, synthesize_release_notes
+from .llm import DEFAULT_EFFORT, DEFAULT_MODEL, consolidate_commit, synthesize_release_notes
 from .models import (
     CommitCategory,
     CommitDigest,
@@ -87,13 +87,44 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--model",
         default=None,
-        help=f"giskard-llm model name (default: RELEASE_NOTES_MODEL or {DEFAULT_MODEL})",
+        help=(
+            "giskard-llm model name "
+            f"(default: RELEASE_NOTES_MODEL or .release-notes.json or {DEFAULT_MODEL})"
+        ),
+    )
+    p.add_argument(
+        "--effort",
+        default=None,
+        help=(
+            "Reasoning effort (low, medium, high) "
+            f"(default: RELEASE_NOTES_EFFORT or .release-notes.json or {DEFAULT_EFFORT})"
+        ),
+    )
+    p.add_argument(
+        "--consolidation-model",
+        default=None,
+        help="Override model specifically for Stage 2 per-commit consolidation",
+    )
+    p.add_argument(
+        "--consolidation-effort",
+        default=None,
+        help="Override reasoning effort specifically for Stage 2 per-commit consolidation",
+    )
+    p.add_argument(
+        "--synthesis-model",
+        default=None,
+        help="Override model specifically for Stage 3 release notes synthesis",
+    )
+    p.add_argument(
+        "--synthesis-effort",
+        default=None,
+        help="Override reasoning effort specifically for Stage 3 release notes synthesis",
     )
     p.add_argument("--max-commit-digest-bytes", type=int, default=120_000)
     p.add_argument("--max-commit-file-diff-bytes", type=int, default=25_000)
     p.add_argument("--max-linear-issue-bytes", type=int, default=200_000)
     p.add_argument("--max-github-issue-bytes", type=int, default=200_000)
-    p.add_argument("--llm-concurrency", type=int, default=10)
+    p.add_argument("--llm-concurrency", type=int, default=None)
     p.add_argument(
         "--dry-run",
         action="store_true",
@@ -162,6 +193,7 @@ async def main_async() -> None:
         version=args.version,
         previous_tag_override=args.previous_tag,
         repo_root=repo_root,
+        dry_run=bool(args.dry_run),
     )
 
     diff_stat = git_diff_stat(
@@ -181,7 +213,35 @@ async def main_async() -> None:
         repo_root,
     )
 
-    model = args.model or os.getenv("RELEASE_NOTES_MODEL") or DEFAULT_MODEL
+    base_model = args.model or os.getenv("RELEASE_NOTES_MODEL") or config.model or DEFAULT_MODEL
+    base_effort = (
+        args.effort or os.getenv("RELEASE_NOTES_EFFORT") or config.effort or DEFAULT_EFFORT
+    )
+    consolidation_model = (
+        args.consolidation_model
+        or os.getenv("RELEASE_NOTES_CONSOLIDATION_MODEL")
+        or config.consolidation_model
+        or base_model
+    )
+    consolidation_effort = (
+        args.consolidation_effort
+        or os.getenv("RELEASE_NOTES_CONSOLIDATION_EFFORT")
+        or config.consolidation_effort
+        or base_effort
+    )
+    synthesis_model = (
+        args.synthesis_model
+        or os.getenv("RELEASE_NOTES_SYNTHESIS_MODEL")
+        or config.synthesis_model
+        or base_model
+    )
+    synthesis_effort = (
+        args.synthesis_effort
+        or os.getenv("RELEASE_NOTES_SYNTHESIS_EFFORT")
+        or config.synthesis_effort
+        or base_effort
+    )
+    llm_concurrency = args.llm_concurrency or config.llm_concurrency or 10
 
     commits = list_commits(tag_range=tag_range, repo_root=repo_root)
     LOG.info("Commits in range: %d", len(commits))
@@ -260,7 +320,7 @@ async def main_async() -> None:
             ConsolidatedCommit(
                 sha=cd.sha,
                 subject=cd.subject,
-                pr_number=cd.pr_number,
+                pr_number=cd.pr_number or 0,
                 linear_keys=cd.linear_keys,
                 category=CommitCategory.OTHER,
                 consolidated_description="DRY RUN: LLM skipped.",
@@ -283,8 +343,15 @@ async def main_async() -> None:
             tag_range, repo_root=repo_root, manifest_paths=config.manifest_paths
         )
     else:
-        LOG.info("Model: %s", model)
-        sem = asyncio.Semaphore(max(1, args.llm_concurrency))
+        LOG.info(
+            "Models: consolidation=%s (%s), synthesis=%s (%s) (concurrency=%d)",
+            consolidation_model,
+            consolidation_effort,
+            synthesis_model,
+            synthesis_effort,
+            llm_concurrency,
+        )
+        sem = asyncio.Semaphore(max(1, llm_concurrency))
 
         async def consolidate_one(cd: CommitDigest) -> ConsolidatedCommit:
             async with sem:
@@ -303,17 +370,24 @@ async def main_async() -> None:
                         gh_issues.insert(0, pr_issue)
                 return await consolidate_commit(
                     cd,
-                    model=model,
+                    model=consolidation_model,
+                    reasoning_effort=consolidation_effort,
                     linear_issues=issues,
                     github_issues=gh_issues,
                     repo_root=repo_root,
                     manifest_paths=config.manifest_paths,
+                    config=config,
                 )
 
         consolidations = list(await asyncio.gather(*(consolidate_one(cd) for cd in commit_digests)))
         # Task 2C: overlap dep-range computation with LLM synthesis
         payload, range_dep_bumps = await asyncio.gather(
-            synthesize_release_notes(consolidations, model=model, config=config),
+            synthesize_release_notes(
+                consolidations,
+                model=synthesis_model,
+                reasoning_effort=synthesis_effort,
+                config=config,
+            ),
             asyncio.to_thread(
                 dependency_updates_for_range,
                 tag_range,

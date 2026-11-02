@@ -206,3 +206,55 @@ class TestGitShow:
         content = git_show("HEAD", "vendor/mod/pyproject.toml", repo_root=parent)
         assert content is not None
         assert "lidar" in content
+
+
+class TestDetectTagRange:
+    def _git(self, repo, *args):
+        import subprocess
+
+        subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
+
+    def _init_repo_with_tags(self, tmp_path):
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        self._git(repo, "init")
+        self._git(repo, "config", "user.email", "t@example.com")
+        self._git(repo, "config", "user.name", "t")
+        (repo / "README.md").write_text("v1\n")
+        self._git(repo, "add", "README.md")
+        self._git(repo, "commit", "-m", "c1")
+        self._git(repo, "tag", "v0.1.0")
+        (repo / "README.md").write_text("v2\n")
+        self._git(repo, "add", "README.md")
+        self._git(repo, "commit", "-m", "c2")
+        self._git(repo, "tag", "v0.2.0")
+        (repo / "README.md").write_text("unreleased\n")
+        self._git(repo, "add", "README.md")
+        self._git(repo, "commit", "-m", "c3")
+        return repo
+
+    def test_existing_tag_resolves_previous(self, tmp_path):
+        from release_notes.git_ops import detect_tag_range
+
+        repo = self._init_repo_with_tags(tmp_path)
+        tr = detect_tag_range("0.2.0", None, repo, dry_run=False)
+        assert tr.previous_tag == "v0.1.0"
+        assert tr.current_tag == "v0.2.0"
+
+    def test_dry_run_missing_tag_falls_back_to_head_and_latest_tag(self, tmp_path):
+        from release_notes.git_ops import detect_tag_range
+
+        repo = self._init_repo_with_tags(tmp_path)
+        self._git(repo, "tag", "vv.0.0.1-custom-ds")
+        tr = detect_tag_range("0.0.0-pr", None, repo, dry_run=True)
+        assert tr.previous_tag == "v0.2.0"
+        assert tr.current_tag == "HEAD"
+
+    def test_non_dry_run_missing_tag_raises(self, tmp_path):
+        import pytest
+
+        from release_notes.git_ops import detect_tag_range
+
+        repo = self._init_repo_with_tags(tmp_path)
+        with pytest.raises(SystemExit):
+            detect_tag_range("0.0.0-pr", None, repo, dry_run=False)

@@ -1,0 +1,58 @@
+{
+  "github_repository": "Giskard-AI/giskard-actions",
+  "model": "azure_ai/gpt-5.6-luna",
+  "effort": "high",
+  "manifest_paths": ["pyproject.toml"],
+  "file_diffs": [
+    "action.yml",
+    ".github/actions/codex-pr-review/action.yml",
+    ".github/actions/codex-post-review/action.yml"
+  ],
+  "high_signal_prefixes": [
+    "action.yml",
+    ".github/actions/",
+    "src/release_notes/",
+    "scripts/ci/",
+    ".github/codex/",
+    ".github/workflows/",
+    "pyproject.toml"
+  ],
+  "ignored_basenames": ["uv.lock"],
+  "ignored_path_prefixes": ["tests/"],
+  "upgrade_rules": [
+    {
+      "id": "action_interface",
+      "short_name": "Composite action interface",
+      "description": "Composite action inputs or outputs changed; review the action.yml diff section and update caller workflows if needed.",
+      "paths": [
+        "action.yml",
+        ".github/actions/codex-pr-review/action.yml",
+        ".github/actions/codex-post-review/action.yml"
+      ]
+    }
+  ],
+  "sections": [
+    {
+      "id": "summary",
+      "description": "3-6 high-signal bullets summarizing user-visible changes to Giskard's shared GitHub Actions and release-notes generator. Subset of What changed, not a superset. For features and improvements, explicitly state the caller workflow benefit; for bug fixes, state the resolved symptom directly."
+    },
+    {
+      "id": "features",
+      "description": "New composite actions, inputs, CLI options, or capabilities for caller repositories. Each item must explicitly state the benefit to caller workflows."
+    },
+    {
+      "id": "fixes",
+      "description": "Bug fixes in composite actions, Codex PR review, or release notes generation."
+    },
+    {
+      "id": "infra_deps",
+      "description": "CI workflows, security hardening, runner environment, and dependency updates (not the dependency version table)."
+    },
+    {
+      "id": "upgrade_notes",
+      "description": "Caller workflow actions required when bumping the giskard-actions pin (input/output changes, required secrets/variables, breaking changes)."
+    },
+    { "id": "deps" },
+    { "id": "appendix" }
+  ]
+}

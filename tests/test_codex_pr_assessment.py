@@ -94,48 +94,68 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 class TestCodexPrAssessmentWorkflow(unittest.TestCase):
-    def test_caller_delegates_to_reusable_workflow(self) -> None:
+    def test_self_test_uses_local_composites_not_reusables(self) -> None:
         caller = (REPO_ROOT / ".github/workflows/codex-pr-assessment.yml").read_text(
             encoding="utf-8"
         )
-        self.assertIn(
-            "uses: $/.github/workflows/codex-pr-review.reusable.yml",
-            caller,
-        )
-        self.assertNotIn("openai/codex-action", caller)
+        self.assertIn("uses: ./.github/actions/codex-pr-review", caller)
+        self.assertIn("uses: ./.github/actions/codex-post-review", caller)
+        self.assertNotIn(".reusable.yml", caller)
+        self.assertNotIn("secrets: inherit", caller)
+        self.assertNotIn("pull_request_target", caller)
+        self.assertNotIn("GITHUB_WORKFLOW_SHA", caller)
+        self.assertNotIn("GITHUB_WORKFLOW_REF", caller)
 
-    def test_secret_jobs_load_trusted_automation_not_pr_head(self) -> None:
-        reusable = (REPO_ROOT / ".github/workflows/codex-pr-review.reusable.yml").read_text(
+    def test_review_composite_loads_base_sha_overlays_not_pr_head(self) -> None:
+        review = (REPO_ROOT / ".github/actions/codex-pr-review/action.yml").read_text(
             encoding="utf-8"
         )
-        self.assertNotIn("github.event.pull_request.head.sha", reusable)
-        self.assertIn("github.workflow_sha", reusable)
-        self.assertIn("path: _giskard_codex", reusable)
-        self.assertIn(
-            "python3 _giskard_codex/scripts/ci/codex_pr_assessment.py",
-            reusable,
-        )
-        self.assertEqual(
-            reusable.count("Checkout pull request head as review evidence"),
-            2,
-        )
-        self.assertIn("path: pr-evidence", reusable)
-        self.assertIn("ref: ${{ needs.resolve.outputs.head_sha }}", reusable)
-        self.assertIn("CODEX_REVIEWER_MAP", reusable)
-        self.assertIn("persist-credentials: false", reusable)
-
-    def test_codex_args_do_not_override_protected_multi_agent_feature(self) -> None:
-        reusable = (REPO_ROOT / ".github/workflows/codex-pr-review.reusable.yml").read_text(
-            encoding="utf-8"
-        )
+        wrapper = (REPO_ROOT / ".github/actions/_lib/run-assess.sh").read_text(encoding="utf-8")
+        self.assertNotIn("github.event.pull_request.head.sha", review)
+        self.assertNotIn("GITHUB_WORKFLOW_SHA", review)
+        self.assertNotIn("GITHUB_WORKFLOW_REF", review)
+        self.assertNotIn("path: _giskard_codex", review)
+        self.assertNotIn("python3 scripts/ci/codex_pr_assessment.py", review)
+        self.assertNotIn("AUTOMATION_APP_PRIVATE_KEY", review)
+        self.assertIn("path: trusted-config", review)
+        self.assertIn("ref: ${{ steps.resolve.outputs.base_sha }}", review)
+        self.assertIn("persist-credentials: false", review)
+        self.assertIn("CODEX_REVIEWER_MAP", review)
+        self.assertIn("CODEX_ASSESS_REQUIRE_SAME_REPO", review)
+        self.assertIn("run-assess.sh", review)
+        self.assertIn("ACTION_ROOT", wrapper)
+        self.assertNotIn("environment:", review)
+        self.assertNotIn("timeout-minutes:", review)
+        self.assertIn("openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e", review)
         arg_lines = [
             line
-            for line in reusable.splitlines()
+            for line in review.splitlines()
             if "codex-args:" in line or line.lstrip().startswith('["--')
         ]
         self.assertTrue(arg_lines)
         self.assertFalse(any("features.multi_agent_v2" in line for line in arg_lines))
-        self.assertIn("openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e", reusable)
+
+    def test_notes_action_exports_constraints_without_workspace_project(self) -> None:
+        action = (REPO_ROOT / "action.yml").read_text(encoding="utf-8")
+        self.assertIn("uv export --frozen --no-dev --no-hashes --no-emit-project", action)
+        self.assertIn("working-directory: ${{ github.action_path }}", action)
+        result = subprocess.run(
+            [
+                "uv",
+                "export",
+                "--frozen",
+                "--no-dev",
+                "--no-hashes",
+                "--no-emit-project",
+                "--directory",
+                str(REPO_ROOT),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotIn("file://", result.stdout)
+        self.assertFalse(any(line.startswith("-e ") for line in result.stdout.splitlines()))
 
 
 class TestReviewContextCollection(unittest.TestCase):
@@ -273,16 +293,25 @@ class TestReviewerSelection(unittest.TestCase):
                     "name": "clean-arch-guard",
                     "prompt_file": ".cursor/agents/clean-arch-guard.md",
                     "model_kind": "normal",
+                    "model": "gpt-5.6-luna",
+                    "effort": "medium",
+                    "role_references": "",
                 },
                 {
                     "name": "infra-reviewer",
                     "prompt_file": ".cursor/agents/infra-reviewer.md",
                     "model_kind": "normal",
+                    "model": "gpt-5.6-luna",
+                    "effort": "medium",
+                    "role_references": "",
                 },
                 {
                     "name": "security-auditor",
                     "prompt_file": ".cursor/agents/security-auditor.md",
                     "model_kind": "critical",
+                    "model": "gpt-5.6-terra",
+                    "effort": "high",
+                    "role_references": "",
                 },
             ],
         )
@@ -418,6 +447,75 @@ class TestReviewerSelection(unittest.TestCase):
             [reviewer["name"] for reviewer in reviewers],
             ["prompt-critic"],
         )
+
+    def test_reviewer_map_rejects_invalid_names(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            map_path = Path(tmpdir) / "reviewer-map.json"
+            map_path.write_text(
+                json.dumps(
+                    {
+                        "rules": [
+                            {
+                                "name": "../etc/passwd",
+                                "path_prefixes": ["src/"],
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "invalid reviewer name"):
+                codex_pr_assessment.select_reviewers(["src/foo.py"], map_path=map_path)
+
+    def test_parse_role_references_accepts_basenames(self) -> None:
+        self.assertEqual(
+            codex_pr_assessment.parse_role_references(["backend-architecture.md", ""]),
+            ["backend-architecture.md"],
+        )
+
+    def test_parse_role_references_rejects_paths(self) -> None:
+        for value in ("../x.md", "a/b.md", "/abs.md", ".."):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(ValueError, "invalid role reference"):
+                    codex_pr_assessment.parse_role_references([value])
+
+    def test_example_hub_map_emits_role_references(self) -> None:
+        reviewers = {
+            item["name"]: item["role_references"]
+            for item in codex_pr_assessment.select_reviewers(
+                ["backend/src/backend/services/auth.py"],
+                map_path=REPO_ROOT / "examples" / "llm-hub.reviewer-map.json",
+            )
+        }
+        self.assertEqual(reviewers["clean-arch-guard"], "backend-architecture.md")
+        self.assertEqual(reviewers["security-auditor"], "security-patterns.md")
+
+    def test_stage_overlay_copies_allowlisted_basenames_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            trusted = tmp / "trusted-config"
+            agents = trusted / ".cursor" / "agents"
+            refs = agents / "references"
+            refs.mkdir(parents=True)
+            (agents / "clean-arch-guard.md").write_text("role overlay", encoding="utf-8")
+            (refs / "backend-architecture.md").write_text("architecture", encoding="utf-8")
+            (refs / "secret.md").write_text("do not copy", encoding="utf-8")
+            dest = tmp / "assessment" / "reviewer-instructions.md"
+            refs_out = tmp / "assessment" / "role-references"
+            args = argparse.Namespace(
+                name="clean-arch-guard",
+                trusted_config=str(trusted),
+                output=str(dest),
+                references_output=str(refs_out),
+                role_references="backend-architecture.md",
+            )
+            self.assertEqual(codex_pr_assessment.main_stage_overlay(args), 0)
+            self.assertEqual(dest.read_text(encoding="utf-8"), "role overlay")
+            self.assertEqual(
+                (refs_out / "backend-architecture.md").read_text(encoding="utf-8"),
+                "architecture",
+            )
+            self.assertFalse((refs_out / "secret.md").exists())
 
     def test_repo_reviewer_map_covers_action_and_prompts(self) -> None:
         reviewers = codex_pr_assessment.select_reviewers(
@@ -637,7 +735,7 @@ class TestContextSeparation(unittest.TestCase):
         codex_pr_assessment.workflow_runs_for_sha = lambda repo, sha: [
             {"name": "Full CI", "status": "completed", "conclusion": "success"}
         ]
-        codex_pr_assessment.latest_workflow_runs = lambda repo, sha: {
+        codex_pr_assessment.latest_workflow_runs = lambda repo, sha, workflow_names=(): {
             "Full CI": {"name": "Full CI", "status": "completed", "conclusion": "success"}
         }
         codex_pr_assessment.collect_check_runs = lambda repo, sha: []
@@ -890,6 +988,15 @@ class TestFailedLogCollection(unittest.TestCase):
 
 
 class TestCiTriage(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.hub_ci_config = json.loads(
+            (REPO_ROOT / "examples" / "llm-hub.ci-config.json").read_text(encoding="utf-8")
+        )
+
+    def _triage(self, context: dict) -> dict:
+        return codex_pr_assessment.triage_ci({**context, "ci_config": self.hub_ci_config})
+
     def test_classifies_common_failure_modes(self) -> None:
         cases = [
             ("pytest", "AssertionError: failed", "failure", "test_failure"),
@@ -910,7 +1017,7 @@ class TestCiTriage(unittest.TestCase):
                 )
 
     def test_triage_recommends_missing_and_rerunnable_ci(self) -> None:
-        triage = codex_pr_assessment.triage_ci(
+        triage = self._triage(
             {
                 "pr": {"head_sha": "abc"},
                 "files": [{"filename": "frontend/src/app/page.tsx"}],
@@ -959,7 +1066,7 @@ class TestCiTriage(unittest.TestCase):
         )
 
     def test_triage_ready_requires_terminal_key_workflows(self) -> None:
-        triage = codex_pr_assessment.triage_ci(
+        triage = self._triage(
             {
                 "pr": {"head_sha": "abc"},
                 "files": [],
@@ -985,7 +1092,7 @@ class TestCiTriage(unittest.TestCase):
         self.assertFalse(triage["ready"])
 
     def test_triage_recommends_package_ci_for_manifest_changes(self) -> None:
-        triage = codex_pr_assessment.triage_ci(
+        triage = self._triage(
             {
                 "pr": {"head_sha": "abc"},
                 "files": [
@@ -1034,7 +1141,7 @@ class TestCiTriage(unittest.TestCase):
         )
 
     def test_triage_recommends_local_eval_stress_label_for_local_eval_changes(self) -> None:
-        triage = codex_pr_assessment.triage_ci(
+        triage = self._triage(
             {
                 "pr": {"head_sha": "abc"},
                 "files": [{"filename": "backend/src/backend/services/evaluation.py"}],
@@ -1078,7 +1185,7 @@ class TestCiTriage(unittest.TestCase):
         )
 
     def test_triage_skips_local_eval_stress_label_when_workflow_ran(self) -> None:
-        triage = codex_pr_assessment.triage_ci(
+        triage = self._triage(
             {
                 "pr": {"head_sha": "abc"},
                 "files": [{"filename": "backend/src/backend/services/evaluation.py"}],
@@ -1144,9 +1251,13 @@ class TestEndpointPreflight(unittest.TestCase):
             with self.subTest(base_url=base_url):
                 self.assertEqual(codex_pr_assessment.ensure_responses_endpoint(base_url), expected)
 
+    def test_rejects_non_azure_host(self) -> None:
+        with self.assertRaisesRegex(ValueError, "allowlist"):
+            codex_pr_assessment.ensure_responses_endpoint("https://evil.example/openai/v1")
+
     def test_rejects_non_responses_base(self) -> None:
         with self.assertRaisesRegex(ValueError, "Responses-compatible"):
-            codex_pr_assessment.ensure_responses_endpoint("https://example.com/models")
+            codex_pr_assessment.ensure_responses_endpoint("https://example.openai.azure.com/models")
 
     def test_rejects_plaintext_responses_base(self) -> None:
         with self.assertRaisesRegex(ValueError, "absolute HTTPS URL"):
@@ -1378,15 +1489,62 @@ class TestSelectorOutput(unittest.TestCase):
                         "name": "clean-arch-guard",
                         "prompt_file": ".cursor/agents/clean-arch-guard.md",
                         "model_kind": "normal",
+                        "model": "gpt-5.6-luna",
+                        "effort": "medium",
+                        "role_references": "",
                     },
                     {
                         "name": "migration-reviewer",
                         "prompt_file": ".cursor/agents/migration-reviewer.md",
                         "model_kind": "critical",
+                        "model": "gpt-5.6-terra",
+                        "effort": "high",
+                        "role_references": "",
                     },
                 ],
             )
             self.assertIn("has_reviewers=true", github_output.read_text(encoding="utf-8"))
+
+    def test_custom_models_and_efforts_in_reviewer_map_and_env(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            map_path = tmp / "reviewer-map.json"
+            map_path.write_text(
+                json.dumps(
+                    {
+                        "defaults": {
+                            "normal_model": "custom-normal",
+                            "normal_effort": "low",
+                            "critical_model": "custom-critical",
+                            "critical_effort": "high",
+                            "aggregator_model": "custom-agg",
+                            "aggregator_effort": "medium",
+                        },
+                        "rules": [
+                            {
+                                "name": "clean-arch-guard",
+                                "model_kind": "normal",
+                                "path_prefixes": ["backend/"],
+                            },
+                            {
+                                "name": "security-auditor",
+                                "model_kind": "critical",
+                                "model": "per-rule-override",
+                                "effort": "medium",
+                                "path_prefixes": ["backend/"],
+                            },
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            reviewers = codex_pr_assessment.select_reviewers(["backend/app.py"], map_path=map_path)
+            self.assertEqual(reviewers[0]["name"], "clean-arch-guard")
+            self.assertEqual(reviewers[0]["model"], "custom-normal")
+            self.assertEqual(reviewers[0]["effort"], "low")
+            self.assertEqual(reviewers[1]["name"], "security-auditor")
+            self.assertEqual(reviewers[1]["model"], "per-rule-override")
+            self.assertEqual(reviewers[1]["effort"], "medium")
 
 
 class TestAggregatorPrompt(unittest.TestCase):
@@ -1397,6 +1555,7 @@ class TestAggregatorPrompt(unittest.TestCase):
 
         self.assertIn("carry forward every remaining valid reviewer finding", prompt)
         self.assertIn("do not drop valid findings for brevity", prompt)
+        self.assertIn("keep/reject", prompt)
 
 
 if __name__ == "__main__":

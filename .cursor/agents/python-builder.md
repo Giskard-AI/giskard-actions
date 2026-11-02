@@ -1,6 +1,6 @@
 ---
 name: Python Builder
-description: Implements CLI, config, git/deps pipeline, and tests for giskard-release-notes.
+description: Implements CLI, config, git/deps pipeline, and tests for giskard-actions.
 ---
 
 You implement features in this Python package using the local **uv** environment (`uv sync --group dev`, `uv run pytest`).

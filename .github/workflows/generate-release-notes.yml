@@ -1,10 +1,16 @@
-name: Generate release notes (self-test)
+name: Generate release notes
 
 on:
+  pull_request:
+    paths:
+      - ".github/workflows/generate-release-notes.yml"
+      - ".release-notes.json"
+      - "action.yml"
+      - "src/release_notes/**"
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version (e.g., 2.3.0)"
+        description: "Release version (e.g., 0.3.0)"
         required: true
         type: string
       previous_tag:
@@ -15,7 +21,12 @@ on:
         description: "giskard-llm model name"
         required: false
         type: string
-        default: azure_ai/gpt-5.4
+        default: azure_ai/gpt-5.6-luna
+      effort:
+        description: "Reasoning effort (low, medium, high)"
+        required: false
+        type: string
+        default: high
       dry_run:
         description: "Skip LLM calls, produce debug output"
         required: false
@@ -25,7 +36,7 @@ on:
 permissions: {}
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.inputs.version }}
+  group: ${{ github.workflow }}-${{ github.event.inputs.version || github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
 
 jobs:
@@ -33,9 +44,11 @@ jobs:
     name: Generate release notes
     timeout-minutes: 180
     runs-on: ubuntu-latest
-    environment: ci
+    environment:
+      name: ci
+      deployment: false
     permissions:
-      contents: read
+      contents: read # Checkout repository and read tags
     steps:
       - name: Checkout repository with tags
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -45,23 +58,24 @@ jobs:
           persist-credentials: false
 
       - name: Generate release notes
-        uses: $/
+        uses: ./ # zizmor: ignore[self-repository]
         with:
-          version: ${{ github.event.inputs.version }}
+          version: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version || '0.0.0-pr' }}
           previous_tag: ${{ github.event.inputs.previous_tag || '' }}
-          model: ${{ github.event.inputs.model }}
-          dry_run: ${{ github.event.inputs.dry_run }}
+          model: ${{ github.event.inputs.model || 'azure_ai/gpt-5.6-luna' }}
+          effort: ${{ github.event.inputs.effort || 'high' }}
+          dry_run: ${{ github.event_name == 'pull_request' || github.event.inputs.dry_run == 'true' }}
         env:
-          AZURE_AI_API_KEY: ${{ secrets.AZURE_AI_API_KEY }}
+          AZURE_AI_API_KEY: ${{ github.event_name == 'workflow_dispatch' && secrets.AZURE_AI_API_KEY || '' }}
           AZURE_AI_API_BASE: ${{ vars.AZURE_AI_API_BASE }}
           AZURE_AI_ENDPOINT: ${{ vars.AZURE_AI_API_BASE }}
-          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          LINEAR_API_KEY: ${{ github.event_name == 'workflow_dispatch' && secrets.LINEAR_API_KEY || '' }}
           GITHUB_TOKEN: ${{ github.token }}
 
       - name: Upload release notes artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: release-notes-v${{ github.event.inputs.version }}
-          path: release_notes/v${{ github.event.inputs.version }}.md
+          name: release-notes-v${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version || '0.0.0-pr' }}
+          path: release_notes/v${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version || '0.0.0-pr' }}.md
           if-no-files-found: error
           retention-days: 60

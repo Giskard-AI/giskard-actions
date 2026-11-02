@@ -4,11 +4,17 @@ import json
 import logging
 import os
 import time
+from collections.abc import Sequence
 from pathlib import Path
+from typing import Any, override
 
 from giskard.agents import add_prompts_path
 from giskard.agents.generators import GiskardLLMGenerator
-from pydantic import BaseModel
+from giskard.agents.generators.base import GenerationParams
+from giskard.llm import acompletion
+from giskard.llm.translators import openai_chat
+from giskard.llm.types import ChatMessage, CompletionResponse
+from pydantic import BaseModel, Field
 
 from .config import ProjectConfig
 from .deps import dependency_updates_for_commit
@@ -18,6 +24,7 @@ from .models import (
     DependencyUpdate,
     GitHubIssue,
     LinearIssue,
+    build_consolidated_commit_model,
     build_release_notes_payload_model,
 )
 
@@ -25,7 +32,57 @@ LOG = logging.getLogger("release_notes.llm")
 
 _PROMPTS_DIR = Path(__file__).parent / "prompts"
 _PROMPTS_CONFIGURED = False
-DEFAULT_MODEL = "azure_ai/gpt-5.4"
+_TRANSLATOR_PATCHED = False
+DEFAULT_MODEL = "azure_ai/gpt-5.6-luna"
+DEFAULT_EFFORT = "high"
+
+
+def _ensure_reasoning_effort_support() -> None:
+    """Allow `reasoning_effort` to pass through giskard-llm's OpenAIChatTranslator."""
+    global _TRANSLATOR_PATCHED
+    if _TRANSLATOR_PATCHED:
+        return
+    orig_to_openai = openai_chat.OpenAIChatTranslator.to_openai
+    openai_chat.KNOWN_COMPLETION_PARAMS = openai_chat.KNOWN_COMPLETION_PARAMS | {"reasoning_effort"}
+
+    def _to_openai_with_effort(
+        model: str,
+        messages: Sequence[ChatMessage],
+        *,
+        tools: Any = None,
+        **params: Any,
+    ) -> Any:
+        effort = params.pop("reasoning_effort", None)
+        out = orig_to_openai(model, messages, tools=tools, **params)
+        if effort:
+            out["reasoning_effort"] = effort
+        return out
+
+    openai_chat.OpenAIChatTranslator.to_openai = staticmethod(_to_openai_with_effort)
+    _TRANSLATOR_PATCHED = True
+
+
+class ReleaseNotesLLMGenerator(GiskardLLMGenerator):
+    """GiskardLLMGenerator subclass that forwards `reasoning_effort` when configured."""
+
+    reasoning_effort: str | None = Field(default=None)
+
+    @override
+    async def _call_model(
+        self,
+        messages: Sequence[ChatMessage],
+        params: GenerationParams,
+        metadata: dict[str, Any] | None = None,
+    ) -> CompletionResponse:
+        wire_params = params.model_dump(exclude={"tools"}, exclude_unset=True)
+        wire_tools = self._serialize_tools(params.tools) if params.tools else []
+        if wire_tools:
+            wire_params["tools"] = wire_tools
+        if metadata:
+            wire_params["metadata"] = metadata
+        if self.reasoning_effort:
+            wire_params["reasoning_effort"] = self.reasoning_effort
+        return await acompletion(messages=messages, model=self.model, **wire_params)
 
 
 def ensure_azure_env(model: str) -> None:
@@ -52,10 +109,13 @@ def _configure_prompts() -> None:
     _PROMPTS_CONFIGURED = True
 
 
-def build_generator(*, model: str) -> GiskardLLMGenerator:
+def build_generator(
+    *, model: str, reasoning_effort: str | None = DEFAULT_EFFORT
+) -> ReleaseNotesLLMGenerator:
     _configure_prompts()
+    _ensure_reasoning_effort_support()
     ensure_azure_env(model)
-    return GiskardLLMGenerator(model=model)
+    return ReleaseNotesLLMGenerator(model=model, reasoning_effort=reasoning_effort)
 
 
 def _linear_block(linear_issues: list[LinearIssue]) -> str:
@@ -99,22 +159,26 @@ async def consolidate_commit(
     commit_digest: CommitDigest,
     *,
     model: str,
+    reasoning_effort: str | None = DEFAULT_EFFORT,
     linear_issues: list[LinearIssue],
     github_issues: list[GitHubIssue] | None = None,
     repo_root: Path,
     manifest_paths: tuple[str, ...],
+    config: ProjectConfig | None = None,
 ) -> ConsolidatedCommit:
     """Consolidate a commit digest via giskard-agents structured output.
 
     Untrusted digest/issue text is interpolated through sandboxed Jinja (escaped).
     Canonical git fields are overwritten from parsed data after the LLM returns.
     """
+    cfg = config or ProjectConfig()
     dep_updates = dependency_updates_for_commit(
         commit_digest, repo_root=repo_root, manifest_paths=manifest_paths
     )
     dep_updates_json = json.dumps([u.model_dump() for u in dep_updates], ensure_ascii=False)
+    output_model = build_consolidated_commit_model(cfg)
 
-    generator = build_generator(model=model)
+    generator = build_generator(model=model, reasoning_effort=reasoning_effort)
     workflow = (
         generator.template("release-notes::commit_consolidation.j2")
         .with_inputs(
@@ -122,8 +186,9 @@ async def consolidate_commit(
             dependency_updates_json=dep_updates_json,
             linear_block=_linear_block(linear_issues),
             github_block=_github_block(github_issues),
+            category_descriptions=cfg.commit_category_descriptions_for_llm(),
         )
-        .with_output(ConsolidatedCommit, strict=True, num_retries=2)
+        .with_output(output_model, strict=True, num_retries=2)
     )
     started = time.perf_counter()
     chat = await workflow.run()
@@ -201,11 +266,12 @@ async def synthesize_release_notes(
     consolidations: list[ConsolidatedCommit],
     *,
     model: str,
+    reasoning_effort: str | None = DEFAULT_EFFORT,
     config: ProjectConfig,
 ) -> BaseModel:
     """Synthesize structured release notes; output shape follows config.sections."""
     payload_model = build_release_notes_payload_model(config)
-    generator = build_generator(model=model)
+    generator = build_generator(model=model, reasoning_effort=reasoning_effort)
     workflow = (
         generator.template("release-notes::release_notes_synthesis.j2")
         .with_inputs(

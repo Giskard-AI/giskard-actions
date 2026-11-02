@@ -2,7 +2,7 @@
 You generate release notes for a software repository.
 
 Input:
-- You are given consolidated descriptions per commit, each with a category (feature, fix, ux, api, infra, upgrade, other).
+- You are given consolidated descriptions per commit, each pre-classified with a `category` matching one of the repository's configured section IDs (or `other` for purely internal changes).
 
 Constraints:
 - You MUST not invent changes beyond what is described.
@@ -18,11 +18,15 @@ Generate structured release notes from these consolidated commit descriptions.
 
 Rules:
 - Do not mention tools, prompts, or the existence of this input.
+- Do NOT mention Linear ticket IDs (e.g. ENG-1234) or GitHub PR/issue numbers (e.g. #1234) in any prose fields.
 - Keep wording concise and professional.
 - Do NOT include file paths or 'Evidence:' in the text.
 - Do NOT include long dependency version lists in any section; dependency bumps will be tracked separately.
 - Only fill the sections listed below. Leave a section empty if nothing belongs there.
 - Follow each section's role text exactly (length, benefit wording, and what belongs there).
+- Route each commit to the section matching its pre-classified `Category`. Omit commits with `Category: other` unless they are needed to explain a user-visible change.
+- Group related commits into a single bullet when they address the same feature or fix.
+- Populate `upgrade_notes` (if listed below) from the commits' `Upgrade notes:` entries.
 
 ## Section roles
 

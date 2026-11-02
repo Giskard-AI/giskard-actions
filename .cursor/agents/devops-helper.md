@@ -1,6 +1,6 @@
 ---
 name: DevOps Helper
-description: GitHub Action, workflows, Renovate, Makefile, and uv packaging for giskard-release-notes.
+description: GitHub Action, workflows, Renovate, Makefile, and uv packaging for giskard-actions.
 ---
 
 - Pin actions to full SHA with version comments

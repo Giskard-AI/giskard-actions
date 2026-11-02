@@ -10,9 +10,33 @@ inputs:
     required: false
     default: ""
   model:
-    description: "giskard-llm model name (Azure AI), e.g. azure_ai/gpt-5.4"
+    description: "Default giskard-llm model name (e.g. azure_ai/gpt-5.6-luna). Empty falls back to .release-notes.json or azure_ai/gpt-5.6-luna."
     required: false
-    default: "azure_ai/gpt-5.4"
+    default: ""
+  effort:
+    description: "Default reasoning effort (low, medium, high). Empty falls back to .release-notes.json or high."
+    required: false
+    default: ""
+  consolidation_model:
+    description: "Optional model override for Stage 2 per-commit consolidation"
+    required: false
+    default: ""
+  consolidation_effort:
+    description: "Optional reasoning effort override for Stage 2 per-commit consolidation"
+    required: false
+    default: ""
+  synthesis_model:
+    description: "Optional model override for Stage 3 release notes synthesis"
+    required: false
+    default: ""
+  synthesis_effort:
+    description: "Optional reasoning effort override for Stage 3 release notes synthesis"
+    required: false
+    default: ""
+  llm_concurrency:
+    description: "Optional max parallel LLM calls during Stage 2 consolidation"
+    required: false
+    default: ""
   dry_run:
     description: "Skip LLM calls, produce debug output"
     required: false
@@ -52,14 +76,19 @@ runs:
 
     - name: Install release-notes tool
       shell: bash
+      working-directory: ${{ github.action_path }}
       env:
         ACTION_PATH: ${{ github.action_path }}
       run: |
         set -euo pipefail
         constraints="${RUNNER_TEMP}/giskard-release-notes-constraints.txt"
-        uv export --frozen --no-dev --no-hashes \
+        uv export --frozen --no-dev --no-hashes --no-emit-project \
           --directory "${ACTION_PATH}" \
           --output-file "${constraints}"
+        if grep -E '^(file://|-e[[:space:]])' "${constraints}"; then
+          echo "constraints file must not contain unnamed file:// or -e entries" >&2
+          exit 1
+        fi
         uv tool install --reinstall --constraints "${constraints}" "${ACTION_PATH}"
 
     - name: Resolve output path
@@ -78,6 +107,12 @@ runs:
       shell: bash
       env:
         RELEASE_NOTES_MODEL: ${{ inputs.model }}
+        RELEASE_NOTES_EFFORT: ${{ inputs.effort }}
+        RELEASE_NOTES_CONSOLIDATION_MODEL: ${{ inputs.consolidation_model }}
+        RELEASE_NOTES_CONSOLIDATION_EFFORT: ${{ inputs.consolidation_effort }}
+        RELEASE_NOTES_SYNTHESIS_MODEL: ${{ inputs.synthesis_model }}
+        RELEASE_NOTES_SYNTHESIS_EFFORT: ${{ inputs.synthesis_effort }}
+        INPUT_LLM_CONCURRENCY: ${{ inputs.llm_concurrency }}
         INPUT_VERSION: ${{ inputs.version }}
         INPUT_OUTPUT: ${{ steps.resolve.outputs.output }}
         INPUT_METADATA_FILE: ${{ inputs.metadata_file }}
@@ -94,6 +129,9 @@ runs:
         )
         if [ -n "${INPUT_PREVIOUS_TAG}" ]; then
           args+=(--previous-tag "${INPUT_PREVIOUS_TAG}")
+        fi
+        if [ -n "${INPUT_LLM_CONCURRENCY}" ]; then
+          args+=(--llm-concurrency "${INPUT_LLM_CONCURRENCY}")
         fi
         if [ "${INPUT_DRY_RUN}" = "true" ]; then
           args+=(--dry-run)

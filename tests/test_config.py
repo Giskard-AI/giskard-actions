@@ -1,6 +1,7 @@
 """Tests for config.py — defaults, overlay logic, file loading."""
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -66,13 +67,11 @@ class TestParseSections:
         ids = [s.id for s in result[:3]]
         assert ids == ["fixes", "features", "summary"]
 
-    def test_defaults_appended_for_missing(self):
+    def test_explicit_sections_are_authoritative_without_appending_defaults(self):
         raw = [{"id": "features"}]
         result = _parse_sections(raw)
         ids = [s.id for s in result]
-        # features is first (user listed), the other defaults are appended
-        assert ids[0] == "features"
-        assert set(ids) >= {"features", "summary", "fixes", "misc"}
+        assert ids == ["features"]
 
     def test_known_extended_section_gets_metadata(self):
         # ux_frontend is not a default but is a known section
@@ -193,3 +192,115 @@ class TestWithSectionDisabled:
         )
         new_cfg = cfg.with_section_disabled("fixes")
         assert new_cfg.upgrade_rules == cfg.upgrade_rules
+
+
+class TestCommitCategoryHelpers:
+    @pytest.mark.parametrize(
+        ("sections_raw", "expected_ids"),
+        [
+            (
+                None,
+                ["features", "fixes", "misc", "other"],
+            ),
+            (
+                [
+                    {"id": "summary"},
+                    {"id": "features"},
+                    {"id": "fixes"},
+                    {"id": "ux_frontend"},
+                    {"id": "api_backend"},
+                    {"id": "infra_deps"},
+                    {"id": "upgrade_notes"},
+                    {"id": "deps"},
+                    {"id": "appendix"},
+                ],
+                ["features", "fixes", "ux_frontend", "api_backend", "infra_deps", "other"],
+            ),
+            (
+                [
+                    {"id": "summary"},
+                    {"id": "features"},
+                    {"id": "probes", "title": "Probes", "description": "Adversarial probes."},
+                    {"id": "python_api"},
+                    {"id": "fixes", "enabled": False},
+                    {"id": "deps"},
+                ],
+                ["features", "probes", "python_api", "other"],
+            ),
+        ],
+        ids=["default_config", "llm_hub_sections", "custom_probes_and_disabled_fixes"],
+    )
+    def test_commit_category_ids(self, sections_raw, expected_ids):
+        cfg = ProjectConfig(sections=_parse_sections(sections_raw))
+        assert cfg.commit_category_ids() == expected_ids
+
+    def test_commit_category_descriptions_for_llm(self):
+        raw = [
+            {"id": "summary"},
+            {"id": "probes", "title": "Probes", "description": "Adversarial probes."},
+            {"id": "python_api"},
+            {"id": "upgrade_notes"},
+            {"id": "deps"},
+        ]
+        cfg = ProjectConfig(sections=_parse_sections(raw))
+        desc = cfg.commit_category_descriptions_for_llm()
+        assert "- probes (Probes): Adversarial probes." in desc
+        assert "- python_api (Python API):" in desc
+        assert "- other (Other):" in desc
+        assert "- summary" not in desc
+        assert "- upgrade_notes" not in desc
+        assert "- deps" not in desc
+
+    @pytest.mark.parametrize(
+        "invalid_id",
+        ["ux-frontend", "_private", "123", "unknowns"],
+        ids=["hyphenated", "leading_underscore", "numeric", "reserved_unknowns"],
+    )
+    def test_invalid_section_id_raises(self, invalid_id):
+        with pytest.raises(SystemExit, match="Invalid section id"):
+            _parse_sections([{"id": invalid_id}])
+
+    def test_custom_section_default_description(self):
+        sections = _parse_sections([{"id": "probes", "title": "Probes"}])
+        assert sections[0].description == "Changes related to Probes."
+
+    def test_default_llm_model_and_effort(self):
+        from giskard.llm.translators import openai_chat
+        from giskard.llm.types import UserMessage
+
+        from release_notes.llm import (
+            DEFAULT_EFFORT,
+            DEFAULT_MODEL,
+            _ensure_reasoning_effort_support,
+        )
+
+        assert DEFAULT_MODEL == "azure_ai/gpt-5.6-luna"
+        assert DEFAULT_EFFORT == "high"
+        _ensure_reasoning_effort_support()
+        translated = openai_chat.OpenAIChatTranslator.to_openai(
+            "gpt-5.6-luna",
+            [UserMessage(role="user", content="hello")],
+            reasoning_effort="high",
+        )
+        assert translated["reasoning_effort"] == "high"
+
+    def test_repo_release_notes_config_is_valid(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        cfg = load_project_config(repo_root)
+        assert cfg.github_repository == "Giskard-AI/giskard-actions"
+        assert cfg.model == "azure_ai/gpt-5.6-luna"
+        assert cfg.effort == "high"
+        assert cfg.manifest_paths == ("pyproject.toml",)
+        assert "action.yml" in cfg.file_diffs
+        assert ".github/actions/codex-pr-review/action.yml" in cfg.file_diffs
+        assert len(cfg.upgrade_rules) == 1
+        assert cfg.upgrade_rules[0].id == "action_interface"
+        assert [s.id for s in cfg.sections] == [
+            "summary",
+            "features",
+            "fixes",
+            "infra_deps",
+            "upgrade_notes",
+            "deps",
+            "appendix",
+        ]
