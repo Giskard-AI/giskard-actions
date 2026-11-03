@@ -38,6 +38,7 @@ REQUIRED_AZURE_CATALOG_SLUGS = ("gpt-5.6-luna", "gpt-5.6-terra")
 VENDORED_AZURE_MODEL_CATALOG = (
     Path(__file__).resolve().parents[2] / ".github/codex/azure-model-catalog.json"
 )
+BUNDLED_OVERLAYS_DIR = Path(__file__).resolve().parents[2] / ".github/codex/overlays"
 
 
 def _load_sanitize_module() -> Any:
@@ -1654,10 +1655,9 @@ def add_post_review_parser(subparsers: argparse._SubParsersAction) -> None:
 def main_stage_overlay(args: argparse.Namespace) -> int:
     name = validate_reviewer_name(args.name)
     trusted = Path(args.trusted_config)
-    bundled_root = Path(__file__).resolve().parents[2]
     overlay = trusted / ".cursor" / "agents" / f"{name}.md"
     if not overlay.is_file():
-        bundled_overlay = bundled_root / ".cursor" / "agents" / f"{name}.md"
+        bundled_overlay = BUNDLED_OVERLAYS_DIR / f"{name}.md"
         if bundled_overlay.is_file():
             overlay = bundled_overlay
         else:
@@ -1675,13 +1675,10 @@ def main_stage_overlay(args: argparse.Namespace) -> int:
                 raise ValueError(f"unexpected directory in role-references: {child}")
     refs_dir.mkdir(parents=True, exist_ok=True)
     source_dir = trusted / ".cursor" / "agents" / "references"
-    bundled_refs_dir = bundled_root / ".cursor" / "agents" / "references"
     for basename in parse_role_references(
         [part for part in args.role_references.split(",") if part]
     ):
         source = source_dir / basename
-        if not source.is_file() and (bundled_refs_dir / basename).is_file():
-            source = bundled_refs_dir / basename
         if not source.is_file():
             print(f"missing role reference: {source}", file=sys.stderr)
             return 1
