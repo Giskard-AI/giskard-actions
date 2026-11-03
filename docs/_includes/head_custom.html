@@ -1,0 +1,39 @@
+<style>
+  .theme-toggle {
+    align-self: center;
+    margin: 0 0.5rem;
+    white-space: nowrap;
+  }
+</style>
+<script>
+  /* Runs in <head> before first paint so a stored or system choice never flashes the default.
+     Only block comments here: just-the-docs minifies pages onto one line. */
+  window.docsTheme = (function () {
+    var KEY = 'giskard-actions-theme';
+    var CHOICES = ['dark', 'light', 'system'];
+    var media = window.matchMedia('(prefers-color-scheme: dark)');
+
+    function choice() {
+      var stored = localStorage.getItem(KEY);
+      return CHOICES.indexOf(stored) === -1 ? 'dark' : stored;
+    }
+
+    function apply() {
+      var selected = choice();
+      jtd.setTheme(selected === 'system' ? (media.matches ? 'dark' : 'light') : selected);
+    }
+
+    function next() {
+      localStorage.setItem(KEY, CHOICES[(CHOICES.indexOf(choice()) + 1) % CHOICES.length]);
+      apply();
+      return choice();
+    }
+
+    media.addEventListener('change', function () {
+      if (choice() === 'system') apply();
+    });
+    apply();
+
+    return { choice: choice, next: next };
+  })();
+</script>

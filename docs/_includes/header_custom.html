@@ -1,0 +1,19 @@
+<button type="button" class="btn btn-outline theme-toggle" id="theme-toggle"></button>
+<script>
+  (function () {
+    var LABELS = { dark: 'Dark', light: 'Light', system: 'System' };
+    var button = document.getElementById('theme-toggle');
+
+    function render() {
+      var label = LABELS[window.docsTheme.choice()];
+      button.textContent = 'Theme: ' + label;
+      button.setAttribute('aria-label', 'Color theme: ' + label + '. Activate to switch.');
+    }
+
+    button.addEventListener('click', function () {
+      window.docsTheme.next();
+      render();
+    });
+    render();
+  })();
+</script>
