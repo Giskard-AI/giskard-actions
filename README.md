@@ -116,22 +116,6 @@ The schemas' `$id` points at `main`. Reference the schema of the release you pin
 }
 ```
 
-## Migrating from v0.3.x
-
-v0.4.0 moves every action under `.github/actions/` and every consumer file under `.github/giskard/`. If only a legacy config file (`.release-notes.json`, `.github/codex/reviewer-map.json`) exists, the run still reads it and emits a warning naming the new path; the legacy paths stop being read in v1.0.0. When both files exist, the new one wins and the run warns that the legacy one is ignored. Because the Codex review reads its config from the PR base, the PR that moves the file is reviewed with the legacy file and passes.
-
-| v0.3.x | v0.4.0 |
-| --- | --- |
-| `uses: Giskard-AI/giskard-actions@<sha>` | `uses: Giskard-AI/giskard-actions/.github/actions/release-notes@<sha>` |
-| `.release-notes.json` | `.github/giskard/release-notes.json` |
-| `.github/codex/reviewer-map.json` | `.github/giskard/codex-reviewer-map.json` |
-| Two jobs calling `.github/actions/codex-pr-review` and `.github/actions/codex-post-review` | One job calling `.github/workflows/codex-pr-review.yml` ([Quick start](#quick-start-codex-pr-review)) |
-
-```bash
-git mv .release-notes.json .github/giskard/release-notes.json
-git mv .github/codex/reviewer-map.json .github/giskard/codex-reviewer-map.json
-```
-
 ## Security model
 
 - **Trusted code is the pinned unpack.** Helper scripts, prompts, output schemas and the model catalog run from the action directory GitHub unpacks at your pinned SHA (`github.action_path`). Callers cannot point the helpers at other code, and the Codex helper never runs `scripts/` from your workspace.
