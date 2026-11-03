@@ -284,6 +284,136 @@ def test_compute_next_release_tag_cli_seam(
     assert lines == expected_outputs
 
 
+def _compute_with_requested_version(
+    tmp_path: Path, repo_dir: Path, requested_version: str
+) -> dict[str, str]:
+    output_file = tmp_path / "github-output"
+    rc = main(
+        [
+            "--github-output",
+            str(output_file),
+            "--compute-next-release-tag",
+            "--repo-root",
+            str(repo_dir),
+            "--release-version",
+            requested_version,
+        ]
+    )
+    assert rc == 0
+    return dict(
+        line.split("=", 1) for line in output_file.read_text(encoding="utf-8").strip().splitlines()
+    )
+
+
+@pytest.mark.parametrize(
+    ("initial_tags", "commits_after_tag", "requested_version", "expected_outputs"),
+    [
+        pytest.param(
+            ["v0.4.0"],
+            ["docs: polish"],
+            "1.0.0",
+            _release("v1.0.0", "v0.4.0"),
+            id="releases_requested_version_without_releasable_commits",
+        ),
+        pytest.param(
+            ["v0.4.0"],
+            ["docs: polish"],
+            "v1.0.0",
+            _release("v1.0.0", "v0.4.0"),
+            id="accepts_v_prefix",
+        ),
+        pytest.param(
+            ["v0.4.0"],
+            ["feat: add input"],
+            "0.4.1",
+            _release("v0.4.1", "v0.4.0"),
+            id="requested_version_wins_over_computed_bump",
+        ),
+        pytest.param(
+            [],
+            [],
+            "1.0.0",
+            _release("v1.0.0", ""),
+            id="requested_version_without_any_tag",
+        ),
+        pytest.param(
+            ["v0.4.0"],
+            ["feat: add input"],
+            "  ",
+            _release("v0.5.0", "v0.4.0"),
+            id="blank_request_uses_computed_bump",
+        ),
+    ],
+)
+def test_compute_next_release_tag_with_requested_version(
+    tmp_path: Path,
+    initial_tags: list[str],
+    commits_after_tag: list[str],
+    requested_version: str,
+    expected_outputs: dict[str, str],
+) -> None:
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    _init_git_repo(repo_dir)
+    for tag in initial_tags:
+        subprocess.run(["git", "tag", tag], cwd=repo_dir, check=True)
+    for msg in commits_after_tag:
+        _commit_empty(repo_dir, msg)
+
+    assert _compute_with_requested_version(tmp_path, repo_dir, requested_version) == (
+        expected_outputs
+    )
+
+
+@pytest.mark.parametrize(
+    ("requested_version", "error"),
+    [
+        pytest.param("1.0", r"'1\.0' is not a X\.Y\.Z version", id="rejects_missing_patch"),
+        pytest.param("1.0.0-rc.1", r"is not a X\.Y\.Z version", id="rejects_prerelease_suffix"),
+        pytest.param(
+            "0.5.0", r"v0\.5\.0 must be higher than v0\.5\.0", id="rejects_existing_version"
+        ),
+        pytest.param(
+            "0.4.0",
+            r"v0\.4\.0 must be higher than v0\.5\.0",
+            id="rejects_version_of_reachable_release",
+        ),
+        pytest.param(
+            "0.4.5",
+            r"v0\.4\.5 must be higher than v0\.5\.0",
+            id="rejects_version_below_tag_on_another_branch",
+        ),
+    ],
+)
+def test_compute_next_release_tag_rejects_requested_version(
+    tmp_path: Path, requested_version: str, error: str
+) -> None:
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    _init_git_repo(repo_dir)
+    subprocess.run(["git", "tag", "v0.4.0"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "checkout", "-q", "-b", "side"], cwd=repo_dir, check=True)
+    _commit_empty(repo_dir, "feat: released elsewhere")
+    subprocess.run(["git", "tag", "v0.5.0"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "checkout", "-q", "-"], cwd=repo_dir, check=True)
+    _commit_empty(repo_dir, "fix: on main")
+
+    with pytest.raises(SystemExit, match=rf"::error::.*{error}"):
+        _compute_with_requested_version(tmp_path, repo_dir, requested_version)
+
+
+def test_compute_next_release_tag_refuses_requested_version_on_released_head(
+    tmp_path: Path,
+) -> None:
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    _init_git_repo(repo_dir)
+    subprocess.run(["git", "tag", "v0.4.0"], cwd=repo_dir, check=True)
+
+    with pytest.raises(SystemExit, match=r"::error::HEAD is already released as v0\.4\.0"):
+        _compute_with_requested_version(tmp_path, repo_dir, "1.0.0")
+
+
 def test_compute_next_release_tag_refuses_to_bootstrap_when_tags_are_unreachable(
     tmp_path: Path,
 ) -> None:
