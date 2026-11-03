@@ -15,7 +15,6 @@ dependencies = [
 dev = [
     "jsonschema==4.26.0",
     "pytest==9.2.0",
-    "pytest-asyncio==1.4.1",
     "ruff==0.17.3",
 ]
 
@@ -41,7 +40,6 @@ select = ["E", "F", "W", "I", "UP"]
 "tests/test_codex_pr_assessment.py" = ["E501"]
 
 [tool.pytest.ini_options]
-asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["scripts/ci"]
 addopts = "--tb=short"
