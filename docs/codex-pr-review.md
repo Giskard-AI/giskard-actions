@@ -79,7 +79,7 @@ What the caller owns:
 | `normal_model` / `normal_effort` | string | `''` | Defaults for normal reviewer passes |
 | `critical_model` / `critical_effort` | string | `''` | Defaults for critical reviewer passes |
 | `aggregator_model` / `aggregator_effort` | string | `''` | Model and effort for the aggregator |
-| `codex_version` | string | `0.146.1` | Codex CLI version |
+| `codex_version` | string | `0.164.0` | Codex CLI version |
 
 Empty model and effort inputs fall back to the reviewer map `defaults`, then to built-in defaults (`gpt-5.6-luna` / `medium` for normal passes, `gpt-5.6-terra` / `high` for critical passes and the aggregator).
 

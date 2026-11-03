@@ -38,7 +38,7 @@ inputs:
   codex_version:
     description: Codex CLI version pin
     required: false
-    default: "0.146.1"
+    default: "0.164.0"
   model_catalog_path:
     description: Optional path to a custom model_catalog_json (defaults to the action's bundled Azure catalog)
     required: false
