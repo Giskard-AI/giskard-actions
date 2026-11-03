@@ -38,21 +38,3 @@ The repository has **one SemVer version** for everything it ships.
 - **Untrusted input stays data.** Only comments, issues and pull requests authored by owners, members and collaborators reach the models, and model output is sanitized (images, raw HTML, invisible characters and untrusted links removed) before it is published.
 
 Report vulnerabilities privately; see [SECURITY.md](https://github.com/Giskard-AI/giskard-actions/blob/main/SECURITY.md).
-
-## Migrating from v0.3.x
-
-v0.4.0 moves every action under `.github/actions/` and every consumer file under `.github/giskard/`. If a legacy config file is still in place and the new one is missing, the run reads the legacy file and emits a warning naming the new path; the legacy paths stop being read in v1.0.0. When both files exist, the new one wins and the run warns that the legacy one is ignored. Because the Codex review reads its config from the PR base, the PR that moves the file is reviewed with the legacy file and passes.
-
-| v0.3.x | v0.4.0 |
-| --- | --- |
-| `uses: Giskard-AI/giskard-actions@<sha>` | `uses: Giskard-AI/giskard-actions/.github/actions/release-notes@<sha>` |
-| `.release-notes.json` | `.github/giskard/release-notes.json` |
-| `.github/codex/reviewer-map.json` | `.github/giskard/codex-reviewer-map.json` |
-| Two jobs calling the `codex-pr-review` and `codex-post-review` composites | One job calling `.github/workflows/codex-pr-review.yml` (see [Caller workflow](codex-pr-review.html#caller-workflow)) |
-
-```bash
-git mv .release-notes.json .github/giskard/release-notes.json
-git mv .github/codex/reviewer-map.json .github/giskard/codex-reviewer-map.json
-```
-
-When you switch to the reusable workflow, move the concurrency group from workflow level to the calling job and pass `AZURE_AI_API_KEY` under `secrets:`.
