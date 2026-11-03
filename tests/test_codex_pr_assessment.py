@@ -29,7 +29,9 @@ class TestAuthorFiltering(unittest.TestCase):
                 self.assertTrue(codex_pr_assessment.is_ignored_author(author))
 
     def test_human_author_is_not_ignored(self) -> None:
-        self.assertFalse(codex_pr_assessment.is_ignored_author({"login": "bazire", "type": "User"}))
+        self.assertFalse(
+            codex_pr_assessment.is_ignored_author({"login": "octocat", "type": "User"})
+        )
 
 
 class TestIssueCommentTrust(unittest.TestCase):
