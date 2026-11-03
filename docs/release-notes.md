@@ -43,7 +43,7 @@ jobs:
           # submodules: true  # if manifest_paths point into submodules
 
       - id: notes
-        uses: Giskard-AI/giskard-actions/.github/actions/release-notes@<full-commit-sha> # v0.4.0
+        uses: Giskard-AI/giskard-actions/.github/actions/release-notes@<full-commit-sha> # vX.Y.Z
         with:
           version: "1.2.0"
           include_appendix: "true"

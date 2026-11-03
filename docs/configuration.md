@@ -10,7 +10,7 @@ Per-repository settings live in `.github/giskard/` of the repository that uses t
 
 ```json
 {
-  "$schema": "https://raw.githubusercontent.com/Giskard-AI/giskard-actions/v0.4.0/schemas/release-notes.schema.json"
+  "$schema": "https://raw.githubusercontent.com/Giskard-AI/giskard-actions/v1.0.0/schemas/release-notes.schema.json"
 }
 ```
 
@@ -89,7 +89,7 @@ Example: [`codex-ci-config.json`](https://github.com/Giskard-AI/giskard-actions/
 
 ```bash
 uvx check-jsonschema \
-  --schemafile https://raw.githubusercontent.com/Giskard-AI/giskard-actions/v0.4.0/schemas/release-notes.schema.json \
+  --schemafile https://raw.githubusercontent.com/Giskard-AI/giskard-actions/v1.0.0/schemas/release-notes.schema.json \
   .github/giskard/release-notes.json
 ```
 

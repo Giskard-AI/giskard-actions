@@ -14,7 +14,7 @@ concurrency:
 jobs:
   zizmor:
     name: zizmor
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     permissions:
       contents: read
     steps:
@@ -28,3 +28,4 @@ jobs:
         with:
           advanced-security: false
           persona: pedantic
+          version: "1.31.1"

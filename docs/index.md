@@ -21,10 +21,11 @@ The repository has **one SemVer version** for everything it ships.
 
 - Tags `vX.Y.Z` and GitHub Releases are created only by the `release.yml` workflow on pushes to `main`. Conventional commits since the last tag pick the bump: `fix`, `perf` or any type with the `deps` scope (for example `chore(deps): ...` from Renovate or the lockfile workflows) is a patch, `feat` a minor, and a `!` header or a `BREAKING CHANGE:` footer line a major (a minor while the version is `0.x`). Merged dependency updates therefore always publish a patch release, so runtime and security updates reach consumers. A range with none of these (only `chore`, `docs`, `test`, `ci`, ... without the `deps` scope) creates no release. Maintainers can run `release.yml` manually on `main` with a `version` input to release an explicit `X.Y.Z` instead (for example the first `1.0.0`); it must be higher than every existing tag.
 - There are no floating tags (`v0`) and no per-action tags.
-- Pin the **full 40-character commit SHA** with a version comment, and use the same SHA for every reference to this repository:
+- The version lives only in the git tags. `version` in `pyproject.toml` stays `0.0.0` and is never bumped.
+- Pin the **full 40-character commit SHA** of a [release](https://github.com/Giskard-AI/giskard-actions/releases) with a version comment, and use the same SHA for every reference to this repository:
 
   ```yaml
-  uses: Giskard-AI/giskard-actions/.github/actions/release-notes@<full-commit-sha> # v0.4.0
+  uses: Giskard-AI/giskard-actions/.github/actions/release-notes@<full-commit-sha> # vX.Y.Z
   ```
 
 - [Renovate](https://docs.renovatebot.com/) with the `helpers:pinGitHubActionDigests` preset proposes SHA and comment updates when a new release is published.
