@@ -61,7 +61,7 @@
         "name": {
           "type": "string",
           "pattern": "^[a-zA-Z0-9_-]+$",
-          "description": "Reviewer name. The persona is loaded from .cursor/agents/<name>.md at the base SHA."
+          "description": "Reviewer name. The persona is loaded from .cursor/agents/<name>.md at the base SHA, falling back to a bundled generic persona for security-auditor, infra-reviewer and prompt-critic."
         },
         "model_kind": {
           "enum": ["normal", "critical"],

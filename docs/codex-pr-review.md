@@ -31,10 +31,6 @@ on:
 
 permissions: {}
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr_number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name != 'issue_comment' }}
-
 jobs:
   codex:
     if: >-
@@ -49,6 +45,9 @@ jobs:
         contains(fromJSON('["/review","/codex-assess"]'), github.event.comment.body) &&
         contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
       )
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr_number || github.run_id }}
+      cancel-in-progress: ${{ github.event_name != 'issue_comment' }}
     permissions:
       contents: read
       issues: read
@@ -63,10 +62,11 @@ jobs:
 
 What the caller owns:
 
-- **Triggers and the comment gate.** Only start reviews for a label, a manual dispatch, or a `/review` or `/codex-assess` comment from an `OWNER`, `MEMBER` or `COLLABORATOR`. The workflow re-checks the comment author and only reviews open, same-repository pull requests.
-- **Concurrency.** Keep the concurrency group on the caller; the reusable workflow does not declare one.
+- **Triggers and the comment gate.** Only start reviews for a label, a manual dispatch, or a `/review` or `/codex-assess` comment from an `OWNER`, `MEMBER` or `COLLABORATOR`. That `author_association` check is a cheap pre-filter: the workflow then calls `GET /repos/{owner}/{repo}/collaborators/{user}/permission` and only reviews when the commenter has `write`, `maintain` or `admin`. It also only reviews open, same-repository pull requests.
+- **Concurrency.** Put the concurrency group on the calling job, not at workflow level. Every comment on the pull request starts a workflow run; with a workflow-level group, an unrelated comment would queue behind a `/review` and replace (cancel) it while pending. The reusable workflow does not declare one.
 - **The permission ceiling.** The calling job's `permissions` cap every job in the reusable workflow, which needs `contents: read`, `issues: read` and `pull-requests: write`.
 - **Secrets.** Pass `AZURE_AI_API_KEY` explicitly by name. Never use `secrets: inherit`. If the key exists only as an environment secret, it still works: the review job sets `environment:` to your `environment` input, and an environment secret with the same name takes precedence over the passed value.
+- **The environment.** Spell the `environment` input exactly: GitHub creates a missing environment on first use, so a typo silently runs with an empty environment and the review fails on the missing key or endpoint. If the environment restricts deployment branches and you trigger reviews from `pull_request` (for example the `codex-review` label), allow `refs/pull/*/merge`, the ref those runs execute on.
 
 ## Inputs
 
@@ -117,7 +117,22 @@ Accepted forms (HTTPS on an Azure host):
 
 ## Reviewer personas
 
-For each selected reviewer `<name>`, the workflow loads `.cursor/agents/<name>.md` from the base SHA (falling back to a persona bundled in this repository, if one exists) plus any `role_references` from `.cursor/agents/references/`. Configure selection in `.github/giskard/codex-reviewer-map.json`; see [Configuration](configuration.html#codex-reviewer-map).
+For each selected reviewer `<name>`, the workflow loads `.cursor/agents/<name>.md` from the base SHA plus any `role_references` from `.cursor/agents/references/`. If your repository has no such persona, it falls back to a generic one bundled under `.github/codex/overlays/` (`security-auditor`, `infra-reviewer`, `prompt-critic`); any other reviewer without a persona fails its pass. Configure selection in `.github/giskard/codex-reviewer-map.json`; see [Configuration](configuration.html#codex-reviewer-map). If only the v0.3.x file `.github/codex/reviewer-map.json` exists, the run fails with an error naming the new path.
+
+## What Codex sees
+
+Codex gets the pull request patches, title and body, unresolved review threads, issue comments and prior Codex reviews. Only comments whose author is an `OWNER`, `MEMBER` or `COLLABORATOR` are included, each labelled with that association; bot comments are dropped. Secret-looking values are redacted (GitHub expressions such as {% raw %}`${{ secrets.NAME }}`{% endraw %} are kept, since they are references, not values).
+
+Before posting, the review body is sanitized: secret patterns are redacted, `@mentions` are defanged, images, raw HTML and bidirectional or zero-width characters are removed, and links are kept only for `github.com` and `sonarcloud.io` (any scheme case, protocol-relative `//host`, `www.` autolinks and HTML-entity-encoded URLs included).
+
+## Residual risks
+
+- **Key exposure inside the job.** `openai/codex-action` runs with `safety-strategy: read-only`, which keeps `sudo` available on the runner. Codex itself runs in a read-only, network-isolated sandbox, but code running as the runner user could in theory read the Azure key from process memory. Use a dedicated Azure key with a spending limit, scoped to this workflow.
+- **Advisory output.** Model output is sanitized but not verified. Treat findings as suggestions.
+
+## Known limitations
+
+- All reviewer passes run sequentially in one job. Running each pass in its own job that drops `sudo` before Codex starts would remove the key-exposure risk above; this is not implemented yet.
 
 ## Runner requirements
 
@@ -125,4 +140,4 @@ The workflow references its own composites with the self-repository syntax (`use
 
 ## Using the composites directly
 
-The `codex-pr-review` and `codex-post-review` composite actions under `.github/actions/` remain available if you need a different job layout. The reusable workflow is the supported interface; if you call the composites yourself, keep the read and write jobs separate as above.
+The `codex-pr-review` and `codex-post-review` composite actions under `.github/actions/` remain available if you need a different job layout. The reusable workflow is the supported interface; if you call the composites yourself, keep the read and write jobs separate as above. Coming from the v0.3.x two-job layout, see [Migrating from v0.3.x](index.html#migrating-from-v03x).

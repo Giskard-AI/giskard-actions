@@ -15,10 +15,11 @@ A composite action and CLI (`generate-release-notes`) that turns the commits bet
 
 1. Detects the tag range (for example `v1.1.0..v1.2.0`). In dry-run mode a missing target tag falls back to `HEAD`.
 2. Builds a digest per commit, prioritizing diffs under `high_signal_prefixes`.
-3. Optionally fetches referenced Linear issues (`LINEAR_API_KEY`) and GitHub issues and pull requests (`GITHUB_TOKEN`).
+3. Optionally fetches referenced Linear issues (`LINEAR_API_KEY`) and GitHub issues and pull requests (`GITHUB_TOKEN`). GitHub issues and pull requests are used only when their author is an owner, member or collaborator of the repository; others are skipped with a log line.
 4. Consolidates each commit with an LLM into one category matching your configured sections.
 5. Synthesizes the configured sections, then applies deterministic `upgrade_rules` and keeps extra LLM upgrade notes with new names.
-6. Renders Markdown, a dependency bump table from `manifest_paths`, raw diffs of `file_diffs`, and an optional appendix.
+6. Sanitizes model-written text: drops images, raw HTML and invisible characters, and removes links that do not point to `https://github.com/<your repository>/`.
+7. Renders Markdown, a dependency bump table from `manifest_paths`, raw diffs of `file_diffs`, and an optional appendix. Links the tool writes itself (compare URL, commit and issue links) are kept.
 
 Prompts use [giskard-agents](https://pypi.org/project/giskard-agents/) sandboxed templates; completions go through [giskard-llm](https://pypi.org/project/giskard-llm/). The default model is `azure_ai/gpt-5.6-luna` with `high` reasoning effort.
 
@@ -50,12 +51,19 @@ jobs:
           AZURE_AI_API_KEY: ${{ secrets.AZURE_AI_API_KEY }}
           AZURE_AI_API_BASE: ${{ vars.AZURE_AI_API_BASE }}
           AZURE_AI_ENDPOINT: ${{ vars.AZURE_AI_API_BASE }}
-          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }} # private repositories only
           GITHUB_TOKEN: ${{ github.token }}
 ```
 {% endraw %}
 
-Pass credentials on the step `env:`, never in `with:`.
+Pass credentials on the step `env:`.
+
+### Linear enrichment
+
+With `LINEAR_API_KEY` set, the tool fetches the title and description of every Linear issue referenced in the commit range and gives them to the model, which can paraphrase or quote them in the notes. The notes then become a GitHub Release that anyone who can read the repository can see.
+
+- **Public repositories:** do not set `LINEAR_API_KEY`. Ticket text (customer names, internal plans, security details) would be published.
+- **Private repositories:** use a Linear key restricted to teams whose tickets are safe for everyone with read access to the repository.
 
 ### Environment variables
 
@@ -63,8 +71,8 @@ Pass credentials on the step `env:`, never in `with:`.
 | --- | --- | --- |
 | `AZURE_AI_API_KEY` | For `azure_ai/` models | Azure AI key |
 | `AZURE_AI_API_BASE` / `AZURE_AI_ENDPOINT` | For `azure_ai/` models | Azure AI endpoint (`https://<resource>.services.ai.azure.com/api/projects/<project>`) |
-| `LINEAR_API_KEY` | No | Enables Linear issue enrichment for bracketed keys like `[ABC-123]` in commit messages |
-| `GITHUB_TOKEN` | No | Enables GitHub issue and pull request enrichment |
+| `LINEAR_API_KEY` | No | Enables Linear issue enrichment for bracketed keys like `[ABC-123]` in commit messages. Private repositories only; see [Linear enrichment](#linear-enrichment) |
+| `GITHUB_TOKEN` | No | Enables GitHub issue and pull request enrichment (owner, member and collaborator authors only) |
 
 ## Inputs
 
@@ -100,7 +108,7 @@ Release notes stays a composite action for this reason: callers often mint their
 
 ## Configuration
 
-Settings are read from `.github/giskard/release-notes.json` in the analyzed repository. See [Configuration](configuration.html#release-notes) for the fields and schema.
+Settings are read from `.github/giskard/release-notes.json` in the analyzed repository. See [Configuration](configuration.html#release-notes) for the fields and schema. If only the v0.3.x file `.release-notes.json` exists, the run fails with an error naming the new path; see [Migrating from v0.3.x](index.html#migrating-from-v03x).
 
 ## Local CLI
 

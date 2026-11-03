@@ -29,4 +29,4 @@ GitHub's self-repository syntax (`$/`, available since 2026-07-30 on runner 2.33
 - Consumers replace the two-job shim with one job and one pin.
 - Self-hosted runners must run 2.336.0 or later. actionlint 1.7.12 does not parse `$/` yet (rhysd/actionlint#732, #760); this repository's lint run ignores those two messages.
 - The review job's runner and timeout are inputs. The default `ubuntu-slim` runner is capped at 15 minutes by GitHub, so `timeout_minutes` defaults to 15 and large reviews pass `runner: ubuntu-latest` with a larger timeout. The composite preflights `codex sandbox -- true` and relaxes Ubuntu 24.04's AppArmor user-namespace restriction on hosted runners so both runners work.
-- The move to `.github/giskard/` is a breaking change for existing consumers, accepted while the only consumer is on an unmerged branch.
+- The move to `.github/giskard/` is a breaking change for existing consumers, which currently pin v0.3.1. There are no compatibility shims; instead, a legacy config file left in place (`.release-notes.json`, `.github/codex/reviewer-map.json`) fails the run with an error naming the new path, and the README documents the migration.

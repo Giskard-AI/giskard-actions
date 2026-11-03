@@ -31,7 +31,7 @@ The immutable directory (`github.action_path`) where GitHub Actions extracts the
 _Avoid_: Action checkout, helper clone, workflow ref checkout
 
 **Consumer Config Directory**:
-`.github/giskard/` in the **Consumer Repository**, holding `release-notes.json`, `codex-reviewer-map.json`, and `codex-ci-config.json`. Bundled action assets (prompts, output schema, model catalog) are not consumer config; they stay in `.github/codex/` of `giskard-actions`.
+`.github/giskard/` in the **Consumer Repository**, holding `release-notes.json`, `codex-reviewer-map.json`, and `codex-ci-config.json`. Bundled action assets (prompts, output schema, model catalog, generic reviewer overlays) are not consumer config; they stay in `.github/codex/` of `giskard-actions`. `codex-ci-config.json` is experimental: no shipped action reads it yet.
 _Avoid_: Dotfile config, root config
 
 **Config Schema**:
@@ -39,7 +39,7 @@ A JSON Schema under `schemas/` in `giskard-actions` describing one file of the *
 _Avoid_: Config spec, config template
 
 **Base-SHA Overlay**:
-Trusted configuration and reviewer persona files (`.github/giskard/codex-reviewer-map.json`, `.cursor/agents/*.md`, and `.cursor/agents/references/*`) fetched strictly from the **Consumer Repository** pull request base commit rather than the untrusted pull request head.
+Trusted configuration and reviewer persona files (`.github/giskard/codex-reviewer-map.json`, `.cursor/agents/*.md`, and `.cursor/agents/references/*`) fetched strictly from the **Consumer Repository** pull request base commit rather than the untrusted pull request head. When a persona is missing, a generic **Bundled Overlay** from `.github/codex/overlays/` is used if one exists for that reviewer name.
 _Avoid_: PR head config, caller checkout config
 
 ### Release Notes Pipeline

@@ -6,11 +6,11 @@ nav_order: 4
 # Configuration
 {: .no_toc }
 
-Per-repository settings live in `.github/giskard/` of the repository that uses the actions. Each file has a JSON Schema published in [`schemas/`](https://github.com/Giskard-AI/giskard-actions/tree/main/schemas). Add a `$schema` key for editor validation and completion:
+Per-repository settings live in `.github/giskard/` of the repository that uses the actions. Each file has a JSON Schema published in [`schemas/`](https://github.com/Giskard-AI/giskard-actions/tree/main/schemas). Add a `$schema` key for editor validation and completion. Each schema's `$id` points at `main`, which can be ahead of the release you pin; reference the version tag you pin instead:
 
 ```json
 {
-  "$schema": "https://raw.githubusercontent.com/Giskard-AI/giskard-actions/main/schemas/release-notes.schema.json"
+  "$schema": "https://raw.githubusercontent.com/Giskard-AI/giskard-actions/v0.4.0/schemas/release-notes.schema.json"
 }
 ```
 
@@ -18,7 +18,7 @@ Per-repository settings live in `.github/giskard/` of the repository that uses t
 | --- | --- | --- |
 | `.github/giskard/release-notes.json` | Release notes | [`release-notes.schema.json`](https://github.com/Giskard-AI/giskard-actions/blob/main/schemas/release-notes.schema.json) |
 | `.github/giskard/codex-reviewer-map.json` | Codex PR review | [`codex-reviewer-map.schema.json`](https://github.com/Giskard-AI/giskard-actions/blob/main/schemas/codex-reviewer-map.schema.json) |
-| `.github/giskard/codex-ci-config.json` | Codex CI triage helper | [`codex-ci-config.schema.json`](https://github.com/Giskard-AI/giskard-actions/blob/main/schemas/codex-ci-config.schema.json) |
+| `.github/giskard/codex-ci-config.json` | Codex CI triage helper (experimental, internal) | [`codex-ci-config.schema.json`](https://github.com/Giskard-AI/giskard-actions/blob/main/schemas/codex-ci-config.schema.json) |
 
 Ready-to-copy samples are in [`examples/`](https://github.com/Giskard-AI/giskard-actions/tree/main/examples).
 
@@ -54,7 +54,7 @@ Examples: [`web-app`](https://github.com/Giskard-AI/giskard-actions/blob/main/ex
 | Field | Description |
 | --- | --- |
 | `rules` | Required, non-empty. Each rule selects one reviewer |
-| `rules[].name` | Reviewer name (`[a-zA-Z0-9_-]+`); the persona is `.cursor/agents/<name>.md` |
+| `rules[].name` | Reviewer name (`[a-zA-Z0-9_-]+`); the persona is `.cursor/agents/<name>.md`, or a bundled generic persona for `security-auditor`, `infra-reviewer` and `prompt-critic` |
 | `rules[].model_kind` | `normal` (default) or `critical`; selects the model and effort defaults |
 | `rules[].model`, `rules[].effort` | Per-rule overrides |
 | `rules[].path_prefixes`, `rules[].path_suffixes` | Prefix and suffix matchers; when both are set, both must match |
@@ -68,6 +68,9 @@ A reviewer is selected when any changed file matches its rule. At most 12 review
 Example: [`codex-reviewer-map.json`](https://github.com/Giskard-AI/giskard-actions/blob/main/examples/codex-reviewer-map.json).
 
 ## Codex CI config
+
+{: .warning }
+Experimental and internal. No action or workflow shipped by this repository reads this file yet; the format may change in any release.
 
 `.github/giskard/codex-ci-config.json`, used by the CI triage helper (`collect-ci` and `triage-ci` in `scripts/ci/codex_pr_assessment.py`) through the `CODEX_CI_CONFIG` environment variable.
 
@@ -86,7 +89,7 @@ Example: [`codex-ci-config.json`](https://github.com/Giskard-AI/giskard-actions/
 
 ```bash
 uvx check-jsonschema \
-  --schemafile https://raw.githubusercontent.com/Giskard-AI/giskard-actions/main/schemas/release-notes.schema.json \
+  --schemafile https://raw.githubusercontent.com/Giskard-AI/giskard-actions/v0.4.0/schemas/release-notes.schema.json \
   .github/giskard/release-notes.json
 ```
 
