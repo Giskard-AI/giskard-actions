@@ -87,7 +87,7 @@ Empty model and effort inputs fall back to the reviewer map `defaults`, then to 
 
 The default `ubuntu-slim` runner is verified to run the Codex sandbox, and a typical review finishes in a few minutes. GitHub caps `ubuntu-slim` jobs at 15 minutes, which is why `timeout_minutes` defaults to `15`. For large pull requests that select many reviewer passes, pass `runner: ubuntu-latest` together with a larger `timeout_minutes`, e.g. `60`.
 
-Before the first pass, the review job runs `codex sandbox -- true` and fails with a clear error if Codex cannot start its sandbox. On Ubuntu 24.04 runners such as `ubuntu-latest`, it first sets `kernel.apparmor_restrict_unprivileged_userns=0` so bubblewrap can create user namespaces; this only affects the ephemeral GitHub-hosted runner.
+Before the first pass, the review job runs `codex sandbox -- true` and fails with a clear error if Codex cannot start its sandbox. On Ubuntu 24.04 runners such as `ubuntu-latest`, it first sets `kernel.apparmor_restrict_unprivileged_userns=0` so bubblewrap can create user namespaces. It only does this on GitHub-hosted runners, which are ephemeral; on a self-hosted runner, the operator must allow unprivileged user namespaces beforehand.
 
 ### `responses_api_base`
 

@@ -82,14 +82,15 @@ runs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq --no-install-recommends bubblewrap
         fi
-        # Ubuntu 24.04 AppArmor blocks the user namespaces bwrap needs; safe to relax on an ephemeral hosted runner.
+        # Ubuntu 24.04 AppArmor blocks the user namespaces bwrap needs. Only relax it on ephemeral
+        # GitHub-hosted runners; self-hosted runners may be shared, so their operators must allow it.
         userns_restrict=/proc/sys/kernel/apparmor_restrict_unprivileged_userns
-        if [[ -f "$userns_restrict" && "$(cat "$userns_restrict")" == "1" ]]; then
+        if [[ "${RUNNER_ENVIRONMENT:-}" == "github-hosted" && -f "$userns_restrict" && "$(cat "$userns_restrict")" == "1" ]]; then
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
         fi
         npm install -g "@openai/codex@${CODEX_VERSION}"
         if ! codex sandbox -- true; then
-          echo "::error title=Codex sandbox unavailable::'codex sandbox -- true' failed on this runner; Codex cannot run its read-only bubblewrap sandbox. Use runner ubuntu-slim or ubuntu-latest."
+          echo "::error title=Codex sandbox unavailable::'codex sandbox -- true' failed on this runner; Codex cannot run its read-only bubblewrap sandbox. Use runner ubuntu-slim or ubuntu-latest, or on a self-hosted runner allow unprivileged user namespaces (kernel.apparmor_restrict_unprivileged_userns=0)."
           exit 1
         fi
       shell: bash
