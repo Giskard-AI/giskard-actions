@@ -1,6 +1,7 @@
 [project]
 name = "giskard-actions"
-version = "0.4.0"
+# Releases are versioned by git tags only (see release.yml); this value is never bumped.
+version = "0.0.0"
 description = "GitHub Actions for LLM-powered release notes and advisory Codex PR review"
 license = "Apache-2.0"
 requires-python = ">=3.12"

@@ -52,7 +52,7 @@ jobs:
       contents: read
       issues: read
       pull-requests: write
-    uses: Giskard-AI/giskard-actions/.github/workflows/codex-pr-review.yml@<full-commit-sha> # v0.4.0
+    uses: Giskard-AI/giskard-actions/.github/workflows/codex-pr-review.yml@<full-commit-sha> # vX.Y.Z
     with:
       environment: ci
     secrets:
