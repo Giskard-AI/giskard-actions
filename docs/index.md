@@ -19,7 +19,7 @@ Both read their per-repository settings from `.github/giskard/` in your reposito
 
 The repository has **one SemVer version** for everything it ships.
 
-- Tags `vX.Y.Z` and GitHub Releases are created only by the `release.yml` workflow on pushes to `main`. Conventional commits since the last tag pick the bump: `fix` or `perf` is a patch, `feat` a minor, and a `!` header or a `BREAKING CHANGE:` footer line a major (a minor while the version is `0.x`). A range with none of these (only `chore`, `docs`, `ci`, ...) creates no release.
+- Tags `vX.Y.Z` and GitHub Releases are created only by the `release.yml` workflow on pushes to `main`. Conventional commits since the last tag pick the bump: `fix`, `perf` or any type with the `deps` scope (for example `chore(deps): ...` from Renovate or the lockfile workflows) is a patch, `feat` a minor, and a `!` header or a `BREAKING CHANGE:` footer line a major (a minor while the version is `0.x`). Merged dependency updates therefore always publish a patch release, so runtime and security updates reach consumers. A range with none of these (only `chore`, `docs`, `test`, `ci`, ... without the `deps` scope) creates no release.
 - There are no floating tags (`v0`) and no per-action tags.
 - Pin the **full 40-character commit SHA** with a version comment, and use the same SHA for every reference to this repository:
 

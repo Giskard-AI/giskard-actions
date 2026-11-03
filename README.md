@@ -93,7 +93,7 @@ The review job defaults to `ubuntu-slim` with a 15-minute timeout, matching GitH
 
 ## Pinning and versioning
 
-- The whole repository shares **one SemVer version**. Tags `vX.Y.Z` and GitHub Releases are cut only by [`release.yml`](.github/workflows/release.yml) on pushes to `main`, from conventional commits since the last tag: `fix` or `perf` is a patch, `feat` a minor, and a `!` header or a `BREAKING CHANGE:` footer a major (a minor while the version is `0.x`). A range with none of these (only `chore`, `docs`, `ci`, ...) is not released.
+- The whole repository shares **one SemVer version**. Tags `vX.Y.Z` and GitHub Releases are cut only by [`release.yml`](.github/workflows/release.yml) on pushes to `main`, from conventional commits since the last tag: `fix`, `perf` or any type with the `deps` scope (for example `chore(deps): ...` from Renovate or the lockfile workflows) is a patch, `feat` a minor, and a `!` header or a `BREAKING CHANGE:` footer a major (a minor while the version is `0.x`). Merged dependency updates therefore always publish a patch release. A range with none of these (only `chore`, `docs`, `test`, `ci`, ... without the `deps` scope) is not released.
 - There are no floating (`v0`) or per-action tags. Pin the **full 40-character commit SHA** with a version comment: `@<sha> # v0.4.0`. Use the same SHA for every reference to this repository.
 - [Renovate](https://docs.renovatebot.com/) with `helpers:pinGitHubActionDigests` keeps the SHA and comment up to date.
 - The reusable workflow calls its own composites with the self-repository syntax `$/`, so they always run from the commit you pinned. It needs GitHub Actions runner 2.336.0 or later; GitHub-hosted runners already qualify.

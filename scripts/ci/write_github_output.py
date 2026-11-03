@@ -15,6 +15,7 @@ _BREAKING_HEADER_RE = re.compile(r"^[a-z]+(?:\([^)]+\))?!:")
 _BREAKING_FOOTER_RE = re.compile(r"^BREAKING[ -]CHANGE: ")
 _FEAT_HEADER_RE = re.compile(r"^feat(?:\([^)]+\))?:")
 _PATCH_HEADER_RE = re.compile(r"^(?:fix|perf)(?:\([^)]+\))?:")
+_DEPS_HEADER_RE = re.compile(r"^[a-z]+\(deps\):")
 _BUMP_RANK = {"patch": 1, "minor": 2, "major": 3}
 
 
@@ -89,7 +90,7 @@ def commit_bump(message: str) -> str | None:
         return "major"
     if _FEAT_HEADER_RE.match(header):
         return "minor"
-    if _PATCH_HEADER_RE.match(header):
+    if _PATCH_HEADER_RE.match(header) or _DEPS_HEADER_RE.match(header):
         return "patch"
     return None
 
