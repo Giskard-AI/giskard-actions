@@ -7,6 +7,8 @@ on:
       - ".github/giskard/release-notes.json"
       - ".github/actions/release-notes/**"
       - "src/release_notes/**"
+      - "pyproject.toml"
+      - "uv.lock"
   workflow_dispatch:
     inputs:
       version:

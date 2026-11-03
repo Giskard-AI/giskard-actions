@@ -8,14 +8,14 @@ requires-python = ">=3.12"
 dependencies = [
     "giskard-agents==1.0.6",
     "giskard-llm[azure]==1.0.3",
-    "pydantic==2.14.2",
+    "pydantic==2.14.1",
     "python-dotenv==1.2.4",
 ]
 
 [dependency-groups]
 dev = [
     "jsonschema==4.26.0",
-    "pytest==9.2.0",
+    "pytest==9.1.1",
     "ruff==0.17.3",
 ]
 
@@ -23,8 +23,16 @@ dev = [
 generate-release-notes = "release_notes.cli:main"
 
 [build-system]
-requires = ["hatchling==1.33.0"]
+requires = ["hatchling==1.32.4"]
 build-backend = "hatchling.build"
+
+[tool.uv]
+# uv < 0.9.17 ignores this duration; CI's `uv sync --locked` then rejects the lock.
+# To take an urgent fix sooner, add `exclude-newer-package = { <name> = false }`
+# and remove it once that release is 7 days old. Mirror it on `uv tool install` in
+# .github/actions/release-notes/action.yml (`--exclude-newer-package <name>=false`),
+# which ignores this table; the generate-release-notes PR check fails otherwise.
+exclude-newer = "7 days"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/release_notes"]
