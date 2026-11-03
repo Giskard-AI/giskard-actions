@@ -126,85 +126,83 @@ def _commit_empty(repo_dir: Path, message: str) -> None:
     )
 
 
+def _release(tag: str, previous: str) -> dict[str, str]:
+    return {"should_release": "true", "tag": tag, "previous_tag": previous}
+
+
+def _no_release(tag: str) -> dict[str, str]:
+    return {"should_release": "false", "tag": tag, "previous_tag": tag}
+
+
 @pytest.mark.parametrize(
     ("initial_tags", "commits_after_tag", "expected_outputs"),
     [
-        (
-            [],
-            [],
-            {
-                "should_release": "true",
-                "tag": "v0.3.0",
-                "previous_tag": "",
-            },
-        ),
-        (
-            ["v0.3.0"],
-            [],
-            {
-                "should_release": "false",
-                "tag": "v0.3.0",
-                "previous_tag": "v0.3.0",
-            },
-        ),
-        (
+        pytest.param([], [], _release("v0.3.0", ""), id="bootstrap_no_tags_uses_pyproject_version"),
+        pytest.param(["v0.3.0"], [], _no_release("v0.3.0"), id="head_already_tagged_is_noop"),
+        pytest.param(
             ["v0.3.0"],
             ["fix: handle empty diff"],
-            {
-                "should_release": "true",
-                "tag": "v0.3.1",
-                "previous_tag": "v0.3.0",
-            },
+            _release("v0.3.1", "v0.3.0"),
+            id="single_fix_commit_bumps_patch",
         ),
-        (
+        pytest.param(
+            ["v0.3.0"],
+            ["perf(git): batch log calls"],
+            _release("v0.3.1", "v0.3.0"),
+            id="perf_commit_bumps_patch",
+        ),
+        pytest.param(
             ["v0.3.0"],
             [
                 "fix: small tweak",
                 "feat(codex): add effort input",
-                "Merge pull request #25 from Giskard-AI/feat/effort",
+                "Merge pull request #25 from octo-org/feat/effort",
             ],
-            {
-                "should_release": "true",
-                "tag": "v0.4.0",
-                "previous_tag": "v0.3.0",
-            },
+            _release("v0.4.0", "v0.3.0"),
+            id="multi_commit_merge_range_with_feat_bumps_minor",
         ),
-        (
+        pytest.param(
             ["v0.3.0"],
             ["feat!: drop legacy input"],
-            {
-                "should_release": "true",
-                "tag": "v1.0.0",
-                "previous_tag": "v0.3.0",
-            },
+            _release("v0.4.0", "v0.3.0"),
+            id="bang_header_on_0x_bumps_minor",
         ),
-        (
+        pytest.param(
+            ["v1.2.3"],
+            ["feat!: drop legacy input"],
+            _release("v2.0.0", "v1.2.3"),
+            id="bang_header_on_1x_bumps_major",
+        ),
+        pytest.param(
             ["v0.3.0"],
             ["refactor: restructure inputs\n\nBREAKING CHANGE: input x renamed to y"],
-            {
-                "should_release": "true",
-                "tag": "v1.0.0",
-                "previous_tag": "v0.3.0",
-            },
+            _release("v0.4.0", "v0.3.0"),
+            id="breaking_change_footer_on_0x_bumps_minor",
         ),
-        (
+        pytest.param(
+            ["v1.2.3"],
+            ["refactor: restructure inputs\n\nBREAKING-CHANGE: input x renamed to y"],
+            _release("v2.0.0", "v1.2.3"),
+            id="hyphenated_breaking_change_footer_on_1x_bumps_major",
+        ),
+        pytest.param(
+            ["v1.2.3"],
+            ["fix: clarify docs\n\nThis is not a BREAKING CHANGE: callers are unaffected."],
+            _release("v1.2.4", "v1.2.3"),
+            id="breaking_change_mid_line_is_not_a_footer",
+        ),
+        pytest.param(
             ["v0.2.9", "v0.3.0", "test-tag", "v0.0.0-pr"],
-            ["chore(deps): update ruff\n\nNon-breaking dependency bump"],
-            {
-                "should_release": "true",
-                "tag": "v0.3.1",
-                "previous_tag": "v0.3.0",
-            },
+            ["fix(deps): update ruff\n\nNon-breaking dependency bump"],
+            _release("v0.3.1", "v0.3.0"),
+            id="ignores_non_semver_tags_and_sorts_semver_properly",
         ),
-    ],
-    ids=[
-        "bootstrap_no_tags_uses_pyproject_version",
-        "head_already_tagged_is_noop",
-        "single_fix_commit_bumps_patch",
-        "multi_commit_merge_range_with_feat_bumps_minor",
-        "bang_header_bumps_major",
-        "breaking_change_footer_bumps_major",
-        "ignores_non_semver_tags_and_sorts_semver_properly",
+        pytest.param(
+            ["v0.3.0"],
+            ["chore(deps): update ruff", "docs: fix typo", "Merge branch 'main'"],
+            _no_release("v0.3.0"),
+            id="no_feat_fix_perf_or_breaking_commit_skips_release",
+        ),
     ],
 )
 def test_compute_next_release_tag_cli_seam(
@@ -236,3 +234,27 @@ def test_compute_next_release_tag_cli_seam(
         line.split("=", 1) for line in output_file.read_text(encoding="utf-8").strip().splitlines()
     )
     assert lines == expected_outputs
+
+
+def test_compute_next_release_tag_refuses_to_bootstrap_when_tags_are_unreachable(
+    tmp_path: Path,
+) -> None:
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    _init_git_repo(repo_dir)
+    subprocess.run(["git", "checkout", "-q", "-b", "side"], cwd=repo_dir, check=True)
+    _commit_empty(repo_dir, "feat: released elsewhere")
+    subprocess.run(["git", "tag", "v0.3.1"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "checkout", "-q", "-"], cwd=repo_dir, check=True)
+    _commit_empty(repo_dir, "fix: unrelated")
+
+    with pytest.raises(SystemExit, match=r"::error::No SemVer tag is reachable.*v0\.3\.1"):
+        main(
+            [
+                "--github-output",
+                str(tmp_path / "github-output"),
+                "--compute-next-release-tag",
+                "--repo-root",
+                str(repo_dir),
+            ]
+        )
