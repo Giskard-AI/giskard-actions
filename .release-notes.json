@@ -4,12 +4,11 @@
   "effort": "high",
   "manifest_paths": ["pyproject.toml"],
   "file_diffs": [
-    "action.yml",
+    ".github/actions/release-notes/action.yml",
     ".github/actions/codex-pr-review/action.yml",
     ".github/actions/codex-post-review/action.yml"
   ],
   "high_signal_prefixes": [
-    "action.yml",
     ".github/actions/",
     "src/release_notes/",
     "scripts/ci/",
@@ -25,7 +24,7 @@
       "short_name": "Composite action interface",
       "description": "Composite action inputs or outputs changed; review the action.yml diff section and update caller workflows if needed.",
       "paths": [
-        "action.yml",
+        ".github/actions/release-notes/action.yml",
         ".github/actions/codex-pr-review/action.yml",
         ".github/actions/codex-post-review/action.yml"
       ]

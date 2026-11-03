@@ -136,9 +136,12 @@ class TestCodexPrAssessmentWorkflow(unittest.TestCase):
         self.assertFalse(any("features.multi_agent_v2" in line for line in arg_lines))
 
     def test_notes_action_exports_constraints_without_workspace_project(self) -> None:
-        action = (REPO_ROOT / "action.yml").read_text(encoding="utf-8")
+        action = (REPO_ROOT / ".github/actions/release-notes/action.yml").read_text(
+            encoding="utf-8"
+        )
         self.assertIn("uv export --frozen --no-dev --no-hashes --no-emit-project", action)
-        self.assertIn("working-directory: ${{ github.action_path }}", action)
+        self.assertIn("working-directory: ${{ github.action_path }}/../../..", action)
+        self.assertFalse((REPO_ROOT / "action.yml").exists())
         result = subprocess.run(
             [
                 "uv",
@@ -519,7 +522,10 @@ class TestReviewerSelection(unittest.TestCase):
 
     def test_repo_reviewer_map_covers_action_and_prompts(self) -> None:
         reviewers = codex_pr_assessment.select_reviewers(
-            ["action.yml", "src/release_notes/prompts/release_notes_synthesis.j2"],
+            [
+                ".github/actions/release-notes/action.yml",
+                "src/release_notes/prompts/release_notes_synthesis.j2",
+            ],
             map_path=REPO_ROOT / ".github/codex/reviewer-map.json",
         )
         self.assertEqual(

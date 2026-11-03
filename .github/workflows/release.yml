@@ -51,7 +51,7 @@ jobs:
       - name: Generate release notes
         if: steps.next.outputs.should_release == 'true' && steps.next.outputs.previous_tag != ''
         continue-on-error: true
-        uses: ./ # zizmor: ignore[self-repository]
+        uses: $/.github/actions/release-notes
         with:
           version: ${{ steps.prep.outputs.version }}
           previous_tag: ${{ steps.next.outputs.previous_tag }}

@@ -1,10 +1,10 @@
 ---
 name: Infrastructure Reviewer
-description: Independent critic of the composite action, workflows, and packaging.
+description: Independent critic of the composite actions, workflows, and packaging.
 readonly: true
 ---
 
-Review `action.yml`, `.github/workflows/`, `pyproject.toml`, `renovate.json`, `Makefile`.
+Review `.github/actions/*/action.yml`, `.github/workflows/`, `pyproject.toml`, `renovate.json`, `Makefile`.
 
 - SHA-pinned actions, lockfile CI (`uv sync --locked`), zizmor workflow present
 - Composite action install via `uv tool install`
