@@ -38,8 +38,6 @@ REQUIRED_AZURE_CATALOG_SLUGS = ("gpt-5.6-luna", "gpt-5.6-terra")
 VENDORED_AZURE_MODEL_CATALOG = (
     Path(__file__).resolve().parents[2] / ".github/codex/azure-model-catalog.json"
 )
-REVIEWER_MAP_PATH = ".github/giskard/codex-reviewer-map.json"
-LEGACY_REVIEWER_MAP_PATH = ".github/codex/reviewer-map.json"
 BUNDLED_OVERLAYS_DIR = Path(__file__).resolve().parents[2] / ".github/codex/overlays"
 
 
@@ -1185,28 +1183,7 @@ def resolve_reviewer_map_path(map_path: str | Path | None = None) -> Path | None
     if not candidate:
         return None
     resolved = Path(candidate)
-    legacy = (
-        resolved.parents[2] / LEGACY_REVIEWER_MAP_PATH
-        if resolved.as_posix().endswith(REVIEWER_MAP_PATH)
-        else None
-    )
-    if resolved.is_file():
-        if legacy is not None and legacy.is_file():
-            print(
-                f"::warning::Ignoring legacy {LEGACY_REVIEWER_MAP_PATH} because {REVIEWER_MAP_PATH} "
-                f"exists; delete the legacy file.",
-                file=sys.stderr,
-            )
-        return resolved
-    if legacy is not None and legacy.is_file():
-        print(
-            f"::warning::Reading legacy {LEGACY_REVIEWER_MAP_PATH}; move it to {REVIEWER_MAP_PATH} "
-            f"(git mv {LEGACY_REVIEWER_MAP_PATH} {REVIEWER_MAP_PATH}). The legacy path will stop "
-            "being read in giskard-actions v1.0.0.",
-            file=sys.stderr,
-        )
-        return legacy
-    return None
+    return resolved if resolved.is_file() else None
 
 
 def _resolve_llm_defaults(map_defaults: dict[str, str] | None = None) -> dict[str, str]:
