@@ -4,7 +4,7 @@ on:
   pull_request:
     paths:
       - ".github/workflows/generate-release-notes.yml"
-      - ".release-notes.json"
+      - ".github/giskard/release-notes.json"
       - ".github/actions/release-notes/**"
       - "src/release_notes/**"
   workflow_dispatch:

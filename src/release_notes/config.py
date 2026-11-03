@@ -1,4 +1,4 @@
-"""Project-specific configuration loaded from .release-notes.json in the target repo."""
+"""Project configuration loaded from .github/giskard/release-notes.json in the target repo."""
 
 import json
 import logging
@@ -7,12 +7,12 @@ from pathlib import Path
 
 LOG = logging.getLogger("release_notes.config")
 
-CONFIG_FILENAME = ".release-notes.json"
+CONFIG_PATH = ".github/giskard/release-notes.json"
 
 DETERMINISTIC_SECTION_IDS = frozenset({"deps", "appendix"})
 
 # Base defaults — minimal set shared across all repos.
-# Repos opt-in to additional sections (ux_frontend, api_backend, etc.) via .release-notes.json.
+# Repos opt-in to additional sections (ux_frontend, api_backend, etc.) via release-notes.json.
 DEFAULT_SECTIONS: list[dict] = [
     {
         "id": "summary",
@@ -50,7 +50,7 @@ DEFAULT_SECTIONS: list[dict] = [
     },
 ]
 
-# Extended section definitions used when repos opt-in via .release-notes.json.
+# Extended section definitions used when repos opt-in via release-notes.json.
 _KNOWN_SECTIONS: dict[str, dict] = {s["id"]: s for s in DEFAULT_SECTIONS} | {
     "ux_frontend": {
         "id": "ux_frontend",
@@ -126,7 +126,7 @@ class UpgradeRule:
 class ProjectConfig:
     """Per-project configuration for release notes generation.
 
-    Can be loaded from a `.release-notes.json` file at the root of the target repo.
+    Can be loaded from `.github/giskard/release-notes.json` in the target repo.
     """
 
     manifest_paths: tuple[str, ...] = ()
@@ -268,10 +268,10 @@ def _parse_upgrade_rules(raw: list[dict] | None) -> tuple[UpgradeRule, ...]:
 
 
 def load_project_config(repo_root: Path) -> ProjectConfig:
-    """Load project config from .release-notes.json in the target repo, or use defaults."""
-    config_path = repo_root / CONFIG_FILENAME
+    """Load project config from .github/giskard/release-notes.json, or use defaults."""
+    config_path = repo_root / CONFIG_PATH
     if not config_path.exists():
-        LOG.info("No %s found in %s, using defaults.", CONFIG_FILENAME, repo_root)
+        LOG.info("No %s found in %s, using defaults.", CONFIG_PATH, repo_root)
         return ProjectConfig()
 
     LOG.info("Loading project config from %s", config_path)

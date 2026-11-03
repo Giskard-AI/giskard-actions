@@ -10,11 +10,11 @@ inputs:
     required: false
     default: ""
   model:
-    description: "Default giskard-llm model name (e.g. azure_ai/gpt-5.6-luna). Empty falls back to .release-notes.json or azure_ai/gpt-5.6-luna."
+    description: "Default giskard-llm model name (e.g. azure_ai/gpt-5.6-luna). Empty falls back to .github/giskard/release-notes.json or azure_ai/gpt-5.6-luna."
     required: false
     default: ""
   effort:
-    description: "Default reasoning effort (low, medium, high). Empty falls back to .release-notes.json or high."
+    description: "Default reasoning effort (low, medium, high). Empty falls back to .github/giskard/release-notes.json or high."
     required: false
     default: ""
   consolidation_model:

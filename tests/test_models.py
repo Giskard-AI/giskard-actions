@@ -24,8 +24,8 @@ class TestBuildPayloadModel:
         assert "deps" not in fields
         assert "appendix" not in fields
 
-    def test_lidar_style_python_api_without_ux(self, tmp_path):
-        (tmp_path / ".release-notes.json").write_text(
+    def test_python_library_sections_without_ux(self, tmp_path, write_release_notes_config):
+        write_release_notes_config(
             """
             {
               "sections": [
@@ -88,7 +88,7 @@ class TestBuildConsolidatedCommitModel:
                 "ux_frontend",
             ),
         ],
-        ids=["default_sections", "llm_hub_sections", "custom_probes_section"],
+        ids=["default_sections", "web_app_sections", "custom_probes_section"],
     )
     def test_dynamic_category_validation(self, sections_raw, valid_category, invalid_category):
         cfg = ProjectConfig(sections=_parse_sections(sections_raw))

@@ -162,6 +162,7 @@ class TestCodexPrAssessmentWorkflow(unittest.TestCase):
         self.assertIn("ref: ${{ steps.resolve.outputs.base_sha }}", review)
         self.assertIn("persist-credentials: false", review)
         self.assertIn("CODEX_REVIEWER_MAP", review)
+        self.assertIn("trusted-config/.github/giskard/codex-reviewer-map.json", review)
         self.assertIn("CODEX_ASSESS_REQUIRE_SAME_REPO", review)
         self.assertIn("run-assess.sh", review)
         self.assertIn("ACTION_ROOT", wrapper)
@@ -523,15 +524,15 @@ class TestReviewerSelection(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "invalid role reference"):
                     codex_pr_assessment.parse_role_references([value])
 
-    def test_example_hub_map_emits_role_references(self) -> None:
+    def test_example_map_emits_role_references(self) -> None:
         reviewers = {
             item["name"]: item["role_references"]
             for item in codex_pr_assessment.select_reviewers(
-                ["backend/src/backend/services/auth.py"],
-                map_path=REPO_ROOT / "examples" / "llm-hub.reviewer-map.json",
+                ["backend/app/services/auth.py"],
+                map_path=REPO_ROOT / "examples" / "codex-reviewer-map.json",
             )
         }
-        self.assertEqual(reviewers["clean-arch-guard"], "backend-architecture.md")
+        self.assertEqual(reviewers["backend-reviewer"], "backend-architecture.md")
         self.assertEqual(reviewers["security-auditor"], "security-patterns.md")
 
     def test_stage_overlay_copies_allowlisted_basenames_only(self) -> None:
@@ -567,7 +568,7 @@ class TestReviewerSelection(unittest.TestCase):
                 ".github/actions/release-notes/action.yml",
                 "src/release_notes/prompts/release_notes_synthesis.j2",
             ],
-            map_path=REPO_ROOT / ".github/codex/reviewer-map.json",
+            map_path=REPO_ROOT / ".github/giskard/codex-reviewer-map.json",
         )
         self.assertEqual(
             [reviewer["name"] for reviewer in reviewers],
@@ -1037,12 +1038,12 @@ class TestFailedLogCollection(unittest.TestCase):
 class TestCiTriage(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.hub_ci_config = json.loads(
-            (REPO_ROOT / "examples" / "llm-hub.ci-config.json").read_text(encoding="utf-8")
+        cls.example_ci_config = json.loads(
+            (REPO_ROOT / "examples" / "codex-ci-config.json").read_text(encoding="utf-8")
         )
 
     def _triage(self, context: dict) -> dict:
-        return codex_pr_assessment.triage_ci({**context, "ci_config": self.hub_ci_config})
+        return codex_pr_assessment.triage_ci({**context, "ci_config": self.example_ci_config})
 
     def test_classifies_common_failure_modes(self) -> None:
         cases = [
@@ -1145,8 +1146,7 @@ class TestCiTriage(unittest.TestCase):
                 "files": [
                     {"filename": "backend/pyproject.toml"},
                     {"filename": "frontend/pnpm-lock.yaml"},
-                    {"filename": "azure_oauth_llm_proxy/uv.lock"},
-                    {"filename": "demo_models/pyproject.toml"},
+                    {"filename": "services/worker/uv.lock"},
                 ],
                 "key_workflow_runs": {
                     "Full CI": {
@@ -1182,16 +1182,16 @@ class TestCiTriage(unittest.TestCase):
             {
                 "action": "apply_label",
                 "target": "test-package",
-                "reason": "Package-related files changed and the label-triggered local package workflow has no run for this head SHA.",
+                "reason": "Package-related files changed and the label-triggered package smoke test has no run for this head SHA.",
             },
             triage["additional_ci_recommendations"],
         )
 
-    def test_triage_recommends_local_eval_stress_label_for_local_eval_changes(self) -> None:
+    def test_triage_recommends_load_test_label_for_job_changes(self) -> None:
         triage = self._triage(
             {
                 "pr": {"head_sha": "abc"},
-                "files": [{"filename": "backend/src/backend/services/evaluation.py"}],
+                "files": [{"filename": "backend/app/jobs/cleanup.py"}],
                 "key_workflow_runs": {
                     "Full CI": {
                         "name": "Full CI",
@@ -1225,17 +1225,17 @@ class TestCiTriage(unittest.TestCase):
         self.assertIn(
             {
                 "action": "apply_label",
-                "target": "local-eval-stress",
-                "reason": "Local evaluation submission code changed and the label-triggered local-eval stress workflow has no run for this head SHA.",
+                "target": "load-test",
+                "reason": "Background job code changed and the label-triggered load test workflows have no run for this head SHA.",
             },
             triage["additional_ci_recommendations"],
         )
 
-    def test_triage_skips_local_eval_stress_label_when_workflow_ran(self) -> None:
+    def test_triage_skips_load_test_label_when_any_workflow_ran(self) -> None:
         triage = self._triage(
             {
                 "pr": {"head_sha": "abc"},
-                "files": [{"filename": "backend/src/backend/services/evaluation.py"}],
+                "files": [{"filename": "backend/app/jobs/cleanup.py"}],
                 "key_workflow_runs": {
                     "Full CI": {
                         "name": "Full CI",
@@ -1260,7 +1260,7 @@ class TestCiTriage(unittest.TestCase):
                         "conclusion": "success",
                     },
                     {
-                        "name": "Local eval output stress test",
+                        "name": "Soak test",
                         "status": "completed",
                         "conclusion": "success",
                     },
@@ -1274,8 +1274,8 @@ class TestCiTriage(unittest.TestCase):
         self.assertNotIn(
             {
                 "action": "apply_label",
-                "target": "local-eval-stress",
-                "reason": "Local evaluation submission code changed and the label-triggered local-eval stress workflow has no run for this head SHA.",
+                "target": "load-test",
+                "reason": "Background job code changed and the label-triggered load test workflows have no run for this head SHA.",
             },
             triage["additional_ci_recommendations"],
         )

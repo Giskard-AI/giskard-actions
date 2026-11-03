@@ -89,7 +89,8 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "giskard-llm model name "
-            f"(default: RELEASE_NOTES_MODEL or .release-notes.json or {DEFAULT_MODEL})"
+            "(default: RELEASE_NOTES_MODEL or .github/giskard/release-notes.json "
+            f"or {DEFAULT_MODEL})"
         ),
     )
     p.add_argument(
@@ -97,7 +98,8 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "Reasoning effort (low, medium, high) "
-            f"(default: RELEASE_NOTES_EFFORT or .release-notes.json or {DEFAULT_EFFORT})"
+            "(default: RELEASE_NOTES_EFFORT or .github/giskard/release-notes.json "
+            f"or {DEFAULT_EFFORT})"
         ),
     )
     p.add_argument(
@@ -139,7 +141,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--env-file",
         default=None,
-        help="Path to a .env file to load (e.g. /path/to/llm-hub/.env)",
+        help="Path to a .env file to load (e.g. /path/to/your-repo/.env)",
     )
     p.add_argument(
         "--metadata-file",

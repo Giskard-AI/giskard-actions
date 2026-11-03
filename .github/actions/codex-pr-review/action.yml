@@ -12,7 +12,7 @@ inputs:
     description: Token for GitHub API reads
     required: true
   normal_model:
-    description: Default model for normal reviewer passes (overrides reviewer-map.json defaults if set)
+    description: Default model for normal reviewer passes (overrides codex-reviewer-map.json defaults if set)
     required: false
     default: ""
   normal_effort:
@@ -20,7 +20,7 @@ inputs:
     required: false
     default: ""
   critical_model:
-    description: Default model for critical reviewer passes (overrides reviewer-map.json defaults if set)
+    description: Default model for critical reviewer passes (overrides codex-reviewer-map.json defaults if set)
     required: false
     default: ""
   critical_effort:
@@ -28,7 +28,7 @@ inputs:
     required: false
     default: ""
   aggregator_model:
-    description: Model for the aggregator pass (overrides reviewer-map.json defaults if set)
+    description: Model for the aggregator pass (overrides codex-reviewer-map.json defaults if set)
     required: false
     default: ""
   aggregator_effort:
@@ -104,7 +104,7 @@ runs:
       if: steps.resolve.outputs.should_run == 'true'
       env:
         ACTION_LIB: ${{ github.action_path }}/../_lib
-        CODEX_REVIEWER_MAP: ${{ github.workspace }}/trusted-config/.github/codex/reviewer-map.json
+        CODEX_REVIEWER_MAP: ${{ github.workspace }}/trusted-config/.github/giskard/codex-reviewer-map.json
         CODEX_NORMAL_MODEL: ${{ inputs.normal_model }}
         CODEX_NORMAL_EFFORT: ${{ inputs.normal_effort }}
         CODEX_CRITICAL_MODEL: ${{ inputs.critical_model }}

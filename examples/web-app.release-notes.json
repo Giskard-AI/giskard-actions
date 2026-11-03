@@ -1,0 +1,77 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Giskard-AI/giskard-actions/main/schemas/release-notes.schema.json",
+  "github_repository": "octo-org/example-web-app",
+  "model": "azure_ai/gpt-5.6-luna",
+  "effort": "high",
+  "manifest_paths": [
+    "backend/pyproject.toml",
+    "frontend/package.json"
+  ],
+  "file_diffs": ["deploy/helm/example-web-app/values.yaml"],
+  "high_signal_prefixes": [
+    "backend/app/api/",
+    "backend/app/services/",
+    "backend/app/jobs/",
+    "backend/migrations/versions/",
+    "frontend/src/routes/",
+    "frontend/src/components/",
+    "deploy/helm/",
+    ".github/workflows/",
+    "docker-compose"
+  ],
+  "ignored_basenames": ["uv.lock", "pnpm-lock.yaml"],
+  "ignored_path_prefixes": ["backend/tests/", "frontend/tests/"],
+  "upgrade_rules": [
+    {
+      "id": "helm_values",
+      "short_name": "Helm values",
+      "description": "Helm values.yaml changed; review the values.yaml diff section and update your deployment values accordingly.",
+      "paths": ["deploy/helm/example-web-app/values.yaml"]
+    },
+    {
+      "id": "migrations",
+      "short_name": "Database migrations",
+      "description": "Database migrations changed. Migrations run automatically on upgrade; take a database backup before deploying this version.",
+      "path_prefixes": ["backend/migrations/versions/"]
+    },
+    {
+      "id": "deploy_docs",
+      "short_name": "Deployment docs",
+      "description": "Deployment documentation or tooling changed; review the updated instructions if you self-host.",
+      "path_prefixes": ["docs/"],
+      "filename_keywords": ["deploy", "install", "helm", "docker"]
+    }
+  ],
+  "sections": [
+    {
+      "id": "summary",
+      "description": "3-6 highlight bullets of user-visible changes. A subset of What changed, not a superset. For features, state the user or operator benefit; for fixes, state the resolved symptom."
+    },
+    {
+      "id": "features",
+      "description": "New product capabilities. Each item must explicitly state the user benefit."
+    },
+    {
+      "id": "fixes",
+      "description": "Bug fixes that restore or correct existing behavior."
+    },
+    {
+      "id": "ux_frontend",
+      "description": "UI and frontend changes (pages, components, forms, navigation)."
+    },
+    {
+      "id": "api_backend",
+      "description": "API, services, background jobs, and backend performance or reliability changes."
+    },
+    {
+      "id": "infra_deps",
+      "description": "Helm, Docker, CI, and other deployment changes (not the dependency version table)."
+    },
+    {
+      "id": "upgrade_notes",
+      "description": "Operator actions required on upgrade. Git rules already cover Helm values, migrations, and docs; only add other breaking or config items."
+    },
+    { "id": "deps" },
+    { "id": "appendix" }
+  ]
+}

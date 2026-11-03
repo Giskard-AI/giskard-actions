@@ -1,4 +1,5 @@
 {
+  "$schema": "https://raw.githubusercontent.com/Giskard-AI/giskard-actions/main/schemas/release-notes.schema.json",
   "github_repository": "Giskard-AI/giskard-actions",
   "model": "azure_ai/gpt-5.6-luna",
   "effort": "high",
@@ -15,6 +16,7 @@
     "scripts/ci/",
     ".github/codex/",
     ".github/workflows/",
+    "schemas/",
     "pyproject.toml"
   ],
   "ignored_basenames": ["uv.lock"],
