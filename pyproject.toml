@@ -4,17 +4,17 @@ version = "0.3.0"
 description = "Internal Giskard GitHub Actions: release notes CLI plus Codex composite actions"
 requires-python = ">=3.12"
 dependencies = [
-    "giskard-agents==1.0.2",
-    "giskard-llm[azure]==1.0.0",
-    "pydantic==2.13.5",
-    "python-dotenv==1.2.3",
+    "giskard-agents==1.0.6",
+    "giskard-llm[azure]==1.0.3",
+    "pydantic==2.14.2",
+    "python-dotenv==1.2.4",
 ]
 
 [dependency-groups]
 dev = [
-    "pytest==9.1.1",
-    "pytest-asyncio==1.4.0",
-    "ruff==0.16.5",
+    "pytest==9.2.0",
+    "pytest-asyncio==1.4.1",
+    "ruff==0.17.3",
 ]
 
 [project.scripts]
