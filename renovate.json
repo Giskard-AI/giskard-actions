@@ -29,6 +29,12 @@
       "groupName": "python deps",
       "groupSlug": "python-deps",
       "labels": ["dependencies", "deps:lockfile=python"]
+    },
+    {
+      "description": "GHCR gives zizmor images no release timestamp, which minimumReleaseAge needs; read zizmor releases from PyPI instead.",
+      "matchPackageNames": ["ghcr.io/zizmorcore/zizmor"],
+      "overrideDatasource": "pypi",
+      "overridePackageName": "zizmor"
     }
   ],
   "customManagers": [
