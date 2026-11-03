@@ -95,7 +95,35 @@ def commit_bump(message: str) -> str | None:
     return None
 
 
-def compute_next_release_tag(repo_root: Path) -> dict[str, str]:
+def _requested_release(
+    repo_root: Path, requested_version: str, reachable_tags: list[tuple[tuple[int, int, int], str]]
+) -> dict[str, str]:
+    """Release the maintainer-requested version, if it is above every existing SemVer tag."""
+    requested_tag = f"v{sanitize_scalar(requested_version).removeprefix('v')}"
+    parsed = _parse_semver_tag(requested_tag)
+    if parsed is None:
+        raise SystemExit(
+            f"::error::Requested release version {requested_version!r} is not a X.Y.Z version."
+        )
+    all_tags = sorted(
+        (parsed_tag, tag)
+        for tag in _git_lines(repo_root, "tag", "--list", "v*")
+        if (parsed_tag := _parse_semver_tag(tag)) is not None
+    )
+    if all_tags and parsed <= all_tags[-1][0]:
+        raise SystemExit(
+            f"::error::Requested release version {requested_tag} must be higher than "
+            f"{all_tags[-1][1]}, the latest SemVer tag."
+        )
+    return {
+        "should_release": "true",
+        "tag": requested_tag,
+        "previous_tag": max(reachable_tags)[1] if reachable_tags else "",
+    }
+
+
+def compute_next_release_tag(repo_root: Path, requested_version: str = "") -> dict[str, str]:
+    requested_version = requested_version.strip()
     head_tags_out = subprocess.run(
         ["git", "tag", "--points-at", "HEAD"],
         cwd=repo_root,
@@ -111,6 +139,11 @@ def compute_next_release_tag(repo_root: Path) -> dict[str, str]:
     if head_semver_tags:
         head_semver_tags.sort(key=lambda item: item[0])
         existing_tag = head_semver_tags[-1][1]
+        if requested_version:
+            raise SystemExit(
+                f"::error::HEAD is already released as {existing_tag}; merge a new commit "
+                "before requesting a release version."
+            )
         return {
             "should_release": "false",
             "tag": existing_tag,
@@ -122,6 +155,8 @@ def compute_next_release_tag(repo_root: Path) -> dict[str, str]:
         for tag in _git_lines(repo_root, "tag", "--merged", "HEAD")
         if (parsed := _parse_semver_tag(tag)) is not None
     ]
+    if requested_version:
+        return _requested_release(repo_root, requested_version, semver_tags)
     if not semver_tags:
         unreachable = [
             tag for tag in _git_lines(repo_root, "tag", "--list", "v*") if _parse_semver_tag(tag)
@@ -190,13 +225,18 @@ def main(argv: list[str] | None = None) -> int:
         default=".",
         help="Repository root directory for --compute-next-release-tag",
     )
+    parser.add_argument(
+        "--release-version",
+        default="",
+        help="X.Y.Z to release instead of the computed bump (--compute-next-release-tag only)",
+    )
     args = parser.parse_args(argv)
     github_output = Path(args.github_output)
 
     if args.compute_next_release_tag:
         write_github_outputs(
             github_output,
-            scalars=compute_next_release_tag(Path(args.repo_root)),
+            scalars=compute_next_release_tag(Path(args.repo_root), args.release_version),
         )
         return 0
 

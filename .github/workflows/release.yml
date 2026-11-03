@@ -4,6 +4,12 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      version:
+        description: "X.Y.Z to release instead of the version computed from commits (must be higher than every existing tag). Leave empty for the normal bump."
+        required: false
+        default: ""
+        type: string
 
 permissions: {}
 
@@ -32,10 +38,13 @@ jobs:
       - name: Compute next SemVer tag
         id: next
         shell: bash
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
         run: |
           python3 scripts/ci/write_github_output.py \
             --github-output "${GITHUB_OUTPUT}" \
-            --compute-next-release-tag
+            --compute-next-release-tag \
+            --release-version "${RELEASE_VERSION}"
 
       - name: Prepare local tag for release notes
         id: prep
