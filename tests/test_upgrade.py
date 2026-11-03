@@ -8,7 +8,7 @@ HELM = UpgradeRule(
     id="helm_values",
     short_name="Helm values",
     description="Review values.yaml.",
-    paths=("helm/giskard-llm-hub/values.yaml",),
+    paths=("deploy/helm/example-app/values.yaml",),
 )
 MIGRATIONS = UpgradeRule(
     id="migrations",
@@ -28,10 +28,10 @@ DOCS = UpgradeRule(
 
 class TestApplyUpgradeRules:
     def test_exact_path_match(self):
-        notes = apply_upgrade_rules((HELM,), ["helm/giskard-llm-hub/values.yaml", "README.md"])
+        notes = apply_upgrade_rules((HELM,), ["deploy/helm/example-app/values.yaml", "README.md"])
         assert len(notes) == 1
         assert notes[0].short_name == "Helm values"
-        assert notes[0].evidence_paths == ["helm/giskard-llm-hub/values.yaml"]
+        assert notes[0].evidence_paths == ["deploy/helm/example-app/values.yaml"]
 
     def test_prefix_match(self):
         notes = apply_upgrade_rules((MIGRATIONS,), ["backend/migrations/versions/abc.py"])
@@ -56,7 +56,7 @@ class TestApplyUpgradeRules:
             (HELM, MIGRATIONS),
             [
                 "backend/migrations/versions/x.py",
-                "helm/giskard-llm-hub/values.yaml",
+                "deploy/helm/example-app/values.yaml",
             ],
         )
         assert [n.short_name for n in notes] == ["Helm values", "Database migrations"]
