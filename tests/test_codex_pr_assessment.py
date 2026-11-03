@@ -245,6 +245,7 @@ class TestReviewContextCollection(unittest.TestCase):
             {
                 "id": 1,
                 "user": {"login": "alice", "type": "User"},
+                "author_association": "MEMBER",
                 "created_at": "2026-06-12T00:00:00Z",
                 "body": "AZURE_AI_API_KEY=super-secret-value",
                 "html_url": "https://github.com/example/repo/pull/1#issuecomment-1",
@@ -281,6 +282,7 @@ class TestReviewContextCollection(unittest.TestCase):
                                                 "body": "GITHUB_TOKEN=super-secret-value",
                                                 "createdAt": "2026-06-12T00:00:00Z",
                                                 "url": "https://github.com/example/repo/pull/1#discussion_r1",
+                                                "authorAssociation": "MEMBER",
                                                 "author": {
                                                     "login": "alice",
                                                     "__typename": "User",
@@ -643,8 +645,11 @@ class TestEventResolution(unittest.TestCase):
             "comment": {
                 "body": "/codex-ci-assess",
                 "author_association": "COLLABORATOR",
+                "user": {"login": "octocat"},
             },
         }
+        original_gh_json = codex_pr_assessment.gh_json
+        codex_pr_assessment.gh_json = lambda args, check=True: {"role_name": "write"}
 
         try:
             self.assertEqual(
@@ -655,6 +660,7 @@ class TestEventResolution(unittest.TestCase):
                 123,
             )
         finally:
+            codex_pr_assessment.gh_json = original_gh_json
             if original_event_name is None:
                 codex_pr_assessment.os.environ.pop("GITHUB_EVENT_NAME", None)
             else:
@@ -1501,7 +1507,7 @@ class TestReviewSanitizer(unittest.TestCase):
                 "Authorization: Bearer abcdefghijklmnopqrstuvwxyz123456",
                 "ghp_abcdefghijklmnopqrstuvwxyz123456",
                 "github_pat_abcdefghijklmnopqrstuvwxyz_1234567890",
-                "AKIAABCDEFGHIJKLMNOP",
+                "AKIAABCDEFGHIJKLMNOP",  # gitleaks:allow
                 "eyJabcdefghijkl.eyJmnopqrstuvwxyz.abcdefghijklmnopqrstuvwxyz",
                 "-----BEGIN PRIVATE KEY-----\nsecret\n-----END PRIVATE KEY-----",
             ]
@@ -1512,7 +1518,7 @@ class TestReviewSanitizer(unittest.TestCase):
         self.assertNotIn("github-token-value", sanitized)
         self.assertNotIn("secret-value", sanitized)
         self.assertNotIn("abcdefghijklmnopqrstuvwxyz123456", sanitized)
-        self.assertNotIn("AKIAABCDEFGHIJKLMNOP", sanitized)
+        self.assertNotIn("AKIAABCDEFGHIJKLMNOP", sanitized)  # gitleaks:allow
         self.assertNotIn("PRIVATE KEY", sanitized)
         self.assertIn("[redacted]", sanitized)
 

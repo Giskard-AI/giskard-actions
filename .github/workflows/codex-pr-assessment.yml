@@ -14,10 +14,6 @@ on: # zizmor: ignore[dangerous-triggers] -- gated to OWNER/MEMBER/COLLABORATOR o
 
 permissions: {}
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr_number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name != 'issue_comment' }}
-
 jobs:
   codex:
     name: Codex PR review
@@ -33,6 +29,10 @@ jobs:
         contains(fromJSON('["/review","/codex-assess"]'), github.event.comment.body) &&
         contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
       )
+    # Job-level so comments that fail the gate above never join (and cancel) the group.
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr_number || github.run_id }}
+      cancel-in-progress: ${{ github.event_name != 'issue_comment' }}
     permissions:
       contents: read # Read consumer config at the PR base SHA
       issues: read # Read PR conversation comments

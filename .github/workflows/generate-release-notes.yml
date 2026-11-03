@@ -45,7 +45,7 @@ jobs:
     timeout-minutes: 180
     runs-on: ubuntu-latest
     environment:
-      name: ci
+      name: ${{ github.event_name == 'workflow_dispatch' && 'ci' || '' }}
       deployment: false
     permissions:
       contents: read # Checkout repository and read tags
@@ -69,7 +69,6 @@ jobs:
           AZURE_AI_API_KEY: ${{ github.event_name == 'workflow_dispatch' && secrets.AZURE_AI_API_KEY || '' }}
           AZURE_AI_API_BASE: ${{ vars.AZURE_AI_API_BASE }}
           AZURE_AI_ENDPOINT: ${{ vars.AZURE_AI_API_BASE }}
-          LINEAR_API_KEY: ${{ github.event_name == 'workflow_dispatch' && secrets.LINEAR_API_KEY || '' }}
           GITHUB_TOKEN: ${{ github.token }}
 
       - name: Upload release notes artifact

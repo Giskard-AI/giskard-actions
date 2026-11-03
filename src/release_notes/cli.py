@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
+from pydantic import BaseModel
 
 from .config import load_project_config
 from .deps import dependency_updates_for_range, merge_dependency_notes
@@ -35,6 +36,7 @@ from .models import (
     set_payload_section,
 )
 from .renderer import render_markdown
+from .sanitize import github_repo_link_filter, strip_untrusted_links
 from .upgrade import apply_upgrade_rules, merge_upgrade_notes
 
 LOG = logging.getLogger("release_notes")
@@ -60,6 +62,61 @@ def _compare_url(github_repository: str | None, tag_range) -> str | None:
     if not repo:
         return None
     return f"https://github.com/{repo}/compare/{tag_range.previous_tag}...{tag_range.current_tag}"
+
+
+def _sanitize_llm_output(
+    payload: BaseModel, consolidations: list[ConsolidatedCommit], github_repository: str | None
+) -> list[ConsolidatedCommit]:
+    """Strip links outside github.com/<repo>, images and HTML from model-written text.
+
+    Mutates ``payload`` in place and returns sanitized copies of ``consolidations``. Links the
+    renderer adds itself (compare URL, commit and issue links) are not affected.
+    """
+    is_allowed = github_repo_link_filter(github_repository)
+
+    def clean(text: str) -> str:
+        return strip_untrusted_links(text, is_allowed)
+
+    for name in [*type(payload).model_fields, *(payload.model_extra or {})]:
+        value = getattr(payload, name, None)
+        if not isinstance(value, list):
+            continue
+        setattr(
+            payload,
+            name,
+            [
+                item.model_copy(
+                    update={
+                        "short_name": clean(item.short_name),
+                        "description": clean(item.description),
+                    }
+                )
+                if isinstance(item, ReleaseNoteItem)
+                else clean(item)
+                if isinstance(item, str)
+                else item
+                for item in value
+            ],
+        )
+    return [
+        cons.model_copy(
+            update={
+                "short_name": clean(cons.short_name),
+                "consolidated_description": clean(cons.consolidated_description),
+                "context": clean(cons.context),
+                "why": clean(cons.why),
+                "upgrade_notes": [clean(note) for note in cons.upgrade_notes],
+                "unknowns": [clean(item) for item in cons.unknowns],
+                "dependency_updates": [
+                    dep.model_copy(
+                        update={"note": clean(dep.note), "note_reason": clean(dep.note_reason)}
+                    )
+                    for dep in cons.dependency_updates
+                ],
+            }
+        )
+        for cons in consolidations
+    ]
 
 
 def parse_args() -> argparse.Namespace:
@@ -397,6 +454,7 @@ async def main_async() -> None:
                 manifest_paths=config.manifest_paths,
             ),
         )
+    consolidations = _sanitize_llm_output(payload, consolidations, github_repo)
     dep_bumps_with_notes = merge_dependency_notes(
         range_bumps=range_dep_bumps,
         consolidations=consolidations,
