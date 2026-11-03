@@ -1,8 +1,14 @@
+---
+title: "0001: Nested composite actions and umbrella versioning"
+parent: Architecture decisions
+nav_order: 1
+---
+
 # Nested Composite Actions Architecture and Umbrella Versioning
 
-**Status**: accepted
+**Status**: accepted, partially superseded by [ADR 0002](0002-codex-review-as-reusable-workflow.html) (Codex review now ships as a reusable workflow; the release-notes action moved to `.github/actions/release-notes/action.yml`)
 
-`Giskard-AI/giskard-actions` ships shared automation to **Consumer Repositories** (`llm-hub`, `lidar`) as composite actions (`action.yml`, `.github/actions/codex-pr-review/action.yml`, and `.github/actions/codex-post-review/action.yml`) rather than reusable workflows (`workflow_call`), executes Codex orchestration scripts on the runner's system Python 3.12 (`ubuntu-24.04`) while installing the `generate-release-notes` CLI via `uv tool install --constraints`, and versions the entire repository under a single automatic SemVer **Umbrella Release** tag (`vX.Y.Z`) cut on every push to `main`.
+`Giskard-AI/giskard-actions` ships shared automation to **Consumer Repositories** as composite actions (`action.yml`, `.github/actions/codex-pr-review/action.yml`, and `.github/actions/codex-post-review/action.yml`) rather than reusable workflows (`workflow_call`), executes Codex orchestration scripts on the runner's system Python 3.12 (`ubuntu-24.04`) while installing the `generate-release-notes` CLI via `uv tool install --constraints`, and versions the entire repository under a single automatic SemVer **Umbrella Release** tag (`vX.Y.Z`) cut on every push to `main`.
 
 ## Considered Options
 

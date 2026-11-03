@@ -1,35 +1,51 @@
 # giskard-actions
 
-Shared GitHub composite actions (`Giskard-AI/giskard-actions`) for Giskard repositories, providing LLM-powered release notes generation and advisory Codex PR code review.
+Reusable GitHub Actions automation (`Giskard-AI/giskard-actions`): a composite action for LLM-powered release notes generation and a reusable workflow for advisory Codex PR code review.
 
 ## Language
 
 ### Shared Action Umbrella
 
 **Consumer Repository**:
-A Giskard repository (such as `llm-hub` or `lidar`) that invokes composite actions from `giskard-actions` and supplies repository-specific configuration, secrets, and job permissions.
+A repository that uses actions or workflows from `giskard-actions` and supplies repository-specific configuration, secrets, triggers, and job permissions.
 _Avoid_: Caller repo, target repo, client repo, downstream repo
 
 **Action Pin**:
-A 40-character commit SHA paired with a SemVer version comment (`@<sha> # vX.Y.Z`) used by a **Consumer Repository** to lock all `giskard-actions` composite action references to a single immutable revision.
+A 40-character commit SHA paired with a SemVer version comment (`@<sha> # vX.Y.Z`) used by a **Consumer Repository** to lock every `giskard-actions` action and workflow reference to a single immutable revision.
 _Avoid_: Version tag, floating ref, action ref
 
 **Umbrella Release**:
-An immutable SemVer git tag (`vX.Y.Z`) and GitHub Release published automatically from `main` in `giskard-actions` that versions all composite actions in the repository together for Renovate discovery.
+An immutable SemVer git tag (`vX.Y.Z`) and GitHub Release published only by `release.yml` from `main` that versions every action and workflow in the repository together for Renovate discovery. There are no floating (`v0`) or per-action tags.
 _Avoid_: Package version, individual action version
 
+**Reusable Review Workflow**:
+The `workflow_call` workflow `.github/workflows/codex-pr-review.yml` that wraps the Codex review and post composites into a read-only review job and a write-only post job. The **Consumer Repository** calls it from one job that owns triggers, the comment gate, concurrency, and the permission ceiling, passes its `environment` name as an input and `AZURE_AI_API_KEY` explicitly.
+_Avoid_: Codex shim, wrapper workflow
+
+**Self-Repository Reference**:
+A `uses: $/<path>` reference that resolves to the repository of the workflow being run, at the commit being run, without an `@ref`. The **Reusable Review Workflow** uses it to call its own composites at the **Action Pin**. Requires runner 2.336.0+.
+_Avoid_: Local action, relative uses, `./` reference
+
 **Trusted Action Unpack**:
-The immutable directory (`github.action_path`) where GitHub Actions extracts the pinned `giskard-actions` revision on the runner, serving as the sole trusted source of executable helper scripts and prompt templates.
+The immutable directory (`github.action_path`) where GitHub Actions extracts the pinned `giskard-actions` revision on the runner, serving as the sole trusted source of executable helper scripts, prompt templates, output schemas, and the model catalog.
 _Avoid_: Action checkout, helper clone, workflow ref checkout
 
+**Consumer Config Directory**:
+`.github/giskard/` in the **Consumer Repository**, holding `release-notes.json`, `codex-reviewer-map.json`, and `codex-ci-config.json`. Bundled action assets (prompts, output schema, model catalog) are not consumer config; they stay in `.github/codex/` of `giskard-actions`.
+_Avoid_: Dotfile config, root config
+
+**Config Schema**:
+A JSON Schema under `schemas/` in `giskard-actions` describing one file of the **Consumer Config Directory**, referenced from that file's `$schema` key and enforced against `examples/` by the test suite.
+_Avoid_: Config spec, config template
+
 **Base-SHA Overlay**:
-Trusted configuration and reviewer persona files (`.github/codex/reviewer-map.json` and `.cursor/agents/*.md`) fetched strictly from the **Consumer Repository** pull request base commit rather than the untrusted pull request head.
+Trusted configuration and reviewer persona files (`.github/giskard/codex-reviewer-map.json`, `.cursor/agents/*.md`, and `.cursor/agents/references/*`) fetched strictly from the **Consumer Repository** pull request base commit rather than the untrusted pull request head.
 _Avoid_: PR head config, caller checkout config
 
 ### Release Notes Pipeline
 
 **Project Config**:
-Per-repository settings loaded from `.release-notes.json` in the **Consumer Repository** that define the authoritative section list, manifest paths, high-signal diff prefixes, file diffs, LLM model defaults, and deterministic upgrade rules.
+Per-repository settings loaded from `.github/giskard/release-notes.json` in the **Consumer Repository** that define the authoritative section list, manifest paths, high-signal diff prefixes, file diffs, LLM model defaults, and deterministic upgrade rules.
 _Avoid_: Repo settings, release config
 
 **Thematic Section**:
