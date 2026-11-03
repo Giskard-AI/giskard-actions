@@ -163,15 +163,52 @@ class TestLoadProjectConfig:
             assert any(s.id == "python_api" for s in cfg.sections)
             assert not any(s.id == "ux_frontend" for s in cfg.sections if s.enabled)
 
-    def test_legacy_root_config_fails_with_new_path(self, tmp_path):
-        (tmp_path / ".release-notes.json").write_text(json.dumps({"model": "legacy"}))
-        with pytest.raises(SystemExit, match=r"::error::.*\.github/giskard/release-notes\.json"):
-            load_project_config(tmp_path)
+    @pytest.mark.parametrize(
+        ("write_new", "write_legacy", "expected_model", "warning"),
+        [
+            pytest.param(True, False, "current", None, id="new_only"),
+            pytest.param(
+                False,
+                True,
+                "legacy",
+                "::warning::Reading legacy .release-notes.json; "
+                "move it to .github/giskard/release-notes.json",
+                id="legacy_only_warns_and_is_used",
+            ),
+            pytest.param(
+                True,
+                True,
+                "current",
+                "::warning::Ignoring legacy .release-notes.json because "
+                ".github/giskard/release-notes.json exists",
+                id="both_prefers_new_and_warns",
+            ),
+            pytest.param(False, False, None, None, id="neither_uses_defaults"),
+        ],
+    )
+    def test_config_location(
+        self,
+        tmp_path,
+        capsys,
+        write_release_notes_config,
+        write_new,
+        write_legacy,
+        expected_model,
+        warning,
+    ):
+        if write_new:
+            write_release_notes_config(json.dumps({"model": "current"}))
+        if write_legacy:
+            (tmp_path / ".release-notes.json").write_text(json.dumps({"model": "legacy"}))
 
-    def test_new_config_wins_over_legacy_root_config(self, tmp_path, write_release_notes_config):
-        (tmp_path / ".release-notes.json").write_text(json.dumps({"model": "legacy"}))
-        write_release_notes_config(json.dumps({"model": "current"}))
-        assert load_project_config(tmp_path).model == "current"
+        assert load_project_config(tmp_path).model == expected_model
+        stderr = capsys.readouterr().err
+        if warning is None:
+            assert "::warning::" not in stderr
+        else:
+            assert warning in stderr
+        if expected_model == "legacy":
+            assert "v1.0.0" in stderr
 
 
 class TestWithSectionDisabled:

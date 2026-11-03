@@ -118,7 +118,7 @@ The schemas' `$id` points at `main`. Reference the schema of the release you pin
 
 ## Migrating from v0.3.x
 
-v0.4.0 moves every action under `.github/actions/` and every consumer file under `.github/giskard/`. There are no compatibility shims: a legacy config file left in place fails the run with an error naming the new path.
+v0.4.0 moves every action under `.github/actions/` and every consumer file under `.github/giskard/`. If only a legacy config file (`.release-notes.json`, `.github/codex/reviewer-map.json`) exists, the run still reads it and emits a warning naming the new path; the legacy paths stop being read in v1.0.0. When both files exist, the new one wins and the run warns that the legacy one is ignored. Because the Codex review reads its config from the PR base, the PR that moves the file is reviewed with the legacy file and passes.
 
 | v0.3.x | v0.4.0 |
 | --- | --- |

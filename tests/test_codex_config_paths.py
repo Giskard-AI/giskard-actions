@@ -11,25 +11,45 @@ LEGACY_MAP = ".github/codex/reviewer-map.json"
 
 
 @pytest.mark.parametrize(
-    ("files", "expected"),
+    ("files", "expected", "warning"),
     [
-        pytest.param([NEW_MAP], "new", id="new-path-is-used"),
-        pytest.param([NEW_MAP, LEGACY_MAP], "new", id="new-path-wins-over-legacy"),
-        pytest.param([], None, id="no-map-uses-built-in-selection"),
-        pytest.param([LEGACY_MAP], SystemExit, id="legacy-only-fails-loudly"),
+        pytest.param([NEW_MAP], NEW_MAP, None, id="new_only"),
+        pytest.param(
+            [LEGACY_MAP],
+            LEGACY_MAP,
+            f"::warning::Reading legacy {LEGACY_MAP}; move it to {NEW_MAP}",
+            id="legacy_only_warns_and_is_used",
+        ),
+        pytest.param(
+            [NEW_MAP, LEGACY_MAP],
+            NEW_MAP,
+            f"::warning::Ignoring legacy {LEGACY_MAP} because {NEW_MAP} exists",
+            id="both_prefers_new_and_warns",
+        ),
+        pytest.param([], None, None, id="neither_uses_defaults"),
     ],
 )
-def test_reviewer_map_location(tmp_path: Path, files: list[str], expected: object) -> None:
+def test_reviewer_map_location(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    files: list[str],
+    expected: str | None,
+    warning: str | None,
+) -> None:
     for relative in files:
         (tmp_path / relative).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / relative).write_text('{"rules": []}', encoding="utf-8")
 
-    if expected is SystemExit:
-        with pytest.raises(SystemExit, match=rf"::error::.*{NEW_MAP}"):
-            codex_pr_assessment.resolve_reviewer_map_path(tmp_path / NEW_MAP)
-        return
     resolved = codex_pr_assessment.resolve_reviewer_map_path(tmp_path / NEW_MAP)
-    assert resolved == (tmp_path / NEW_MAP if expected == "new" else None)
+
+    assert resolved == (tmp_path / expected if expected else None)
+    stderr = capsys.readouterr().err
+    if warning is None:
+        assert "::warning::" not in stderr
+    else:
+        assert warning in stderr
+    if expected == LEGACY_MAP:
+        assert "v1.0.0" in stderr
 
 
 def _stage(tmp_path: Path, name: str) -> tuple[int, Path]:

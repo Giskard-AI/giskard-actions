@@ -117,7 +117,7 @@ Accepted forms (HTTPS on an Azure host):
 
 ## Reviewer personas
 
-For each selected reviewer `<name>`, the workflow loads `.cursor/agents/<name>.md` from the base SHA plus any `role_references` from `.cursor/agents/references/`. If your repository has no such persona, it falls back to a generic one bundled under `.github/codex/overlays/` (`security-auditor`, `infra-reviewer`, `prompt-critic`); any other reviewer without a persona fails its pass. Configure selection in `.github/giskard/codex-reviewer-map.json`; see [Configuration](configuration.html#codex-reviewer-map). If only the v0.3.x file `.github/codex/reviewer-map.json` exists, the run fails with an error naming the new path.
+For each selected reviewer `<name>`, the workflow loads `.cursor/agents/<name>.md` from the base SHA plus any `role_references` from `.cursor/agents/references/`. If your repository has no such persona, it falls back to a generic one bundled under `.github/codex/overlays/` (`security-auditor`, `infra-reviewer`, `prompt-critic`); any other reviewer without a persona fails its pass. Configure selection in `.github/giskard/codex-reviewer-map.json`; see [Configuration](configuration.html#codex-reviewer-map). If only the v0.3.x file `.github/codex/reviewer-map.json` exists at the base SHA, the run reads it and warns that it moves to the new path (the legacy path stops being read in v1.0.0). This keeps the PR that moves the file reviewable.
 
 ## What Codex sees
 

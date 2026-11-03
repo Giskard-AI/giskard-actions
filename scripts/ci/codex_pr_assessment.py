@@ -1185,16 +1185,27 @@ def resolve_reviewer_map_path(map_path: str | Path | None = None) -> Path | None
     if not candidate:
         return None
     resolved = Path(candidate)
+    legacy = (
+        resolved.parents[2] / LEGACY_REVIEWER_MAP_PATH
+        if resolved.as_posix().endswith(REVIEWER_MAP_PATH)
+        else None
+    )
     if resolved.is_file():
-        return resolved
-    if resolved.as_posix().endswith(REVIEWER_MAP_PATH):
-        legacy = resolved.parents[2] / LEGACY_REVIEWER_MAP_PATH
-        if legacy.is_file():
-            raise SystemExit(
-                f"::error::Found legacy {LEGACY_REVIEWER_MAP_PATH}; giskard-actions v0.4.0+ reads "
-                f"{REVIEWER_MAP_PATH}. Move the file there "
-                f"(git mv {LEGACY_REVIEWER_MAP_PATH} {REVIEWER_MAP_PATH})."
+        if legacy is not None and legacy.is_file():
+            print(
+                f"::warning::Ignoring legacy {LEGACY_REVIEWER_MAP_PATH} because {REVIEWER_MAP_PATH} "
+                f"exists; delete the legacy file.",
+                file=sys.stderr,
             )
+        return resolved
+    if legacy is not None and legacy.is_file():
+        print(
+            f"::warning::Reading legacy {LEGACY_REVIEWER_MAP_PATH}; move it to {REVIEWER_MAP_PATH} "
+            f"(git mv {LEGACY_REVIEWER_MAP_PATH} {REVIEWER_MAP_PATH}). The legacy path will stop "
+            "being read in giskard-actions v1.0.0.",
+            file=sys.stderr,
+        )
+        return legacy
     return None
 
 
@@ -1545,7 +1556,7 @@ def main_select(args: argparse.Namespace) -> int:
     if resolved_map is not None:
         _, map_defaults = load_reviewer_map_config(resolved_map)
     llm_cfg = _resolve_llm_defaults(map_defaults)
-    reviewers = select_reviewers(changed_files, map_path=args.reviewer_map)
+    reviewers = select_reviewers(changed_files, map_path=resolved_map or args.reviewer_map)
     payload = {
         "reviewers": reviewers,
         "aggregator_model": llm_cfg["aggregator_model"],

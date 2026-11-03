@@ -108,7 +108,7 @@ Release notes stays a composite action for this reason: callers often mint their
 
 ## Configuration
 
-Settings are read from `.github/giskard/release-notes.json` in the analyzed repository. See [Configuration](configuration.html#release-notes) for the fields and schema. If only the v0.3.x file `.release-notes.json` exists, the run fails with an error naming the new path; see [Migrating from v0.3.x](index.html#migrating-from-v03x).
+Settings are read from `.github/giskard/release-notes.json` in the analyzed repository. See [Configuration](configuration.html#release-notes) for the fields and schema. If only the v0.3.x file `.release-notes.json` exists, the run reads it and warns that it moves to the new path (the legacy path stops being read in v1.0.0); see [Migrating from v0.3.x](index.html#migrating-from-v03x).
 
 ## Local CLI
 
