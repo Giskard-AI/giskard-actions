@@ -65,6 +65,17 @@ runs:
       run: bash "${ACTION_LIB}/run-assess.sh" resolve --output "$GITHUB_OUTPUT"
       shell: bash
 
+    - name: Ensure bubblewrap sandbox for Codex
+      if: steps.resolve.outputs.should_run == 'true'
+      run: |
+        set -euo pipefail
+        if ! command -v bwrap >/dev/null 2>&1; then
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends bubblewrap
+        fi
+        bwrap --unshare-user --unshare-net --ro-bind / / /bin/true
+      shell: bash
+
     - name: Checkout trusted consumer config
       if: steps.resolve.outputs.should_run == 'true'
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

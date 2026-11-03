@@ -1,6 +1,7 @@
 import argparse
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -93,18 +94,58 @@ class TestIssueCommentTrust(unittest.TestCase):
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
+CODEX_VERSION_DEFAULT_RE = re.compile(
+    r"codex_version:\n(?:[ \t]+\w+:.*\n)*?[ \t]+default: \"([^\"]+)\""
+)
+
+
 class TestCodexPrAssessmentWorkflow(unittest.TestCase):
-    def test_self_test_uses_local_composites_not_reusables(self) -> None:
+    def test_self_test_calls_reusable_workflow_with_explicit_secret(self) -> None:
         caller = (REPO_ROOT / ".github/workflows/codex-pr-assessment.yml").read_text(
             encoding="utf-8"
         )
-        self.assertIn("uses: ./.github/actions/codex-pr-review", caller)
-        self.assertIn("uses: ./.github/actions/codex-post-review", caller)
-        self.assertNotIn(".reusable.yml", caller)
+        self.assertIn("uses: $/.github/workflows/codex-pr-review.yml", caller)
+        self.assertIn("AZURE_AI_API_KEY: ${{ secrets.AZURE_AI_API_KEY }}", caller)
+        self.assertIn("environment: ci", caller)
         self.assertNotIn("secrets: inherit", caller)
         self.assertNotIn("pull_request_target", caller)
         self.assertNotIn("GITHUB_WORKFLOW_SHA", caller)
         self.assertNotIn("GITHUB_WORKFLOW_REF", caller)
+
+    def test_reusable_workflow_wraps_composites_via_self_repository(self) -> None:
+        reusable = (REPO_ROOT / ".github/workflows/codex-pr-review.yml").read_text(encoding="utf-8")
+        self.assertIn("workflow_call:", reusable)
+        self.assertRegex(reusable, re.compile(r"^permissions: \{\}$", re.MULTILINE))
+        self.assertIn("uses: $/.github/actions/codex-pr-review", reusable)
+        self.assertIn("uses: $/.github/actions/codex-post-review", reusable)
+        self.assertIn("name: ${{ inputs.environment }}", reusable)
+        self.assertIn("vars.AZURE_AI_RESPONSES_BASE", reusable)
+        self.assertNotIn("secrets: inherit", reusable)
+        self.assertNotIn("actions/checkout", reusable)
+        self.assertRegex(reusable, r"actions/download-artifact@[0-9a-f]{40}")
+
+    def test_reusable_codex_version_default_matches_composite(self) -> None:
+        reusable = (REPO_ROOT / ".github/workflows/codex-pr-review.yml").read_text(encoding="utf-8")
+        composite = (REPO_ROOT / ".github/actions/codex-pr-review/action.yml").read_text(
+            encoding="utf-8"
+        )
+        reusable_default = CODEX_VERSION_DEFAULT_RE.search(reusable)
+        composite_default = CODEX_VERSION_DEFAULT_RE.search(composite)
+        self.assertIsNotNone(reusable_default)
+        self.assertIsNotNone(composite_default)
+        self.assertEqual(reusable_default.group(1), composite_default.group(1))
+
+    def test_review_composite_probes_bubblewrap_before_codex(self) -> None:
+        review = (REPO_ROOT / ".github/actions/codex-pr-review/action.yml").read_text(
+            encoding="utf-8"
+        )
+        step = review.index("- name: Ensure bubblewrap sandbox for Codex")
+        probe = review.index("bwrap --unshare-user --unshare-net --ro-bind / / /bin/true")
+        self.assertLess(step, probe)
+        self.assertLess(probe, review.index("uses: openai/codex-action@"))
+        step_if = review[step:].splitlines()[1].strip()
+        self.assertEqual(step_if, "if: steps.resolve.outputs.should_run == 'true'")
+        self.assertIn("apt-get install -y -qq --no-install-recommends bubblewrap", review)
 
     def test_review_composite_loads_base_sha_overlays_not_pr_head(self) -> None:
         review = (REPO_ROOT / ".github/actions/codex-pr-review/action.yml").read_text(

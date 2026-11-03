@@ -6,7 +6,8 @@
   "file_diffs": [
     ".github/actions/release-notes/action.yml",
     ".github/actions/codex-pr-review/action.yml",
-    ".github/actions/codex-post-review/action.yml"
+    ".github/actions/codex-post-review/action.yml",
+    ".github/workflows/codex-pr-review.yml"
   ],
   "high_signal_prefixes": [
     ".github/actions/",
@@ -21,12 +22,13 @@
   "upgrade_rules": [
     {
       "id": "action_interface",
-      "short_name": "Composite action interface",
-      "description": "Composite action inputs or outputs changed; review the action.yml diff section and update caller workflows if needed.",
+      "short_name": "Action and workflow interface",
+      "description": "Composite action or reusable workflow inputs, secrets, or outputs changed; review the diff section and update caller workflows if needed.",
       "paths": [
         ".github/actions/release-notes/action.yml",
         ".github/actions/codex-pr-review/action.yml",
-        ".github/actions/codex-post-review/action.yml"
+        ".github/actions/codex-post-review/action.yml",
+        ".github/workflows/codex-pr-review.yml"
       ]
     }
   ],
