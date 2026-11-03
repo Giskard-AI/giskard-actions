@@ -7,7 +7,6 @@ import re
 import secrets
 import subprocess
 import sys
-import tomllib
 from pathlib import Path
 
 _SEMVER_TAG_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
@@ -165,15 +164,12 @@ def compute_next_release_tag(repo_root: Path, requested_version: str = "") -> di
             raise SystemExit(
                 "::error::No SemVer tag is reachable from HEAD, but these exist: "
                 f"{', '.join(sorted(unreachable))}. Fetch full history with tags "
-                "(fetch-depth: 0) or fix the branch instead of bootstrapping from pyproject.toml."
+                "(fetch-depth: 0) or fix the branch."
             )
-        pyproject = tomllib.loads((repo_root / "pyproject.toml").read_text(encoding="utf-8"))
-        base_version = str(pyproject.get("project", {}).get("version", "0.1.0")).strip()
-        return {
-            "should_release": "true",
-            "tag": f"v{base_version.lstrip('v')}",
-            "previous_tag": "",
-        }
+        raise SystemExit(
+            "::error::No SemVer tag exists yet. Run the release workflow manually with a "
+            "version input to cut the first release."
+        )
 
     semver_tags.sort(key=lambda item: item[0])
     (major, minor, patch), prev_tag = semver_tags[-1]

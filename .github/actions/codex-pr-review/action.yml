@@ -38,7 +38,7 @@ inputs:
   codex_version:
     description: Codex CLI version pin
     required: false
-    default: "0.146.1"
+    default: "0.164.0"
   model_catalog_path:
     description: Optional path to a custom model_catalog_json (defaults to the action's bundled Azure catalog)
     required: false
@@ -67,9 +67,9 @@ runs:
 
     - name: Set up Node for Codex sandbox preflight
       if: steps.resolve.outputs.should_run == 'true'
-      uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
       with:
-        node-version: "24"
+        node-version: "26.12.1"
         package-manager-cache: false
 
     - name: Preflight Codex sandbox

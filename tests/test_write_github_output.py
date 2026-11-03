@@ -102,20 +102,11 @@ def test_main_metadata_file(tmp_path: Path) -> None:
     assert "line2" in text
 
 
-def _init_git_repo(repo_dir: Path, pyproject_version: str = "0.3.0") -> None:
+def _init_git_repo(repo_dir: Path) -> None:
     subprocess.run(["git", "init", "-q"], cwd=repo_dir, check=True)
     subprocess.run(["git", "config", "user.name", "Test User"], cwd=repo_dir, check=True)
     subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo_dir, check=True)
-    (repo_dir / "pyproject.toml").write_text(
-        f'[project]\nname = "giskard-actions"\nversion = "{pyproject_version}"\n',
-        encoding="utf-8",
-    )
-    subprocess.run(["git", "add", "pyproject.toml"], cwd=repo_dir, check=True)
-    subprocess.run(
-        ["git", "commit", "-q", "-m", "chore: initial commit"],
-        cwd=repo_dir,
-        check=True,
-    )
+    _commit_empty(repo_dir, "chore: initial commit")
 
 
 def _commit_empty(repo_dir: Path, message: str) -> None:
@@ -137,7 +128,6 @@ def _no_release(tag: str) -> dict[str, str]:
 @pytest.mark.parametrize(
     ("initial_tags", "commits_after_tag", "expected_outputs"),
     [
-        pytest.param([], [], _release("v0.3.0", ""), id="bootstrap_no_tags_uses_pyproject_version"),
         pytest.param(["v0.3.0"], [], _no_release("v0.3.0"), id="head_already_tagged_is_noop"),
         pytest.param(
             ["v0.3.0"],
@@ -261,7 +251,7 @@ def test_compute_next_release_tag_cli_seam(
 ) -> None:
     repo_dir = tmp_path / "repo"
     repo_dir.mkdir()
-    _init_git_repo(repo_dir, pyproject_version="0.3.0")
+    _init_git_repo(repo_dir)
     for tag in initial_tags:
         subprocess.run(["git", "tag", tag], cwd=repo_dir, check=True)
     for msg in commits_after_tag:
@@ -414,19 +404,35 @@ def test_compute_next_release_tag_refuses_requested_version_on_released_head(
         _compute_with_requested_version(tmp_path, repo_dir, "1.0.0")
 
 
-def test_compute_next_release_tag_refuses_to_bootstrap_when_tags_are_unreachable(
-    tmp_path: Path,
+@pytest.mark.parametrize(
+    ("side_branch_tag", "error"),
+    [
+        pytest.param(
+            None,
+            r"No SemVer tag exists yet\. Run the release workflow manually with a version",
+            id="no_tag_at_all_asks_for_a_manual_first_release",
+        ),
+        pytest.param(
+            "v0.3.1",
+            r"No SemVer tag is reachable.*v0\.3\.1",
+            id="only_unreachable_tags_asks_to_fetch_history",
+        ),
+    ],
+)
+def test_compute_next_release_tag_refuses_to_release_without_reachable_tag(
+    tmp_path: Path, side_branch_tag: str | None, error: str
 ) -> None:
     repo_dir = tmp_path / "repo"
     repo_dir.mkdir()
     _init_git_repo(repo_dir)
-    subprocess.run(["git", "checkout", "-q", "-b", "side"], cwd=repo_dir, check=True)
-    _commit_empty(repo_dir, "feat: released elsewhere")
-    subprocess.run(["git", "tag", "v0.3.1"], cwd=repo_dir, check=True)
-    subprocess.run(["git", "checkout", "-q", "-"], cwd=repo_dir, check=True)
+    if side_branch_tag:
+        subprocess.run(["git", "checkout", "-q", "-b", "side"], cwd=repo_dir, check=True)
+        _commit_empty(repo_dir, "feat: released elsewhere")
+        subprocess.run(["git", "tag", side_branch_tag], cwd=repo_dir, check=True)
+        subprocess.run(["git", "checkout", "-q", "-"], cwd=repo_dir, check=True)
     _commit_empty(repo_dir, "fix: unrelated")
 
-    with pytest.raises(SystemExit, match=r"::error::No SemVer tag is reachable.*v0\.3\.1"):
+    with pytest.raises(SystemExit, match=rf"::error::{error}"):
         main(
             [
                 "--github-output",

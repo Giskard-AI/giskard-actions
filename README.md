@@ -27,7 +27,7 @@ jobs:
           persist-credentials: false
 
       - id: notes
-        uses: Giskard-AI/giskard-actions/.github/actions/release-notes@<full-commit-sha> # v0.4.0
+        uses: Giskard-AI/giskard-actions/.github/actions/release-notes@<full-commit-sha> # vX.Y.Z
         with:
           version: "1.2.0" # tag v1.2.0 must exist (or use dry_run)
         env:
@@ -80,7 +80,7 @@ jobs:
       contents: read
       issues: read
       pull-requests: write
-    uses: Giskard-AI/giskard-actions/.github/workflows/codex-pr-review.yml@<full-commit-sha> # v0.4.0
+    uses: Giskard-AI/giskard-actions/.github/workflows/codex-pr-review.yml@<full-commit-sha> # vX.Y.Z
     with:
       environment: ci # environment holding AZURE_AI_API_KEY and AZURE_AI_RESPONSES_BASE
     secrets:
@@ -94,7 +94,8 @@ The review job defaults to `ubuntu-slim` with a 15-minute timeout, matching GitH
 ## Pinning and versioning
 
 - The whole repository shares **one SemVer version**. Tags `vX.Y.Z` and GitHub Releases are cut only by [`release.yml`](.github/workflows/release.yml) on pushes to `main`, from conventional commits since the last tag: `fix`, `perf` or any type with the `deps` scope (for example `chore(deps): ...` from Renovate or the lockfile workflows) is a patch, `feat` a minor, and a `!` header or a `BREAKING CHANGE:` footer a major (a minor while the version is `0.x`). Merged dependency updates therefore always publish a patch release. A range with none of these (only `chore`, `docs`, `test`, `ci`, ... without the `deps` scope) is not released. Maintainers can run `release.yml` manually on `main` with a `version` input to release an explicit `X.Y.Z` instead (for example the first `1.0.0`); it must be higher than every existing tag.
-- There are no floating (`v0`) or per-action tags. Pin the **full 40-character commit SHA** with a version comment: `@<sha> # v0.4.0`. Use the same SHA for every reference to this repository.
+- There are no floating (`v0`) or per-action tags. Pin the **full 40-character commit SHA** of a [release](https://github.com/Giskard-AI/giskard-actions/releases) with a version comment: `@<sha> # vX.Y.Z`. Use the same SHA for every reference to this repository.
+- The version lives only in the git tags. `version` in `pyproject.toml` stays `0.0.0` and is never bumped.
 - [Renovate](https://docs.renovatebot.com/) with `helpers:pinGitHubActionDigests` keeps the SHA and comment up to date.
 - The reusable workflow calls its own composites with the self-repository syntax `$/`, so they always run from the commit you pinned. It needs GitHub Actions runner 2.336.0 or later; GitHub-hosted runners already qualify.
 
@@ -112,7 +113,7 @@ The schemas' `$id` points at `main`. Reference the schema of the release you pin
 
 ```json
 {
-  "$schema": "https://raw.githubusercontent.com/Giskard-AI/giskard-actions/v0.4.0/schemas/release-notes.schema.json"
+  "$schema": "https://raw.githubusercontent.com/Giskard-AI/giskard-actions/v1.0.0/schemas/release-notes.schema.json"
 }
 ```
 

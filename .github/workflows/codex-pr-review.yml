@@ -50,7 +50,7 @@ on:
       codex_version:
         description: Codex CLI version pin
         type: string
-        default: "0.146.1"
+        default: "0.164.0"
     secrets:
       AZURE_AI_API_KEY:
         description: Azure API key for Codex. Pass it by name; an environment secret with the same name in `environment` takes precedence.
