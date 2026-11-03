@@ -5,7 +5,7 @@ alwaysApply: true
 # Code Quality
 
 - Python: `uv run ruff format` and `uv run ruff check`; or `make format && make check_linting`
-- Tests: `uv run pytest` / `make test` in **this** repo (do not use llm-hub `.venv`)
+- Tests: `uv run pytest` / `make test` in **this** repo (do not reuse another project's `.venv`)
 - snake_case functions, PascalCase classes, UPPER_SNAKE_CASE constants
 - Python 3.12 typing: see `.cursor/rules/python-style.mdc` (no `from __future__ import annotations`)
 - After editing, run `make format` then tests

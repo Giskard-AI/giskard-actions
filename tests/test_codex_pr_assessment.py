@@ -581,7 +581,7 @@ class TestEventResolution(unittest.TestCase):
         original_event_name = codex_pr_assessment.os.environ.get("GITHUB_EVENT_NAME")
         codex_pr_assessment.os.environ["GITHUB_EVENT_NAME"] = "workflow_run"
         event = {"workflow_run": {"event": "push", "head_sha": "abc"}}
-        repo = codex_pr_assessment.GitHubRepo(owner="Giskard-AI", name="llm-hub")
+        repo = codex_pr_assessment.GitHubRepo(owner="octo-org", name="example-app")
 
         try:
             self.assertIsNone(codex_pr_assessment.resolve_pr_number(event, repo))
@@ -603,7 +603,7 @@ class TestEventResolution(unittest.TestCase):
                 "pull_requests": [{"number": 123}],
             }
         }
-        repo = codex_pr_assessment.GitHubRepo(owner="Giskard-AI", name="llm-hub")
+        repo = codex_pr_assessment.GitHubRepo(owner="octo-org", name="example-app")
 
         try:
             self.assertIsNone(codex_pr_assessment.resolve_pr_number(event, repo))
@@ -637,7 +637,7 @@ class TestEventResolution(unittest.TestCase):
             self.assertEqual(
                 codex_pr_assessment.resolve_pr_number(
                     event,
-                    codex_pr_assessment.GitHubRepo(owner="Giskard-AI", name="llm-hub"),
+                    codex_pr_assessment.GitHubRepo(owner="octo-org", name="example-app"),
                 ),
                 123,
             )
@@ -662,7 +662,7 @@ class TestEventResolution(unittest.TestCase):
             self.assertEqual(
                 codex_pr_assessment.resolve_pr_number(
                     {"inputs": {"pr_number": "123"}},
-                    codex_pr_assessment.GitHubRepo(owner="Giskard-AI", name="llm-hub"),
+                    codex_pr_assessment.GitHubRepo(owner="octo-org", name="example-app"),
                 ),
                 123,
             )
@@ -679,7 +679,7 @@ class TestEventResolution(unittest.TestCase):
             self.assertEqual(
                 codex_pr_assessment.resolve_pr_number(
                     {"pull_request": {"number": 123}},
-                    codex_pr_assessment.GitHubRepo(owner="Giskard-AI", name="llm-hub"),
+                    codex_pr_assessment.GitHubRepo(owner="octo-org", name="example-app"),
                 ),
                 123,
             )
@@ -693,8 +693,8 @@ class TestEventResolution(unittest.TestCase):
         self.assertTrue(
             codex_pr_assessment.is_same_repo_pr(
                 {
-                    "head": {"repo": {"full_name": "Giskard-AI/llm-hub"}},
-                    "base": {"repo": {"full_name": "Giskard-AI/llm-hub"}},
+                    "head": {"repo": {"full_name": "octo-org/example-app"}},
+                    "base": {"repo": {"full_name": "octo-org/example-app"}},
                 }
             )
         )
@@ -702,7 +702,7 @@ class TestEventResolution(unittest.TestCase):
             codex_pr_assessment.is_same_repo_pr(
                 {
                     "head": {"repo": {"full_name": "someone/fork"}},
-                    "base": {"repo": {"full_name": "Giskard-AI/llm-hub"}},
+                    "base": {"repo": {"full_name": "octo-org/example-app"}},
                 }
             )
         )
@@ -718,7 +718,7 @@ class TestContextSeparation(unittest.TestCase):
         original_codex_reviews = codex_pr_assessment.collect_prior_codex_reviews
 
         codex_pr_assessment.repo_from_env = lambda: codex_pr_assessment.GitHubRepo(
-            owner="Giskard-AI", name="llm-hub"
+            owner="octo-org", name="example-app"
         )
         codex_pr_assessment.get_pr = lambda repo, pr: {
             "title": "Test",
@@ -766,7 +766,7 @@ class TestContextSeparation(unittest.TestCase):
         original_sonar = codex_pr_assessment.collect_sonar
 
         codex_pr_assessment.repo_from_env = lambda: codex_pr_assessment.GitHubRepo(
-            owner="Giskard-AI", name="llm-hub"
+            owner="octo-org", name="example-app"
         )
         codex_pr_assessment.get_pr = lambda repo, pr: {
             "title": "Test",
@@ -864,7 +864,7 @@ class TestPagination(unittest.TestCase):
         ]
         try:
             checks = codex_pr_assessment.collect_check_runs(
-                codex_pr_assessment.GitHubRepo(owner="Giskard-AI", name="llm-hub"),
+                codex_pr_assessment.GitHubRepo(owner="octo-org", name="example-app"),
                 "abc",
             )
         finally:
@@ -887,7 +887,7 @@ class TestPagination(unittest.TestCase):
         ]
         try:
             annotations = codex_pr_assessment.collect_check_annotations(
-                codex_pr_assessment.GitHubRepo(owner="Giskard-AI", name="llm-hub"),
+                codex_pr_assessment.GitHubRepo(owner="octo-org", name="example-app"),
                 123,
             )
         finally:
@@ -917,7 +917,7 @@ class TestSonarCollection(unittest.TestCase):
                             {
                                 "type": "VULNERABILITY",
                                 "severity": "MAJOR",
-                                "component": "Giskard-AI_llm-hub:scripts/ci/x.py",
+                                "component": "octo-org_example-app:scripts/ci/x.py",
                                 "line": 1,
                                 "rule": "test",
                                 "message": "GH_TOKEN=super-secret",
@@ -930,7 +930,7 @@ class TestSonarCollection(unittest.TestCase):
         codex_pr_assessment.os.environ["SONAR_QUBE_TOKEN"] = "token"
         try:
             sonar = codex_pr_assessment.collect_sonar(
-                codex_pr_assessment.GitHubRepo(owner="Giskard-AI", name="llm-hub"),
+                codex_pr_assessment.GitHubRepo(owner="octo-org", name="example-app"),
                 1634,
             )
         finally:
@@ -1001,7 +1001,7 @@ class TestPriorCodexReviews(unittest.TestCase):
         ]
         try:
             reviews = codex_pr_assessment.collect_prior_codex_reviews(
-                codex_pr_assessment.GitHubRepo(owner="Giskard-AI", name="llm-hub"),
+                codex_pr_assessment.GitHubRepo(owner="octo-org", name="example-app"),
                 1634,
             )
         finally:
@@ -1015,7 +1015,7 @@ class TestPriorCodexReviews(unittest.TestCase):
 class TestFailedLogCollection(unittest.TestCase):
     def test_failed_logs_are_redacted_before_context_write(self) -> None:
         original_gh_text = codex_pr_assessment.gh_text
-        repo = codex_pr_assessment.GitHubRepo(owner="Giskard-AI", name="llm-hub")
+        repo = codex_pr_assessment.GitHubRepo(owner="octo-org", name="example-app")
 
         def fake_gh_text(args: list[str], *, check: bool = True) -> str:
             self.assertFalse(check)
@@ -1445,7 +1445,7 @@ class TestReviewSanitizer(unittest.TestCase):
     def test_sanitizer_adds_header_and_defangs_untrusted_content(self) -> None:
         body = (
             "Please ping @team/security.\n"
-            "Allowed: https://github.com/Giskard-AI/llm-hub/actions/runs/1\n"
+            "Allowed: https://github.com/octo-org/example-app/actions/runs/1\n"
             "Bad: https://evil.example/phish\n"
             "AZURE_AI_API_KEY=super-secret\n"
         )
@@ -1454,7 +1454,7 @@ class TestReviewSanitizer(unittest.TestCase):
 
         self.assertTrue(sanitized.startswith("## Codex advisory test"))
         self.assertIn("(at)team/security", sanitized)
-        self.assertIn("https://github.com/Giskard-AI/llm-hub/actions/runs/1", sanitized)
+        self.assertIn("https://github.com/octo-org/example-app/actions/runs/1", sanitized)
         self.assertIn("[external-link-removed]", sanitized)
         self.assertNotIn("super-secret", sanitized)
 
