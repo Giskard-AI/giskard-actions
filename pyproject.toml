@@ -1,6 +1,6 @@
 [project]
 name = "giskard-actions"
-version = "0.3.0"
+version = "0.4.0"
 description = "GitHub Actions for LLM-powered release notes and advisory Codex PR review"
 license = "Apache-2.0"
 requires-python = ">=3.12"
@@ -23,7 +23,7 @@ dev = [
 generate-release-notes = "release_notes.cli:main"
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling==1.33.0"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
