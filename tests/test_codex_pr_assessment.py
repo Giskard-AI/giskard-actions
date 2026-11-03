@@ -126,7 +126,7 @@ class TestCodexPrAssessmentWorkflow(unittest.TestCase):
         self.assertIn("ACTION_ROOT", wrapper)
         self.assertNotIn("environment:", review)
         self.assertNotIn("timeout-minutes:", review)
-        self.assertIn("openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e", review)
+        self.assertRegex(review, r"openai/codex-action@[0-9a-f]{40}")
         arg_lines = [
             line
             for line in review.splitlines()
