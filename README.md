@@ -89,7 +89,7 @@ jobs:
 
 Your repository keeps the triggers, the comment gate, concurrency and the permission ceiling. Pass the secret explicitly by name; never use `secrets: inherit`. Reviewer selection lives in `.github/giskard/codex-reviewer-map.json`, and reviewer personas in `.cursor/agents/<name>.md`, both read from the pull request **base** commit.
 
-The review job defaults to `ubuntu-slim`, which GitHub caps at 15 minutes per job. Set `runner: ubuntu-latest` for larger reviews. See the [Codex PR review docs](https://giskard-ai.github.io/giskard-actions/codex-pr-review.html) for every input.
+The review job defaults to `ubuntu-slim` with a 15-minute timeout, matching GitHub's hard cap for that runner; typical reviews take a few minutes. For large pull requests, pass `runner: ubuntu-latest` and a larger `timeout_minutes`. See the [Codex PR review docs](https://giskard-ai.github.io/giskard-actions/codex-pr-review.html) for every input.
 
 ## Pinning and versioning
 
@@ -118,7 +118,7 @@ Consumer configuration lives in `.github/giskard/` of **your** repository. Each 
 
 - **Trusted code is the pinned unpack.** Helper scripts, prompts, output schemas and the model catalog run from the action directory GitHub unpacks at your pinned SHA (`github.action_path`). Callers cannot point the helpers at other code, and the Codex helper never runs `scripts/` from your workspace.
 - **Reviewer configuration comes from the PR base SHA.** The reviewer map, personas and role references are checked out from the pull request base commit, never from the PR head, so a pull request cannot rewrite its own review instructions.
-- **Least privilege.** Workflows declare `permissions: {}` and grant per job. The review job only reads; only the separate post job can write a PR review. The Azure key is passed only to `openai/codex-action`, which runs Codex in a read-only sandbox (bubblewrap, probed before the first pass).
+- **Least privilege.** Workflows declare `permissions: {}` and grant per job. The review job only reads; only the separate post job can write a PR review. The Azure key is passed only to `openai/codex-action`, which runs Codex in a read-only sandbox (bubblewrap; `codex sandbox` is probed before the first pass).
 - **Untrusted input stays data.** Diffs, comments and logs are treated as untrusted evidence in prompts, and review output is sanitized (secret patterns redacted, links restricted) before posting. Only same-repository pull requests are reviewed.
 
 Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).

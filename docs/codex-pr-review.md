@@ -74,7 +74,7 @@ What the caller owns:
 | --- | --- | --- | --- |
 | `environment` | string | (required) | Environment in **your** repository holding `AZURE_AI_API_KEY` and `AZURE_AI_RESPONSES_BASE`, e.g. `ci` |
 | `runner` | string | `ubuntu-slim` | Runner label for the review job |
-| `timeout_minutes` | number | `120` | Review job timeout |
+| `timeout_minutes` | number | `15` | Review job timeout |
 | `responses_api_base` | string | `''` | Azure Responses API base URL; empty uses `vars.AZURE_AI_RESPONSES_BASE` from your repository or environment |
 | `normal_model` / `normal_effort` | string | `''` | Defaults for normal reviewer passes |
 | `critical_model` / `critical_effort` | string | `''` | Defaults for critical reviewer passes |
@@ -83,8 +83,11 @@ What the caller owns:
 
 Empty model and effort inputs fall back to the reviewer map `defaults`, then to built-in defaults (`gpt-5.6-luna` / `medium` for normal passes, `gpt-5.6-terra` / `high` for critical passes and the aggregator).
 
-{: .warning }
-GitHub limits `ubuntu-slim` jobs to 15 minutes regardless of `timeout_minutes`. Pull requests that select many reviewer passes may need `runner: ubuntu-latest`.
+### Runners
+
+The default `ubuntu-slim` runner is verified to run the Codex sandbox, and a typical review finishes in a few minutes. GitHub caps `ubuntu-slim` jobs at 15 minutes, which is why `timeout_minutes` defaults to `15`. For large pull requests that select many reviewer passes, pass `runner: ubuntu-latest` together with a larger `timeout_minutes`, e.g. `60`.
+
+Before the first pass, the review job runs `codex sandbox -- true` and fails with a clear error if Codex cannot start its sandbox. On Ubuntu 24.04 runners such as `ubuntu-latest`, it first sets `kernel.apparmor_restrict_unprivileged_userns=0` so bubblewrap can create user namespaces; this only affects the ephemeral GitHub-hosted runner.
 
 ### `responses_api_base`
 
@@ -109,7 +112,7 @@ Accepted forms (HTTPS on an Azure host):
 
 ## Jobs
 
-1. **`review`** runs on `runner` in your `environment` with read-only permissions. It resolves the pull request, installs and probes bubblewrap, checks out your repository at the pull request **base SHA** into `trusted-config/` (the only source of the reviewer map and personas), collects the diff and discussion, runs up to 12 reviewer passes plus the aggregator, sanitizes the result and uploads the `codex-reviewer-outputs` artifact.
+1. **`review`** runs on `runner` in your `environment` with read-only permissions. It resolves the pull request, preflights the Codex sandbox, checks out your repository at the pull request **base SHA** into `trusted-config/` (the only source of the reviewer map and personas), collects the diff and discussion, runs up to 12 reviewer passes plus the aggregator, sanitizes the result and uploads the `codex-reviewer-outputs` artifact.
 2. **`post`** runs on `ubuntu-slim` with `pull-requests: write` and no Azure credentials. It downloads the artifact and posts `final-review.md` as a `COMMENT` review.
 
 ## Reviewer personas

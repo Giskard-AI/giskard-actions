@@ -137,17 +137,28 @@ class TestCodexPrAssessmentWorkflow(unittest.TestCase):
         self.assertIsNotNone(composite_default)
         self.assertEqual(reusable_default.group(1), composite_default.group(1))
 
-    def test_review_composite_probes_bubblewrap_before_codex(self) -> None:
+    def test_review_composite_preflights_codex_sandbox_before_codex(self) -> None:
         review = (REPO_ROOT / ".github/actions/codex-pr-review/action.yml").read_text(
             encoding="utf-8"
         )
-        step = review.index("- name: Ensure bubblewrap sandbox for Codex")
-        probe = review.index("bwrap --unshare-user --unshare-net --ro-bind / / /bin/true")
-        self.assertLess(step, probe)
+        step = review.index("- name: Preflight Codex sandbox")
+        install_bwrap = review.index("apt-get install -y -qq --no-install-recommends bubblewrap")
+        relax_userns = review.index("sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0")
+        install_codex = review.index('npm install -g "@openai/codex@${CODEX_VERSION}"')
+        probe = review.index("codex sandbox -- true")
+        self.assertLess(step, install_bwrap)
+        self.assertLess(install_bwrap, relax_userns)
+        self.assertLess(relax_userns, probe)
+        self.assertLess(install_codex, probe)
         self.assertLess(probe, review.index("uses: openai/codex-action@"))
         step_if = review[step:].splitlines()[1].strip()
         self.assertEqual(step_if, "if: steps.resolve.outputs.should_run == 'true'")
-        self.assertIn("apt-get install -y -qq --no-install-recommends bubblewrap", review)
+        self.assertIn("::error title=Codex sandbox unavailable::", review)
+
+    def test_reusable_workflow_defaults_to_ubuntu_slim_budget(self) -> None:
+        reusable = (REPO_ROOT / ".github/workflows/codex-pr-review.yml").read_text(encoding="utf-8")
+        self.assertRegex(reusable, r"runner:\n(?:[ \t]+\w+:.*\n)*?[ \t]+default: ubuntu-slim\n")
+        self.assertRegex(reusable, r"timeout_minutes:\n(?:[ \t]+\w+:.*\n)*?[ \t]+default: 15\n")
 
     def test_review_composite_loads_base_sha_overlays_not_pr_head(self) -> None:
         review = (REPO_ROOT / ".github/actions/codex-pr-review/action.yml").read_text(

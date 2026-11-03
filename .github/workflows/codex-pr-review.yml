@@ -16,9 +16,9 @@ on:
         type: string
         default: ubuntu-slim
       timeout_minutes:
-        description: Timeout of the review job in minutes
+        description: Timeout of the review job in minutes (ubuntu-slim is capped at 15 by GitHub)
         type: number
-        default: 120
+        default: 15
       responses_api_base:
         description: Azure Responses-compatible API base URL. Empty falls back to the caller's `vars.AZURE_AI_RESPONSES_BASE`.
         type: string

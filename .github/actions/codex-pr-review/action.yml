@@ -65,15 +65,33 @@ runs:
       run: bash "${ACTION_LIB}/run-assess.sh" resolve --output "$GITHUB_OUTPUT"
       shell: bash
 
-    - name: Ensure bubblewrap sandbox for Codex
+    - name: Set up Node for Codex sandbox preflight
       if: steps.resolve.outputs.should_run == 'true'
-      run: |
+      uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+      with:
+        node-version: "24"
+        package-manager-cache: false
+
+    - name: Preflight Codex sandbox
+      if: steps.resolve.outputs.should_run == 'true'
+      env:
+        CODEX_VERSION: ${{ inputs.codex_version }}
+      run: | # zizmor: ignore[adhoc-packages] -- installs the exact Codex version openai/codex-action installs
         set -euo pipefail
         if ! command -v bwrap >/dev/null 2>&1; then
           sudo apt-get update -qq
           sudo apt-get install -y -qq --no-install-recommends bubblewrap
         fi
-        bwrap --unshare-user --unshare-net --ro-bind / / /bin/true
+        # Ubuntu 24.04 AppArmor blocks the user namespaces bwrap needs; safe to relax on an ephemeral hosted runner.
+        userns_restrict=/proc/sys/kernel/apparmor_restrict_unprivileged_userns
+        if [[ -f "$userns_restrict" && "$(cat "$userns_restrict")" == "1" ]]; then
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+        fi
+        npm install -g "@openai/codex@${CODEX_VERSION}"
+        if ! codex sandbox -- true; then
+          echo "::error title=Codex sandbox unavailable::'codex sandbox -- true' failed on this runner; Codex cannot run its read-only bubblewrap sandbox. Use runner ubuntu-slim or ubuntu-latest."
+          exit 1
+        fi
       shell: bash
 
     - name: Checkout trusted consumer config
