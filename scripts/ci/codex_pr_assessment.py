@@ -38,6 +38,8 @@ REQUIRED_AZURE_CATALOG_SLUGS = ("gpt-5.6-luna", "gpt-5.6-terra")
 VENDORED_AZURE_MODEL_CATALOG = (
     Path(__file__).resolve().parents[2] / ".github/codex/azure-model-catalog.json"
 )
+REVIEWER_MAP_PATH = ".github/giskard/codex-reviewer-map.json"
+LEGACY_REVIEWER_MAP_PATH = ".github/codex/reviewer-map.json"
 BUNDLED_OVERLAYS_DIR = Path(__file__).resolve().parents[2] / ".github/codex/overlays"
 
 
@@ -1185,6 +1187,14 @@ def resolve_reviewer_map_path(map_path: str | Path | None = None) -> Path | None
     resolved = Path(candidate)
     if resolved.is_file():
         return resolved
+    if resolved.as_posix().endswith(REVIEWER_MAP_PATH):
+        legacy = resolved.parents[2] / LEGACY_REVIEWER_MAP_PATH
+        if legacy.is_file():
+            raise SystemExit(
+                f"::error::Found legacy {LEGACY_REVIEWER_MAP_PATH}; giskard-actions v0.4.0+ reads "
+                f"{REVIEWER_MAP_PATH}. Move the file there "
+                f"(git mv {LEGACY_REVIEWER_MAP_PATH} {REVIEWER_MAP_PATH})."
+            )
     return None
 
 

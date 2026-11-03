@@ -163,9 +163,15 @@ class TestLoadProjectConfig:
             assert any(s.id == "python_api" for s in cfg.sections)
             assert not any(s.id == "ux_frontend" for s in cfg.sections if s.enabled)
 
-    def test_legacy_root_config_is_ignored(self, tmp_path):
+    def test_legacy_root_config_fails_with_new_path(self, tmp_path):
         (tmp_path / ".release-notes.json").write_text(json.dumps({"model": "legacy"}))
-        assert load_project_config(tmp_path).model is None
+        with pytest.raises(SystemExit, match=r"::error::.*\.github/giskard/release-notes\.json"):
+            load_project_config(tmp_path)
+
+    def test_new_config_wins_over_legacy_root_config(self, tmp_path, write_release_notes_config):
+        (tmp_path / ".release-notes.json").write_text(json.dumps({"model": "legacy"}))
+        write_release_notes_config(json.dumps({"model": "current"}))
+        assert load_project_config(tmp_path).model == "current"
 
 
 class TestWithSectionDisabled:

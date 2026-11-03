@@ -8,6 +8,7 @@ from pathlib import Path
 LOG = logging.getLogger("release_notes.config")
 
 CONFIG_PATH = ".github/giskard/release-notes.json"
+LEGACY_CONFIG_PATH = ".release-notes.json"
 
 DETERMINISTIC_SECTION_IDS = frozenset({"deps", "appendix"})
 
@@ -271,6 +272,11 @@ def load_project_config(repo_root: Path) -> ProjectConfig:
     """Load project config from .github/giskard/release-notes.json, or use defaults."""
     config_path = repo_root / CONFIG_PATH
     if not config_path.exists():
+        if (repo_root / LEGACY_CONFIG_PATH).exists():
+            raise SystemExit(
+                f"::error::Found legacy {LEGACY_CONFIG_PATH}; giskard-actions v0.4.0+ reads "
+                f"{CONFIG_PATH}. Move the file there (git mv {LEGACY_CONFIG_PATH} {CONFIG_PATH})."
+            )
         LOG.info("No %s found in %s, using defaults.", CONFIG_PATH, repo_root)
         return ProjectConfig()
 
