@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Giskard-AI/giskard-actions/main/schemas/codex-ci-config.schema.json",
+  "title": "Codex CI configuration",
+  "description": "Key workflows and follow-up CI recommendations for Codex CI triage, read from .github/giskard/codex-ci-config.json.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional JSON Schema reference for editor support."
+    },
+    "key_workflows": {
+      "type": "array",
+      "description": "Workflow names that must have a terminal, successful run on the pull request head SHA.",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "recommendations": {
+      "type": "array",
+      "description": "Rules that recommend extra CI when matching paths changed and the named workflow has not run.",
+      "items": { "$ref": "#/$defs/recommendation" }
+    }
+  },
+  "$defs": {
+    "stringList": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "recommendation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action", "target"],
+      "properties": {
+        "action": {
+          "type": "string",
+          "minLength": 1,
+          "examples": ["run_workflow", "rerun_workflow", "apply_label"],
+          "description": "Recommended action."
+        },
+        "target": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Workflow name or label the action applies to."
+        },
+        "reason": {
+          "type": "string",
+          "description": "Explanation shown in the triage output. Defaults to \"<action> <target>\"."
+        },
+        "when": {
+          "enum": ["package_related"],
+          "description": "Built-in matcher. package_related matches manifest and lockfile changes; when set, path matchers are ignored."
+        },
+        "when_paths": {
+          "$ref": "#/$defs/stringList",
+          "description": "Exact changed paths that trigger the rule."
+        },
+        "when_path_prefixes": {
+          "$ref": "#/$defs/stringList",
+          "description": "Changed path prefixes that trigger the rule."
+        },
+        "when_path_prefixes_also": {
+          "$ref": "#/$defs/stringList",
+          "description": "Additional path prefixes, evaluated like when_path_prefixes."
+        },
+        "missing_workflow": {
+          "type": "string",
+          "description": "Skip the rule when a workflow with this name already ran for the head SHA."
+        },
+        "missing_any_workflows": {
+          "$ref": "#/$defs/stringList",
+          "description": "Skip the rule when any of these workflows already ran for the head SHA."
+        }
+      }
+    }
+  }
+}

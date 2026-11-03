@@ -1,0 +1,28 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Giskard-AI/giskard-actions/main/schemas/codex-ci-config.schema.json",
+  "key_workflows": ["Full CI", "End-to-end frontend tests"],
+  "recommendations": [
+    {
+      "action": "run_workflow",
+      "target": "End-to-end frontend tests",
+      "when_path_prefixes": ["frontend/"],
+      "missing_workflow": "End-to-end frontend tests",
+      "reason": "Frontend files changed but no end-to-end workflow run was found for this head SHA."
+    },
+    {
+      "action": "apply_label",
+      "target": "test-package",
+      "when": "package_related",
+      "missing_workflow": "Package smoke test",
+      "reason": "Package-related files changed and the label-triggered package smoke test has no run for this head SHA."
+    },
+    {
+      "action": "apply_label",
+      "target": "load-test",
+      "when_paths": [".github/workflows/load-test.yml", "backend/app/services/scheduler.py"],
+      "when_path_prefixes": ["backend/app/jobs/"],
+      "missing_any_workflows": ["Load test", "Soak test"],
+      "reason": "Background job code changed and the label-triggered load test workflows have no run for this head SHA."
+    }
+  ]
+}

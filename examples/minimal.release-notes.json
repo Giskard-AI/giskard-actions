@@ -1,5 +1,6 @@
 {
-  "github_repository": "Giskard-AI/some-repo",
+  "$schema": "https://raw.githubusercontent.com/Giskard-AI/giskard-actions/main/schemas/release-notes.schema.json",
+  "github_repository": "octo-org/example-repo",
   "manifest_paths": ["pyproject.toml"],
   "high_signal_prefixes": ["src/"],
   "sections": [

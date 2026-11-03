@@ -22,7 +22,7 @@ alwaysApply: true
 |---|---|
 | `src/release_notes/prompts/**` | prompt-critic |
 | `src/release_notes/**/*.py` | (main agent); prompt-critic if llm.py |
-| `.github/workflows/**`, `action.yml` | security-auditor, infra-reviewer |
+| `.github/workflows/**`, `.github/actions/**` | security-auditor, infra-reviewer |
 | `pyproject.toml`, `renovate.json` | infra-reviewer |
 
 Plan first, then builders, then reviewers in parallel.

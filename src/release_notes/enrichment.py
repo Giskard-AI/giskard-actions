@@ -11,6 +11,8 @@ from .models import GitHubIssue, LinearIssue
 
 LOG = logging.getLogger("release_notes.enrichment")
 
+TRUSTED_AUTHOR_ASSOCIATIONS = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
+
 
 def _byte_len(s: str) -> int:
     return len(s.encode("utf-8", errors="replace"))
@@ -108,7 +110,11 @@ def fetch_linear_issues(
 
 
 def fetch_github_issue(number: int, *, owner_repo: str, token: str) -> GitHubIssue | None:
-    """Fetch a single GitHub issue or PR via the REST API."""
+    """Fetch a single GitHub issue or PR via the REST API.
+
+    Returns None for issues the token cannot read and for issues whose author is not an
+    owner, member or collaborator, so outsiders' text never reaches the LLM.
+    """
     url = f"https://api.github.com/repos/{owner_repo}/issues/{number}"
     req = Request(
         url,
@@ -136,6 +142,15 @@ def fetch_github_issue(number: int, *, owner_repo: str, token: str) -> GitHubIss
         raise SystemExit(f"GitHub API network error for #{number}: {e}") from e
 
     data = json.loads(body)
+    association = str(data.get("author_association") or "")
+    if association not in TRUSTED_AUTHOR_ASSOCIATIONS:
+        LOG.info(
+            "Skipping GitHub #%d in %s: author association %s is not trusted.",
+            number,
+            owner_repo,
+            association or "unknown",
+        )
+        return None
     labels = [lbl["name"] for lbl in data.get("labels", []) if isinstance(lbl, dict)]
     is_pr = "pull_request" in data
 

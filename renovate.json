@@ -5,6 +5,7 @@
   "labels": ["dependencies"],
   "extends": [
     "config:recommended",
+    ":semanticCommits",
     "helpers:pinGitHubActionDigests",
     ":pinAllExceptPeerDependencies"
   ],

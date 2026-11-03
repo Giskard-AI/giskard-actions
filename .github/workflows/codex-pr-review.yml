@@ -1,0 +1,119 @@
+name: Codex PR review (reusable)
+
+# Callers own the triggers, the comment gate, concurrency, and the permission
+# ceiling on the calling job. They must grant at least: contents: read,
+# issues: read, pull-requests: write.
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: Caller-repository environment holding the AZURE_AI_API_KEY secret and AZURE_AI_RESPONSES_BASE variable (for example `ci`)
+        type: string
+        required: true
+      runner:
+        description: Runner label for the review job
+        type: string
+        default: ubuntu-slim
+      timeout_minutes:
+        description: Timeout of the review job in minutes (ubuntu-slim is capped at 15 by GitHub)
+        type: number
+        default: 15
+      responses_api_base:
+        description: Azure Responses-compatible API base URL. Empty falls back to the caller's `vars.AZURE_AI_RESPONSES_BASE`.
+        type: string
+        default: ""
+      normal_model:
+        description: Default model for normal reviewer passes (overrides codex-reviewer-map.json defaults if set)
+        type: string
+        default: ""
+      normal_effort:
+        description: Default reasoning effort for normal reviewer passes (low, medium, high)
+        type: string
+        default: ""
+      critical_model:
+        description: Default model for critical reviewer passes (overrides codex-reviewer-map.json defaults if set)
+        type: string
+        default: ""
+      critical_effort:
+        description: Default reasoning effort for critical reviewer passes (low, medium, high)
+        type: string
+        default: ""
+      aggregator_model:
+        description: Model for the aggregator pass (overrides codex-reviewer-map.json defaults if set)
+        type: string
+        default: ""
+      aggregator_effort:
+        description: Reasoning effort for the aggregator pass (low, medium, high)
+        type: string
+        default: ""
+      codex_version:
+        description: Codex CLI version pin
+        type: string
+        default: "0.146.1"
+    secrets:
+      AZURE_AI_API_KEY:
+        description: Azure API key for Codex. Pass it by name; an environment secret with the same name in `environment` takes precedence.
+        required: true
+    outputs:
+      should_run:
+        description: Whether a same-repository open pull request was resolved and reviewed
+        value: ${{ jobs.review.outputs.should_run }}
+      pr_number:
+        description: Resolved pull request number
+        value: ${{ jobs.review.outputs.pr_number }}
+
+permissions: {}
+
+jobs:
+  review:
+    name: Run Codex PR review
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    environment:
+      name: ${{ inputs.environment }}
+      deployment: false
+    permissions:
+      contents: read # Check out consumer config at the PR base SHA
+      issues: read # Read PR conversation comments
+      pull-requests: read # Read PR diffs and metadata
+    outputs:
+      should_run: ${{ steps.codex.outputs.should_run }}
+      pr_number: ${{ steps.codex.outputs.pr_number }}
+    steps:
+      - name: Run Codex PR review
+        id: codex
+        uses: $/.github/actions/codex-pr-review
+        with:
+          responses_api_base: ${{ inputs.responses_api_base != '' && inputs.responses_api_base || vars.AZURE_AI_RESPONSES_BASE }}
+          azure_ai_api_key: ${{ secrets.AZURE_AI_API_KEY }}
+          github_token: ${{ github.token }}
+          normal_model: ${{ inputs.normal_model }}
+          normal_effort: ${{ inputs.normal_effort }}
+          critical_model: ${{ inputs.critical_model }}
+          critical_effort: ${{ inputs.critical_effort }}
+          aggregator_model: ${{ inputs.aggregator_model }}
+          aggregator_effort: ${{ inputs.aggregator_effort }}
+          codex_version: ${{ inputs.codex_version }}
+
+  post:
+    name: Post advisory review
+    needs: review
+    if: needs.review.result == 'success' && needs.review.outputs.should_run == 'true'
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read # Minimal read access for the job token
+      pull-requests: write # Post the advisory PR review
+    steps:
+      - name: Download Codex review artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: codex-reviewer-outputs
+          path: assessment
+
+      - name: Post advisory review
+        uses: $/.github/actions/codex-post-review
+        with:
+          github_token: ${{ github.token }}
+          pr_number: ${{ needs.review.outputs.pr_number }}
+          body_file: assessment/final-review.md

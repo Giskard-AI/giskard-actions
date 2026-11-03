@@ -1,6 +1,7 @@
 import argparse
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -28,7 +29,9 @@ class TestAuthorFiltering(unittest.TestCase):
                 self.assertTrue(codex_pr_assessment.is_ignored_author(author))
 
     def test_human_author_is_not_ignored(self) -> None:
-        self.assertFalse(codex_pr_assessment.is_ignored_author({"login": "bazire", "type": "User"}))
+        self.assertFalse(
+            codex_pr_assessment.is_ignored_author({"login": "octocat", "type": "User"})
+        )
 
 
 class TestIssueCommentTrust(unittest.TestCase):
@@ -93,18 +96,69 @@ class TestIssueCommentTrust(unittest.TestCase):
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
+CODEX_VERSION_DEFAULT_RE = re.compile(
+    r"codex_version:\n(?:[ \t]+\w+:.*\n)*?[ \t]+default: \"([^\"]+)\""
+)
+
+
 class TestCodexPrAssessmentWorkflow(unittest.TestCase):
-    def test_self_test_uses_local_composites_not_reusables(self) -> None:
+    def test_self_test_calls_reusable_workflow_with_explicit_secret(self) -> None:
         caller = (REPO_ROOT / ".github/workflows/codex-pr-assessment.yml").read_text(
             encoding="utf-8"
         )
-        self.assertIn("uses: ./.github/actions/codex-pr-review", caller)
-        self.assertIn("uses: ./.github/actions/codex-post-review", caller)
-        self.assertNotIn(".reusable.yml", caller)
+        self.assertIn("uses: $/.github/workflows/codex-pr-review.yml", caller)
+        self.assertIn("AZURE_AI_API_KEY: ${{ secrets.AZURE_AI_API_KEY }}", caller)
+        self.assertIn("environment: ci", caller)
         self.assertNotIn("secrets: inherit", caller)
         self.assertNotIn("pull_request_target", caller)
         self.assertNotIn("GITHUB_WORKFLOW_SHA", caller)
         self.assertNotIn("GITHUB_WORKFLOW_REF", caller)
+
+    def test_reusable_workflow_wraps_composites_via_self_repository(self) -> None:
+        reusable = (REPO_ROOT / ".github/workflows/codex-pr-review.yml").read_text(encoding="utf-8")
+        self.assertIn("workflow_call:", reusable)
+        self.assertRegex(reusable, re.compile(r"^permissions: \{\}$", re.MULTILINE))
+        self.assertIn("uses: $/.github/actions/codex-pr-review", reusable)
+        self.assertIn("uses: $/.github/actions/codex-post-review", reusable)
+        self.assertIn("name: ${{ inputs.environment }}", reusable)
+        self.assertIn("vars.AZURE_AI_RESPONSES_BASE", reusable)
+        self.assertNotIn("secrets: inherit", reusable)
+        self.assertNotIn("actions/checkout", reusable)
+        self.assertRegex(reusable, r"actions/download-artifact@[0-9a-f]{40}")
+
+    def test_reusable_codex_version_default_matches_composite(self) -> None:
+        reusable = (REPO_ROOT / ".github/workflows/codex-pr-review.yml").read_text(encoding="utf-8")
+        composite = (REPO_ROOT / ".github/actions/codex-pr-review/action.yml").read_text(
+            encoding="utf-8"
+        )
+        reusable_default = CODEX_VERSION_DEFAULT_RE.search(reusable)
+        composite_default = CODEX_VERSION_DEFAULT_RE.search(composite)
+        self.assertIsNotNone(reusable_default)
+        self.assertIsNotNone(composite_default)
+        self.assertEqual(reusable_default.group(1), composite_default.group(1))
+
+    def test_review_composite_preflights_codex_sandbox_before_codex(self) -> None:
+        review = (REPO_ROOT / ".github/actions/codex-pr-review/action.yml").read_text(
+            encoding="utf-8"
+        )
+        step = review.index("- name: Preflight Codex sandbox")
+        install_bwrap = review.index("apt-get install -y -qq --no-install-recommends bubblewrap")
+        relax_userns = review.index("sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0")
+        install_codex = review.index('npm install -g "@openai/codex@${CODEX_VERSION}"')
+        probe = review.index("codex sandbox -- true")
+        self.assertLess(step, install_bwrap)
+        self.assertLess(install_bwrap, relax_userns)
+        self.assertLess(relax_userns, probe)
+        self.assertLess(install_codex, probe)
+        self.assertLess(probe, review.index("uses: openai/codex-action@"))
+        step_if = review[step:].splitlines()[1].strip()
+        self.assertEqual(step_if, "if: steps.resolve.outputs.should_run == 'true'")
+        self.assertIn("::error title=Codex sandbox unavailable::", review)
+
+    def test_reusable_workflow_defaults_to_ubuntu_slim_budget(self) -> None:
+        reusable = (REPO_ROOT / ".github/workflows/codex-pr-review.yml").read_text(encoding="utf-8")
+        self.assertRegex(reusable, r"runner:\n(?:[ \t]+\w+:.*\n)*?[ \t]+default: ubuntu-slim\n")
+        self.assertRegex(reusable, r"timeout_minutes:\n(?:[ \t]+\w+:.*\n)*?[ \t]+default: 15\n")
 
     def test_review_composite_loads_base_sha_overlays_not_pr_head(self) -> None:
         review = (REPO_ROOT / ".github/actions/codex-pr-review/action.yml").read_text(
@@ -121,6 +175,7 @@ class TestCodexPrAssessmentWorkflow(unittest.TestCase):
         self.assertIn("ref: ${{ steps.resolve.outputs.base_sha }}", review)
         self.assertIn("persist-credentials: false", review)
         self.assertIn("CODEX_REVIEWER_MAP", review)
+        self.assertIn("trusted-config/.github/giskard/codex-reviewer-map.json", review)
         self.assertIn("CODEX_ASSESS_REQUIRE_SAME_REPO", review)
         self.assertIn("run-assess.sh", review)
         self.assertIn("ACTION_ROOT", wrapper)
@@ -136,9 +191,12 @@ class TestCodexPrAssessmentWorkflow(unittest.TestCase):
         self.assertFalse(any("features.multi_agent_v2" in line for line in arg_lines))
 
     def test_notes_action_exports_constraints_without_workspace_project(self) -> None:
-        action = (REPO_ROOT / "action.yml").read_text(encoding="utf-8")
+        action = (REPO_ROOT / ".github/actions/release-notes/action.yml").read_text(
+            encoding="utf-8"
+        )
         self.assertIn("uv export --frozen --no-dev --no-hashes --no-emit-project", action)
-        self.assertIn("working-directory: ${{ github.action_path }}", action)
+        self.assertIn("working-directory: ${{ github.action_path }}/../../..", action)
+        self.assertFalse((REPO_ROOT / "action.yml").exists())
         result = subprocess.run(
             [
                 "uv",
@@ -187,6 +245,7 @@ class TestReviewContextCollection(unittest.TestCase):
             {
                 "id": 1,
                 "user": {"login": "alice", "type": "User"},
+                "author_association": "MEMBER",
                 "created_at": "2026-06-12T00:00:00Z",
                 "body": "AZURE_AI_API_KEY=super-secret-value",
                 "html_url": "https://github.com/example/repo/pull/1#issuecomment-1",
@@ -223,6 +282,7 @@ class TestReviewContextCollection(unittest.TestCase):
                                                 "body": "GITHUB_TOKEN=super-secret-value",
                                                 "createdAt": "2026-06-12T00:00:00Z",
                                                 "url": "https://github.com/example/repo/pull/1#discussion_r1",
+                                                "authorAssociation": "MEMBER",
                                                 "author": {
                                                     "login": "alice",
                                                     "__typename": "User",
@@ -479,15 +539,15 @@ class TestReviewerSelection(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "invalid role reference"):
                     codex_pr_assessment.parse_role_references([value])
 
-    def test_example_hub_map_emits_role_references(self) -> None:
+    def test_example_map_emits_role_references(self) -> None:
         reviewers = {
             item["name"]: item["role_references"]
             for item in codex_pr_assessment.select_reviewers(
-                ["backend/src/backend/services/auth.py"],
-                map_path=REPO_ROOT / "examples" / "llm-hub.reviewer-map.json",
+                ["backend/app/services/auth.py"],
+                map_path=REPO_ROOT / "examples" / "codex-reviewer-map.json",
             )
         }
-        self.assertEqual(reviewers["clean-arch-guard"], "backend-architecture.md")
+        self.assertEqual(reviewers["backend-reviewer"], "backend-architecture.md")
         self.assertEqual(reviewers["security-auditor"], "security-patterns.md")
 
     def test_stage_overlay_copies_allowlisted_basenames_only(self) -> None:
@@ -519,8 +579,11 @@ class TestReviewerSelection(unittest.TestCase):
 
     def test_repo_reviewer_map_covers_action_and_prompts(self) -> None:
         reviewers = codex_pr_assessment.select_reviewers(
-            ["action.yml", "src/release_notes/prompts/release_notes_synthesis.j2"],
-            map_path=REPO_ROOT / ".github/codex/reviewer-map.json",
+            [
+                ".github/actions/release-notes/action.yml",
+                "src/release_notes/prompts/release_notes_synthesis.j2",
+            ],
+            map_path=REPO_ROOT / ".github/giskard/codex-reviewer-map.json",
         )
         self.assertEqual(
             [reviewer["name"] for reviewer in reviewers],
@@ -533,7 +596,7 @@ class TestEventResolution(unittest.TestCase):
         original_event_name = codex_pr_assessment.os.environ.get("GITHUB_EVENT_NAME")
         codex_pr_assessment.os.environ["GITHUB_EVENT_NAME"] = "workflow_run"
         event = {"workflow_run": {"event": "push", "head_sha": "abc"}}
-        repo = codex_pr_assessment.GitHubRepo(owner="Giskard-AI", name="llm-hub")
+        repo = codex_pr_assessment.GitHubRepo(owner="octo-org", name="example-app")
 
         try:
             self.assertIsNone(codex_pr_assessment.resolve_pr_number(event, repo))
@@ -555,7 +618,7 @@ class TestEventResolution(unittest.TestCase):
                 "pull_requests": [{"number": 123}],
             }
         }
-        repo = codex_pr_assessment.GitHubRepo(owner="Giskard-AI", name="llm-hub")
+        repo = codex_pr_assessment.GitHubRepo(owner="octo-org", name="example-app")
 
         try:
             self.assertIsNone(codex_pr_assessment.resolve_pr_number(event, repo))
@@ -582,18 +645,22 @@ class TestEventResolution(unittest.TestCase):
             "comment": {
                 "body": "/codex-ci-assess",
                 "author_association": "COLLABORATOR",
+                "user": {"login": "octocat"},
             },
         }
+        original_gh_json = codex_pr_assessment.gh_json
+        codex_pr_assessment.gh_json = lambda args, check=True: {"role_name": "write"}
 
         try:
             self.assertEqual(
                 codex_pr_assessment.resolve_pr_number(
                     event,
-                    codex_pr_assessment.GitHubRepo(owner="Giskard-AI", name="llm-hub"),
+                    codex_pr_assessment.GitHubRepo(owner="octo-org", name="example-app"),
                 ),
                 123,
             )
         finally:
+            codex_pr_assessment.gh_json = original_gh_json
             if original_event_name is None:
                 codex_pr_assessment.os.environ.pop("GITHUB_EVENT_NAME", None)
             else:
@@ -614,7 +681,7 @@ class TestEventResolution(unittest.TestCase):
             self.assertEqual(
                 codex_pr_assessment.resolve_pr_number(
                     {"inputs": {"pr_number": "123"}},
-                    codex_pr_assessment.GitHubRepo(owner="Giskard-AI", name="llm-hub"),
+                    codex_pr_assessment.GitHubRepo(owner="octo-org", name="example-app"),
                 ),
                 123,
             )
@@ -631,7 +698,7 @@ class TestEventResolution(unittest.TestCase):
             self.assertEqual(
                 codex_pr_assessment.resolve_pr_number(
                     {"pull_request": {"number": 123}},
-                    codex_pr_assessment.GitHubRepo(owner="Giskard-AI", name="llm-hub"),
+                    codex_pr_assessment.GitHubRepo(owner="octo-org", name="example-app"),
                 ),
                 123,
             )
@@ -645,8 +712,8 @@ class TestEventResolution(unittest.TestCase):
         self.assertTrue(
             codex_pr_assessment.is_same_repo_pr(
                 {
-                    "head": {"repo": {"full_name": "Giskard-AI/llm-hub"}},
-                    "base": {"repo": {"full_name": "Giskard-AI/llm-hub"}},
+                    "head": {"repo": {"full_name": "octo-org/example-app"}},
+                    "base": {"repo": {"full_name": "octo-org/example-app"}},
                 }
             )
         )
@@ -654,7 +721,7 @@ class TestEventResolution(unittest.TestCase):
             codex_pr_assessment.is_same_repo_pr(
                 {
                     "head": {"repo": {"full_name": "someone/fork"}},
-                    "base": {"repo": {"full_name": "Giskard-AI/llm-hub"}},
+                    "base": {"repo": {"full_name": "octo-org/example-app"}},
                 }
             )
         )
@@ -670,7 +737,7 @@ class TestContextSeparation(unittest.TestCase):
         original_codex_reviews = codex_pr_assessment.collect_prior_codex_reviews
 
         codex_pr_assessment.repo_from_env = lambda: codex_pr_assessment.GitHubRepo(
-            owner="Giskard-AI", name="llm-hub"
+            owner="octo-org", name="example-app"
         )
         codex_pr_assessment.get_pr = lambda repo, pr: {
             "title": "Test",
@@ -718,7 +785,7 @@ class TestContextSeparation(unittest.TestCase):
         original_sonar = codex_pr_assessment.collect_sonar
 
         codex_pr_assessment.repo_from_env = lambda: codex_pr_assessment.GitHubRepo(
-            owner="Giskard-AI", name="llm-hub"
+            owner="octo-org", name="example-app"
         )
         codex_pr_assessment.get_pr = lambda repo, pr: {
             "title": "Test",
@@ -816,7 +883,7 @@ class TestPagination(unittest.TestCase):
         ]
         try:
             checks = codex_pr_assessment.collect_check_runs(
-                codex_pr_assessment.GitHubRepo(owner="Giskard-AI", name="llm-hub"),
+                codex_pr_assessment.GitHubRepo(owner="octo-org", name="example-app"),
                 "abc",
             )
         finally:
@@ -839,7 +906,7 @@ class TestPagination(unittest.TestCase):
         ]
         try:
             annotations = codex_pr_assessment.collect_check_annotations(
-                codex_pr_assessment.GitHubRepo(owner="Giskard-AI", name="llm-hub"),
+                codex_pr_assessment.GitHubRepo(owner="octo-org", name="example-app"),
                 123,
             )
         finally:
@@ -869,7 +936,7 @@ class TestSonarCollection(unittest.TestCase):
                             {
                                 "type": "VULNERABILITY",
                                 "severity": "MAJOR",
-                                "component": "Giskard-AI_llm-hub:scripts/ci/x.py",
+                                "component": "octo-org_example-app:scripts/ci/x.py",
                                 "line": 1,
                                 "rule": "test",
                                 "message": "GH_TOKEN=super-secret",
@@ -882,7 +949,7 @@ class TestSonarCollection(unittest.TestCase):
         codex_pr_assessment.os.environ["SONAR_QUBE_TOKEN"] = "token"
         try:
             sonar = codex_pr_assessment.collect_sonar(
-                codex_pr_assessment.GitHubRepo(owner="Giskard-AI", name="llm-hub"),
+                codex_pr_assessment.GitHubRepo(owner="octo-org", name="example-app"),
                 1634,
             )
         finally:
@@ -953,7 +1020,7 @@ class TestPriorCodexReviews(unittest.TestCase):
         ]
         try:
             reviews = codex_pr_assessment.collect_prior_codex_reviews(
-                codex_pr_assessment.GitHubRepo(owner="Giskard-AI", name="llm-hub"),
+                codex_pr_assessment.GitHubRepo(owner="octo-org", name="example-app"),
                 1634,
             )
         finally:
@@ -967,7 +1034,7 @@ class TestPriorCodexReviews(unittest.TestCase):
 class TestFailedLogCollection(unittest.TestCase):
     def test_failed_logs_are_redacted_before_context_write(self) -> None:
         original_gh_text = codex_pr_assessment.gh_text
-        repo = codex_pr_assessment.GitHubRepo(owner="Giskard-AI", name="llm-hub")
+        repo = codex_pr_assessment.GitHubRepo(owner="octo-org", name="example-app")
 
         def fake_gh_text(args: list[str], *, check: bool = True) -> str:
             self.assertFalse(check)
@@ -990,12 +1057,12 @@ class TestFailedLogCollection(unittest.TestCase):
 class TestCiTriage(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.hub_ci_config = json.loads(
-            (REPO_ROOT / "examples" / "llm-hub.ci-config.json").read_text(encoding="utf-8")
+        cls.example_ci_config = json.loads(
+            (REPO_ROOT / "examples" / "codex-ci-config.json").read_text(encoding="utf-8")
         )
 
     def _triage(self, context: dict) -> dict:
-        return codex_pr_assessment.triage_ci({**context, "ci_config": self.hub_ci_config})
+        return codex_pr_assessment.triage_ci({**context, "ci_config": self.example_ci_config})
 
     def test_classifies_common_failure_modes(self) -> None:
         cases = [
@@ -1098,8 +1165,7 @@ class TestCiTriage(unittest.TestCase):
                 "files": [
                     {"filename": "backend/pyproject.toml"},
                     {"filename": "frontend/pnpm-lock.yaml"},
-                    {"filename": "azure_oauth_llm_proxy/uv.lock"},
-                    {"filename": "demo_models/pyproject.toml"},
+                    {"filename": "services/worker/uv.lock"},
                 ],
                 "key_workflow_runs": {
                     "Full CI": {
@@ -1135,16 +1201,16 @@ class TestCiTriage(unittest.TestCase):
             {
                 "action": "apply_label",
                 "target": "test-package",
-                "reason": "Package-related files changed and the label-triggered local package workflow has no run for this head SHA.",
+                "reason": "Package-related files changed and the label-triggered package smoke test has no run for this head SHA.",
             },
             triage["additional_ci_recommendations"],
         )
 
-    def test_triage_recommends_local_eval_stress_label_for_local_eval_changes(self) -> None:
+    def test_triage_recommends_load_test_label_for_job_changes(self) -> None:
         triage = self._triage(
             {
                 "pr": {"head_sha": "abc"},
-                "files": [{"filename": "backend/src/backend/services/evaluation.py"}],
+                "files": [{"filename": "backend/app/jobs/cleanup.py"}],
                 "key_workflow_runs": {
                     "Full CI": {
                         "name": "Full CI",
@@ -1178,17 +1244,17 @@ class TestCiTriage(unittest.TestCase):
         self.assertIn(
             {
                 "action": "apply_label",
-                "target": "local-eval-stress",
-                "reason": "Local evaluation submission code changed and the label-triggered local-eval stress workflow has no run for this head SHA.",
+                "target": "load-test",
+                "reason": "Background job code changed and the label-triggered load test workflows have no run for this head SHA.",
             },
             triage["additional_ci_recommendations"],
         )
 
-    def test_triage_skips_local_eval_stress_label_when_workflow_ran(self) -> None:
+    def test_triage_skips_load_test_label_when_any_workflow_ran(self) -> None:
         triage = self._triage(
             {
                 "pr": {"head_sha": "abc"},
-                "files": [{"filename": "backend/src/backend/services/evaluation.py"}],
+                "files": [{"filename": "backend/app/jobs/cleanup.py"}],
                 "key_workflow_runs": {
                     "Full CI": {
                         "name": "Full CI",
@@ -1213,7 +1279,7 @@ class TestCiTriage(unittest.TestCase):
                         "conclusion": "success",
                     },
                     {
-                        "name": "Local eval output stress test",
+                        "name": "Soak test",
                         "status": "completed",
                         "conclusion": "success",
                     },
@@ -1227,8 +1293,8 @@ class TestCiTriage(unittest.TestCase):
         self.assertNotIn(
             {
                 "action": "apply_label",
-                "target": "local-eval-stress",
-                "reason": "Local evaluation submission code changed and the label-triggered local-eval stress workflow has no run for this head SHA.",
+                "target": "load-test",
+                "reason": "Background job code changed and the label-triggered load test workflows have no run for this head SHA.",
             },
             triage["additional_ci_recommendations"],
         )
@@ -1398,7 +1464,7 @@ class TestReviewSanitizer(unittest.TestCase):
     def test_sanitizer_adds_header_and_defangs_untrusted_content(self) -> None:
         body = (
             "Please ping @team/security.\n"
-            "Allowed: https://github.com/Giskard-AI/llm-hub/actions/runs/1\n"
+            "Allowed: https://github.com/octo-org/example-app/actions/runs/1\n"
             "Bad: https://evil.example/phish\n"
             "AZURE_AI_API_KEY=super-secret\n"
         )
@@ -1407,7 +1473,7 @@ class TestReviewSanitizer(unittest.TestCase):
 
         self.assertTrue(sanitized.startswith("## Codex advisory test"))
         self.assertIn("(at)team/security", sanitized)
-        self.assertIn("https://github.com/Giskard-AI/llm-hub/actions/runs/1", sanitized)
+        self.assertIn("https://github.com/octo-org/example-app/actions/runs/1", sanitized)
         self.assertIn("[external-link-removed]", sanitized)
         self.assertNotIn("super-secret", sanitized)
 
@@ -1441,7 +1507,7 @@ class TestReviewSanitizer(unittest.TestCase):
                 "Authorization: Bearer abcdefghijklmnopqrstuvwxyz123456",
                 "ghp_abcdefghijklmnopqrstuvwxyz123456",
                 "github_pat_abcdefghijklmnopqrstuvwxyz_1234567890",
-                "AKIAABCDEFGHIJKLMNOP",
+                "AKIAABCDEFGHIJKLMNOP",  # gitleaks:allow
                 "eyJabcdefghijkl.eyJmnopqrstuvwxyz.abcdefghijklmnopqrstuvwxyz",
                 "-----BEGIN PRIVATE KEY-----\nsecret\n-----END PRIVATE KEY-----",
             ]
@@ -1452,7 +1518,7 @@ class TestReviewSanitizer(unittest.TestCase):
         self.assertNotIn("github-token-value", sanitized)
         self.assertNotIn("secret-value", sanitized)
         self.assertNotIn("abcdefghijklmnopqrstuvwxyz123456", sanitized)
-        self.assertNotIn("AKIAABCDEFGHIJKLMNOP", sanitized)
+        self.assertNotIn("AKIAABCDEFGHIJKLMNOP", sanitized)  # gitleaks:allow
         self.assertNotIn("PRIVATE KEY", sanitized)
         self.assertIn("[redacted]", sanitized)
 

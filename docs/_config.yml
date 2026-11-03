@@ -1,0 +1,27 @@
+title: giskard-actions
+description: Reusable GitHub Actions for LLM-powered release notes and advisory Codex PR review.
+url: https://giskard-ai.github.io
+baseurl: /giskard-actions
+
+remote_theme: just-the-docs/just-the-docs@v0.12.0
+plugins:
+  - jekyll-remote-theme
+  - jekyll-include-cache
+  - jekyll-seo-tag
+
+search_enabled: true
+heading_anchors: true
+
+aux_links:
+  "giskard-actions on GitHub":
+    - "https://github.com/Giskard-AI/giskard-actions"
+aux_links_new_tab: true
+
+gh_edit_link: true
+gh_edit_link_text: "Edit this page on GitHub"
+gh_edit_repository: "https://github.com/Giskard-AI/giskard-actions"
+gh_edit_branch: "main"
+gh_edit_source: docs
+gh_edit_view_mode: "tree"
+
+footer_content: 'Licensed under the <a href="https://github.com/Giskard-AI/giskard-actions/blob/main/LICENSE">Apache License 2.0</a>.'

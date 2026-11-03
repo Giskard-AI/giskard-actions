@@ -1,4 +1,5 @@
 {
+  "$schema": "https://raw.githubusercontent.com/Giskard-AI/giskard-actions/main/schemas/codex-reviewer-map.schema.json",
   "defaults": {
     "normal_model": "gpt-5.6-luna",
     "normal_effort": "medium",
@@ -9,7 +10,7 @@
   },
   "rules": [
     {
-      "name": "clean-arch-guard",
+      "name": "backend-reviewer",
       "model_kind": "normal",
       "path_prefixes": ["backend/"],
       "path_suffixes": [".py"],
@@ -18,7 +19,7 @@
     {
       "name": "migration-reviewer",
       "model_kind": "critical",
-      "path_prefixes": ["backend/migrations/", "backend/migrations_control/"],
+      "path_prefixes": ["backend/migrations/"],
       "role_references": ["backend-architecture.md"]
     },
     {
@@ -28,32 +29,16 @@
       "role_references": ["frontend-patterns.md"]
     },
     {
-      "name": "user-advocate",
-      "model_kind": "normal",
-      "path_prefixes": ["frontend/src/app/", "frontend/src/components/"],
-      "path_suffixes": [".tsx"],
-      "role_references": ["page-archetypes.md", "frontend-patterns.md"]
-    },
-    {
       "name": "security-auditor",
       "model_kind": "critical",
       "path_prefixes": [".github/workflows/", "scripts/ci/"],
-      "path_contains": ["secret", "auth", "token", "permission", "keycloak"],
+      "path_contains": ["secret", "auth", "token", "permission"],
       "role_references": ["security-patterns.md"]
     },
     {
       "name": "infra-reviewer",
       "model_kind": "normal",
-      "path_prefixes": [
-        ".github/workflows/",
-        "scripts/ci/",
-        "helm/",
-        "db/",
-        "keycloak/",
-        "local-install/",
-        ".devcontainer/",
-        "ssl/"
-      ],
+      "path_prefixes": [".github/workflows/", "scripts/ci/", "deploy/"],
       "path_names": ["Dockerfile", "Makefile"],
       "path_contains": ["docker-compose"],
       "role_references": ["infrastructure.md"]
@@ -61,17 +46,9 @@
     {
       "name": "prompt-critic",
       "model_kind": "normal",
-      "path_prefixes": [
-        ".cursor/agents/",
-        ".cursor/rules/",
-        ".cursor/skills/",
-        ".agents/",
-        ".github/codex/",
-        "backend/src/backend/evaluation/",
-        "backend/tests/evaluators/"
-      ],
+      "path_prefixes": [".cursor/agents/", ".cursor/rules/", ".cursor/skills/"],
       "path_names": ["AGENTS.md"],
-      "path_contains": ["/prompts/", "/assertions/"],
+      "path_contains": ["/prompts/"],
       "role_references": ["llm-prompts.md"]
     }
   ]

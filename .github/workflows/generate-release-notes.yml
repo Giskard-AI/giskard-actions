@@ -4,8 +4,8 @@ on:
   pull_request:
     paths:
       - ".github/workflows/generate-release-notes.yml"
-      - ".release-notes.json"
-      - "action.yml"
+      - ".github/giskard/release-notes.json"
+      - ".github/actions/release-notes/**"
       - "src/release_notes/**"
   workflow_dispatch:
     inputs:
@@ -45,7 +45,7 @@ jobs:
     timeout-minutes: 180
     runs-on: ubuntu-latest
     environment:
-      name: ci
+      name: ${{ github.event_name == 'workflow_dispatch' && 'ci' || '' }}
       deployment: false
     permissions:
       contents: read # Checkout repository and read tags
@@ -58,7 +58,7 @@ jobs:
           persist-credentials: false
 
       - name: Generate release notes
-        uses: ./ # zizmor: ignore[self-repository]
+        uses: $/.github/actions/release-notes
         with:
           version: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version || '0.0.0-pr' }}
           previous_tag: ${{ github.event.inputs.previous_tag || '' }}
@@ -69,7 +69,6 @@ jobs:
           AZURE_AI_API_KEY: ${{ github.event_name == 'workflow_dispatch' && secrets.AZURE_AI_API_KEY || '' }}
           AZURE_AI_API_BASE: ${{ vars.AZURE_AI_API_BASE }}
           AZURE_AI_ENDPOINT: ${{ vars.AZURE_AI_API_BASE }}
-          LINEAR_API_KEY: ${{ github.event_name == 'workflow_dispatch' && secrets.LINEAR_API_KEY || '' }}
           GITHUB_TOKEN: ${{ github.token }}
 
       - name: Upload release notes artifact

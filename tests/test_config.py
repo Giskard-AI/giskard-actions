@@ -99,7 +99,7 @@ class TestLoadProjectConfig:
         cfg = load_project_config(tmp_path)
         assert len(cfg.sections) == 4
 
-    def test_reads_sections_from_file(self, tmp_path):
+    def test_reads_sections_from_file(self, tmp_path, write_release_notes_config):
         data = {
             "sections": [
                 {"id": "summary"},
@@ -108,24 +108,24 @@ class TestLoadProjectConfig:
                 {"id": "ux_frontend"},
             ]
         }
-        (tmp_path / ".release-notes.json").write_text(json.dumps(data))
+        write_release_notes_config(json.dumps(data))
         cfg = load_project_config(tmp_path)
         ids = [s.id for s in cfg.sections]
         assert "ux_frontend" in ids
 
-    def test_reads_manifest_paths(self, tmp_path):
+    def test_reads_manifest_paths(self, tmp_path, write_release_notes_config):
         data = {"manifest_paths": ["pyproject.toml", "frontend/package.json"]}
-        (tmp_path / ".release-notes.json").write_text(json.dumps(data))
+        write_release_notes_config(json.dumps(data))
         cfg = load_project_config(tmp_path)
         assert "pyproject.toml" in cfg.manifest_paths
 
-    def test_reads_file_diffs(self, tmp_path):
-        data = {"file_diffs": ["helm/giskard-llm-hub/values.yaml"]}
-        (tmp_path / ".release-notes.json").write_text(json.dumps(data))
+    def test_reads_file_diffs(self, tmp_path, write_release_notes_config):
+        data = {"file_diffs": ["deploy/helm/example-web-app/values.yaml"]}
+        write_release_notes_config(json.dumps(data))
         cfg = load_project_config(tmp_path)
-        assert "helm/giskard-llm-hub/values.yaml" in cfg.file_diffs
+        assert "deploy/helm/example-web-app/values.yaml" in cfg.file_diffs
 
-    def test_reads_upgrade_rules(self, tmp_path):
+    def test_reads_upgrade_rules(self, tmp_path, write_release_notes_config):
         data = {
             "upgrade_rules": [
                 {
@@ -136,7 +136,7 @@ class TestLoadProjectConfig:
                 }
             ]
         }
-        (tmp_path / ".release-notes.json").write_text(json.dumps(data))
+        write_release_notes_config(json.dumps(data))
         cfg = load_project_config(tmp_path)
         assert len(cfg.upgrade_rules) == 1
         assert cfg.upgrade_rules[0].id == "helm_values"
@@ -145,25 +145,70 @@ class TestLoadProjectConfig:
     @pytest.mark.parametrize(
         "example",
         [
-            "llm-hub.release-notes.json",
-            "lidar.release-notes.json",
+            "web-app.release-notes.json",
+            "python-library.release-notes.json",
             "minimal.release-notes.json",
         ],
-        ids=["llm-hub", "lidar", "minimal"],
+        ids=["web-app", "python-library", "minimal"],
     )
-    def test_example_json_files_load(self, tmp_path, example):
-        from pathlib import Path
-
+    def test_example_json_files_load(self, tmp_path, write_release_notes_config, example):
         src = Path(__file__).resolve().parents[1] / "examples" / example
-        (tmp_path / ".release-notes.json").write_text(src.read_text())
+        write_release_notes_config(src.read_text(encoding="utf-8"))
         cfg = load_project_config(tmp_path)
         assert cfg.sections
-        if example == "llm-hub.release-notes.json":
+        if example == "web-app.release-notes.json":
             assert cfg.upgrade_rules
             assert cfg.file_diffs
-        if example == "lidar.release-notes.json":
+        if example == "python-library.release-notes.json":
             assert any(s.id == "python_api" for s in cfg.sections)
             assert not any(s.id == "ux_frontend" for s in cfg.sections if s.enabled)
+
+    @pytest.mark.parametrize(
+        ("write_new", "write_legacy", "expected_model", "warning"),
+        [
+            pytest.param(True, False, "current", None, id="new_only"),
+            pytest.param(
+                False,
+                True,
+                "legacy",
+                "::warning::Reading legacy .release-notes.json; "
+                "move it to .github/giskard/release-notes.json",
+                id="legacy_only_warns_and_is_used",
+            ),
+            pytest.param(
+                True,
+                True,
+                "current",
+                "::warning::Ignoring legacy .release-notes.json because "
+                ".github/giskard/release-notes.json exists",
+                id="both_prefers_new_and_warns",
+            ),
+            pytest.param(False, False, None, None, id="neither_uses_defaults"),
+        ],
+    )
+    def test_config_location(
+        self,
+        tmp_path,
+        capsys,
+        write_release_notes_config,
+        write_new,
+        write_legacy,
+        expected_model,
+        warning,
+    ):
+        if write_new:
+            write_release_notes_config(json.dumps({"model": "current"}))
+        if write_legacy:
+            (tmp_path / ".release-notes.json").write_text(json.dumps({"model": "legacy"}))
+
+        assert load_project_config(tmp_path).model == expected_model
+        stderr = capsys.readouterr().err
+        if warning is None:
+            assert "::warning::" not in stderr
+        else:
+            assert warning in stderr
+        if expected_model == "legacy":
+            assert "v1.0.0" in stderr
 
 
 class TestWithSectionDisabled:
@@ -228,7 +273,7 @@ class TestCommitCategoryHelpers:
                 ["features", "probes", "python_api", "other"],
             ),
         ],
-        ids=["default_config", "llm_hub_sections", "custom_probes_and_disabled_fixes"],
+        ids=["default_config", "web_app_sections", "custom_probes_and_disabled_fixes"],
     )
     def test_commit_category_ids(self, sections_raw, expected_ids):
         cfg = ProjectConfig(sections=_parse_sections(sections_raw))
@@ -291,7 +336,7 @@ class TestCommitCategoryHelpers:
         assert cfg.model == "azure_ai/gpt-5.6-luna"
         assert cfg.effort == "high"
         assert cfg.manifest_paths == ("pyproject.toml",)
-        assert "action.yml" in cfg.file_diffs
+        assert ".github/actions/release-notes/action.yml" in cfg.file_diffs
         assert ".github/actions/codex-pr-review/action.yml" in cfg.file_diffs
         assert len(cfg.upgrade_rules) == 1
         assert cfg.upgrade_rules[0].id == "action_interface"

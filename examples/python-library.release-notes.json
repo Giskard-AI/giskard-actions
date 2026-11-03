@@ -1,0 +1,46 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Giskard-AI/giskard-actions/main/schemas/release-notes.schema.json",
+  "github_repository": "octo-org/example-library",
+  "manifest_paths": ["pyproject.toml"],
+  "high_signal_prefixes": ["src/example_library/", ".github/workflows/"],
+  "ignored_basenames": ["uv.lock"],
+  "ignored_path_prefixes": ["tests/", "docs/generated/"],
+  "upgrade_rules": [
+    {
+      "id": "public_api",
+      "short_name": "Python API",
+      "description": "Public Python API or package extras changed; review the changelog and update callers before upgrading.",
+      "path_prefixes": ["src/example_library/"],
+      "filename_keywords": ["api", "client", "public"]
+    }
+  ],
+  "sections": [
+    {
+      "id": "summary",
+      "description": "3-6 highlight bullets for library users. Each item must state a benefit."
+    },
+    {
+      "id": "features",
+      "description": "New library capabilities. Each item must explicitly state the user benefit."
+    },
+    {
+      "id": "fixes",
+      "description": "Bug fixes in the library."
+    },
+    {
+      "id": "python_api",
+      "title": "Python API",
+      "description": "Public package surface: imports, constructors, functions, and extras."
+    },
+    {
+      "id": "infra_deps",
+      "description": "CI, packaging, and tooling changes for building or releasing the library."
+    },
+    {
+      "id": "upgrade_notes",
+      "description": "Breaking API or extras changes that require caller updates."
+    },
+    { "id": "deps" },
+    { "id": "appendix" }
+  ]
+}

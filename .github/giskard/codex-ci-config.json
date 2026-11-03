@@ -1,0 +1,5 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Giskard-AI/giskard-actions/main/schemas/codex-ci-config.schema.json",
+  "key_workflows": ["Tests"],
+  "recommendations": []
+}

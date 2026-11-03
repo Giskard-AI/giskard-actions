@@ -1,20 +1,22 @@
 {
+  "$schema": "https://raw.githubusercontent.com/Giskard-AI/giskard-actions/main/schemas/release-notes.schema.json",
   "github_repository": "Giskard-AI/giskard-actions",
   "model": "azure_ai/gpt-5.6-luna",
   "effort": "high",
   "manifest_paths": ["pyproject.toml"],
   "file_diffs": [
-    "action.yml",
+    ".github/actions/release-notes/action.yml",
     ".github/actions/codex-pr-review/action.yml",
-    ".github/actions/codex-post-review/action.yml"
+    ".github/actions/codex-post-review/action.yml",
+    ".github/workflows/codex-pr-review.yml"
   ],
   "high_signal_prefixes": [
-    "action.yml",
     ".github/actions/",
     "src/release_notes/",
     "scripts/ci/",
     ".github/codex/",
     ".github/workflows/",
+    "schemas/",
     "pyproject.toml"
   ],
   "ignored_basenames": ["uv.lock"],
@@ -22,12 +24,13 @@
   "upgrade_rules": [
     {
       "id": "action_interface",
-      "short_name": "Composite action interface",
-      "description": "Composite action inputs or outputs changed; review the action.yml diff section and update caller workflows if needed.",
+      "short_name": "Action and workflow interface",
+      "description": "Composite action or reusable workflow inputs, secrets, or outputs changed; review the diff section and update caller workflows if needed.",
       "paths": [
-        "action.yml",
+        ".github/actions/release-notes/action.yml",
         ".github/actions/codex-pr-review/action.yml",
-        ".github/actions/codex-post-review/action.yml"
+        ".github/actions/codex-post-review/action.yml",
+        ".github/workflows/codex-pr-review.yml"
       ]
     }
   ],

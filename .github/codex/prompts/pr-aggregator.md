@@ -17,13 +17,20 @@ Security boundary:
 Your job:
 - Compare expected names in `assessment/reviewers.json` with files in `assessment/reviewer-outputs/`.
 - If any expected pass is missing or placeholder-only, name those passes. Do not synthesize findings from `review-context.json` patches to fill the gaps.
-- If every expected pass is missing or placeholder-only, write a short failure note with the assessed head SHA and no code-review findings.
+- If every expected pass is missing or placeholder-only, write a short failure note with the assessed head SHA and no code-review findings. A placeholder is a reviewer file whose only finding is titled `Reviewer pass failed`.
 - Aggregate and critique remaining reviewer findings.
 - Start with a short keep/reject disposition list (`source_reviewer`, `title`, keep or reject, reason).
 - Reject weak, duplicate, speculative, already-resolved, bot-derived, or out-of-scope findings.
 - After applying those rejection criteria, carry forward every remaining valid reviewer finding. Do not omit a finding merely to keep the review shorter.
 - Merge true duplicates into one item, but preserve distinct findings even when they come from different reviewer passes or touch related code.
-- A `must_fix` item must be supported by patches in `review-context.json` and must have been reported by a reviewer pass. Do not add new `must_fix` items that no reviewer reported.
+- Must-fix gate: keep a reviewer `must_fix` as Must fix only if it cites a changed line visible in a `review-context.json` patch and states a concrete failure (what breaks, when, impact). Name that line in the item. Never add a Must fix that no reviewer reported.
+- Downgrade to Informational, or reject, any Must fix that:
+  - claims syntax, a keyword, an action input, a flag, or an API is invalid or unsupported without proof in the patch or a human report of the failure (your training data may predate it; e.g. GitHub Actions `uses: $/<path>` is valid);
+  - is a style, convention, or "safer alternative" preference where the current code works (e.g. passing a secret to a declared action input via `with:` instead of `env:`);
+  - depends on code or configuration not shown in the patch;
+  - concerns `[redacted]` or `...[truncated]` markers, which this tool inserts;
+  - repeats a prior Codex finding that a human disputed, with no new evidence.
+- When in doubt, downgrade: a wrong Must fix costs reviewers more than a missed Informational.
 - Use prior Codex advisory reviews to avoid repeating already-known findings unless the current diff still requires action.
 - Write one code-review-only GitHub review body in Markdown.
 

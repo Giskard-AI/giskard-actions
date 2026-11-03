@@ -1,5 +1,6 @@
 import argparse
 import base64
+import importlib.util
 import json
 import os
 import re
@@ -15,6 +16,7 @@ from urllib.request import Request, urlopen
 
 KEY_WORKFLOWS = ()
 TRUSTED_ASSOCIATIONS = {"OWNER", "MEMBER", "COLLABORATOR"}
+WRITE_ROLES = {"admin", "maintain", "write"}
 REVIEWER_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 MAX_REVIEWERS = 12
 DEFAULT_AZURE_HOST_SUFFIXES = (
@@ -36,6 +38,20 @@ REQUIRED_AZURE_CATALOG_SLUGS = ("gpt-5.6-luna", "gpt-5.6-terra")
 VENDORED_AZURE_MODEL_CATALOG = (
     Path(__file__).resolve().parents[2] / ".github/codex/azure-model-catalog.json"
 )
+REVIEWER_MAP_PATH = ".github/giskard/codex-reviewer-map.json"
+LEGACY_REVIEWER_MAP_PATH = ".github/codex/reviewer-map.json"
+BUNDLED_OVERLAYS_DIR = Path(__file__).resolve().parents[2] / ".github/codex/overlays"
+
+
+def _load_sanitize_module() -> Any:
+    path = Path(__file__).resolve().parents[2] / "src/release_notes/sanitize.py"
+    spec = importlib.util.spec_from_file_location("giskard_markdown_sanitize", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+sanitize = _load_sanitize_module()
 
 
 @dataclass(frozen=True)
@@ -141,6 +157,19 @@ def is_trusted_comment_event(
     return str(comment.get("author_association") or "") in TRUSTED_ASSOCIATIONS
 
 
+def has_write_access(repo: GitHubRepo, login: str) -> bool:
+    if not login:
+        return False
+    data = gh_json(
+        ["api", f"repos/{repo.full_name}/collaborators/{quote(login)}/permission"],
+        check=False,
+    )
+    if not isinstance(data, dict):
+        return False
+    role = str(data.get("role_name") or data.get("permission") or "")
+    return role in WRITE_ROLES
+
+
 def resolve_pr_number(event: dict[str, Any], repo: GitHubRepo) -> int | None:
     event_name = os.environ.get("GITHUB_EVENT_NAME", "")
     if event_name == "workflow_dispatch":
@@ -162,6 +191,10 @@ def resolve_pr_number(event: dict[str, Any], repo: GitHubRepo) -> int | None:
             if item.strip()
         }
         if not is_trusted_comment_event(event, commands):
+            return None
+        login = str(((event.get("comment") or {}).get("user") or {}).get("login") or "")
+        if not has_write_access(repo, login):
+            print(f"Ignoring comment command from {login or 'unknown user'}: no write access.")
             return None
         return int(event["issue"]["number"])
 
@@ -254,6 +287,9 @@ def collect_issue_comments(repo: GitHubRepo, pr_number: int) -> list[dict[str, A
     for comment in comments:
         if is_ignored_author(comment.get("user")):
             continue
+        association = str(comment.get("author_association") or "")
+        if association not in TRUSTED_ASSOCIATIONS:
+            continue
         body = str(comment.get("body") or "")
         if body.strip() in {"/review", "/codex-assess", "/codex-ci-assess"}:
             continue
@@ -261,6 +297,7 @@ def collect_issue_comments(repo: GitHubRepo, pr_number: int) -> list[dict[str, A
             {
                 "id": comment.get("id"),
                 "author": (comment.get("user") or {}).get("login"),
+                "author_association": association,
                 "created_at": comment.get("created_at"),
                 "body": redact_secret_references(body),
                 "url": comment.get("html_url"),
@@ -313,6 +350,7 @@ query($owner: String!, $name: String!, $number: Int!, $cursor: String) {
               body
               createdAt
               url
+              authorAssociation
               author {
                 login
                 __typename
@@ -364,10 +402,14 @@ query($owner: String!, $name: String!, $number: Int!, $cursor: String) {
                 author = comment.get("author") or {}
                 if is_ignored_author(author):
                     continue
+                association = str(comment.get("authorAssociation") or "")
+                if association not in TRUSTED_ASSOCIATIONS:
+                    continue
                 human_comments.append(
                     {
                         "id": comment.get("id"),
                         "author": author.get("login"),
+                        "author_association": association,
                         "created_at": comment.get("createdAt"),
                         "body": redact_secret_references(str(comment.get("body") or "")),
                         "url": comment.get("url"),
@@ -1143,8 +1185,27 @@ def resolve_reviewer_map_path(map_path: str | Path | None = None) -> Path | None
     if not candidate:
         return None
     resolved = Path(candidate)
+    legacy = (
+        resolved.parents[2] / LEGACY_REVIEWER_MAP_PATH
+        if resolved.as_posix().endswith(REVIEWER_MAP_PATH)
+        else None
+    )
     if resolved.is_file():
+        if legacy is not None and legacy.is_file():
+            print(
+                f"::warning::Ignoring legacy {LEGACY_REVIEWER_MAP_PATH} because {REVIEWER_MAP_PATH} "
+                f"exists; delete the legacy file.",
+                file=sys.stderr,
+            )
         return resolved
+    if legacy is not None and legacy.is_file():
+        print(
+            f"::warning::Reading legacy {LEGACY_REVIEWER_MAP_PATH}; move it to {REVIEWER_MAP_PATH} "
+            f"(git mv {LEGACY_REVIEWER_MAP_PATH} {REVIEWER_MAP_PATH}). The legacy path will stop "
+            "being read in giskard-actions v1.0.0.",
+            file=sys.stderr,
+        )
+        return legacy
     return None
 
 
@@ -1354,7 +1415,7 @@ def review_trigger_note(title: str) -> str:
 
 def redact_secret_references(text: str) -> str:
     patterns = (
-        r"(?i)([A-Z0-9_]*(?:API_KEY|TOKEN|SECRET|PASSWORD|PRIVATE_KEY|ACCESS_KEY_ID|SECRET_ACCESS_KEY|CLIENT_SECRET)[A-Z0-9_]*\s*[:=]\s*)\S+",
+        r"(?i)([A-Z0-9_]*(?:API_KEY|TOKEN|SECRET|PASSWORD|PRIVATE_KEY|ACCESS_KEY_ID|SECRET_ACCESS_KEY|CLIENT_SECRET)[A-Z0-9_]*\s*[:=]\s*)(?!\$\{\{)\S+",
         r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]{16,}",
         r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]+?-----END [A-Z ]*PRIVATE KEY-----",
         r"sk-[A-Za-z0-9_-]{12,}",
@@ -1374,17 +1435,7 @@ def redact_secret_references(text: str) -> str:
 
 
 def strip_untrusted_links(text: str) -> str:
-    def replace_url(match: re.Match[str]) -> str:
-        url = match.group(0)
-        try:
-            host = urlparse(url).netloc.lower()
-        except ValueError:
-            return "[external-link-removed]"
-        if host in ALLOWED_LINK_HOSTS:
-            return url
-        return "[external-link-removed]"
-
-    return re.sub(r"https?://[^\s)>\]]+", replace_url, text)
+    return sanitize.strip_untrusted_links(text, lambda host, _path: host in ALLOWED_LINK_HOSTS)
 
 
 def defang_mentions(text: str) -> str:
@@ -1505,7 +1556,7 @@ def main_select(args: argparse.Namespace) -> int:
     if resolved_map is not None:
         _, map_defaults = load_reviewer_map_config(resolved_map)
     llm_cfg = _resolve_llm_defaults(map_defaults)
-    reviewers = select_reviewers(changed_files, map_path=args.reviewer_map)
+    reviewers = select_reviewers(changed_files, map_path=resolved_map or args.reviewer_map)
     payload = {
         "reviewers": reviewers,
         "aggregator_model": llm_cfg["aggregator_model"],
@@ -1625,10 +1676,9 @@ def add_post_review_parser(subparsers: argparse._SubParsersAction) -> None:
 def main_stage_overlay(args: argparse.Namespace) -> int:
     name = validate_reviewer_name(args.name)
     trusted = Path(args.trusted_config)
-    bundled_root = Path(__file__).resolve().parents[2]
     overlay = trusted / ".cursor" / "agents" / f"{name}.md"
     if not overlay.is_file():
-        bundled_overlay = bundled_root / ".cursor" / "agents" / f"{name}.md"
+        bundled_overlay = BUNDLED_OVERLAYS_DIR / f"{name}.md"
         if bundled_overlay.is_file():
             overlay = bundled_overlay
         else:
@@ -1646,13 +1696,10 @@ def main_stage_overlay(args: argparse.Namespace) -> int:
                 raise ValueError(f"unexpected directory in role-references: {child}")
     refs_dir.mkdir(parents=True, exist_ok=True)
     source_dir = trusted / ".cursor" / "agents" / "references"
-    bundled_refs_dir = bundled_root / ".cursor" / "agents" / "references"
     for basename in parse_role_references(
         [part for part in args.role_references.split(",") if part]
     ):
         source = source_dir / basename
-        if not source.is_file() and (bundled_refs_dir / basename).is_file():
-            source = bundled_refs_dir / basename
         if not source.is_file():
             print(f"missing role reference: {source}", file=sys.stderr)
             return 1

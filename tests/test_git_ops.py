@@ -177,7 +177,7 @@ class TestGitShow:
         self._git(child, "init")
         self._git(child, "config", "user.email", "t@example.com")
         self._git(child, "config", "user.name", "t")
-        (child / "pyproject.toml").write_text("[project]\nname='lidar'\n")
+        (child / "pyproject.toml").write_text("[project]\nname='vendored-lib'\n")
         self._git(child, "add", "pyproject.toml")
         self._git(child, "commit", "-m", "child")
         self._git(parent, "init")
@@ -205,7 +205,7 @@ class TestGitShow:
         assert sha
         content = git_show("HEAD", "vendor/mod/pyproject.toml", repo_root=parent)
         assert content is not None
-        assert "lidar" in content
+        assert "vendored-lib" in content
 
 
 class TestDetectTagRange:

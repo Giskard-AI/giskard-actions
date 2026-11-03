@@ -1,18 +1,20 @@
-"""Project-specific configuration loaded from .release-notes.json in the target repo."""
+"""Project configuration loaded from .github/giskard/release-notes.json in the target repo."""
 
 import json
 import logging
+import sys
 from dataclasses import dataclass, replace
 from pathlib import Path
 
 LOG = logging.getLogger("release_notes.config")
 
-CONFIG_FILENAME = ".release-notes.json"
+CONFIG_PATH = ".github/giskard/release-notes.json"
+LEGACY_CONFIG_PATH = ".release-notes.json"
 
 DETERMINISTIC_SECTION_IDS = frozenset({"deps", "appendix"})
 
 # Base defaults — minimal set shared across all repos.
-# Repos opt-in to additional sections (ux_frontend, api_backend, etc.) via .release-notes.json.
+# Repos opt-in to additional sections (ux_frontend, api_backend, etc.) via release-notes.json.
 DEFAULT_SECTIONS: list[dict] = [
     {
         "id": "summary",
@@ -50,7 +52,7 @@ DEFAULT_SECTIONS: list[dict] = [
     },
 ]
 
-# Extended section definitions used when repos opt-in via .release-notes.json.
+# Extended section definitions used when repos opt-in via release-notes.json.
 _KNOWN_SECTIONS: dict[str, dict] = {s["id"]: s for s in DEFAULT_SECTIONS} | {
     "ux_frontend": {
         "id": "ux_frontend",
@@ -126,7 +128,7 @@ class UpgradeRule:
 class ProjectConfig:
     """Per-project configuration for release notes generation.
 
-    Can be loaded from a `.release-notes.json` file at the root of the target repo.
+    Can be loaded from `.github/giskard/release-notes.json` in the target repo.
     """
 
     manifest_paths: tuple[str, ...] = ()
@@ -268,10 +270,30 @@ def _parse_upgrade_rules(raw: list[dict] | None) -> tuple[UpgradeRule, ...]:
 
 
 def load_project_config(repo_root: Path) -> ProjectConfig:
-    """Load project config from .release-notes.json in the target repo, or use defaults."""
-    config_path = repo_root / CONFIG_FILENAME
-    if not config_path.exists():
-        LOG.info("No %s found in %s, using defaults.", CONFIG_FILENAME, repo_root)
+    """Load project config from .github/giskard/release-notes.json, or use defaults.
+
+    The v0.3.x root .release-notes.json is still read, with a deprecation warning, when the new
+    file is missing.
+    """
+    config_path = repo_root / CONFIG_PATH
+    legacy_path = repo_root / LEGACY_CONFIG_PATH
+    if config_path.exists():
+        if legacy_path.exists():
+            print(
+                f"::warning::Ignoring legacy {LEGACY_CONFIG_PATH} because {CONFIG_PATH} exists; "
+                "delete the legacy file.",
+                file=sys.stderr,
+            )
+    elif legacy_path.exists():
+        print(
+            f"::warning::Reading legacy {LEGACY_CONFIG_PATH}; move it to {CONFIG_PATH} "
+            f"(git mv {LEGACY_CONFIG_PATH} {CONFIG_PATH}). The legacy path will stop being read "
+            "in giskard-actions v1.0.0.",
+            file=sys.stderr,
+        )
+        config_path = legacy_path
+    else:
+        LOG.info("No %s found in %s, using defaults.", CONFIG_PATH, repo_root)
         return ProjectConfig()
 
     LOG.info("Loading project config from %s", config_path)

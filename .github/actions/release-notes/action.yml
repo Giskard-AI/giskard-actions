@@ -10,11 +10,11 @@ inputs:
     required: false
     default: ""
   model:
-    description: "Default giskard-llm model name (e.g. azure_ai/gpt-5.6-luna). Empty falls back to .release-notes.json or azure_ai/gpt-5.6-luna."
+    description: "Default giskard-llm model name (e.g. azure_ai/gpt-5.6-luna). Empty falls back to .github/giskard/release-notes.json or azure_ai/gpt-5.6-luna."
     required: false
     default: ""
   effort:
-    description: "Default reasoning effort (low, medium, high). Empty falls back to .release-notes.json or high."
+    description: "Default reasoning effort (low, medium, high). Empty falls back to .github/giskard/release-notes.json or high."
     required: false
     default: ""
   consolidation_model:
@@ -76,30 +76,31 @@ runs:
 
     - name: Install release-notes tool
       shell: bash
-      working-directory: ${{ github.action_path }}
+      working-directory: ${{ github.action_path }}/../../..
       env:
-        ACTION_PATH: ${{ github.action_path }}
+        ACTION_ROOT: ${{ github.action_path }}/../../..
       run: |
         set -euo pipefail
+        action_root="$(cd "${ACTION_ROOT}" && pwd)"
         constraints="${RUNNER_TEMP}/giskard-release-notes-constraints.txt"
         uv export --frozen --no-dev --no-hashes --no-emit-project \
-          --directory "${ACTION_PATH}" \
+          --directory "${action_root}" \
           --output-file "${constraints}"
         if grep -E '^(file://|-e[[:space:]])' "${constraints}"; then
           echo "constraints file must not contain unnamed file:// or -e entries" >&2
           exit 1
         fi
-        uv tool install --reinstall --constraints "${constraints}" "${ACTION_PATH}"
+        uv tool install --reinstall --constraints "${constraints}" "${action_root}"
 
     - name: Resolve output path
       id: resolve
       shell: bash
       env:
-        ACTION_PATH: ${{ github.action_path }}
+        ACTION_ROOT: ${{ github.action_path }}/../../..
         INPUT_OUTPUT_PATH: ${{ inputs.output_path }}
         INPUT_VERSION: ${{ inputs.version }}
       run: |
-        python3 "${ACTION_PATH}/scripts/ci/write_github_output.py" \
+        python3 "${ACTION_ROOT}/scripts/ci/write_github_output.py" \
           --github-output "${GITHUB_OUTPUT}" \
           --resolve-output-path
 
@@ -145,9 +146,9 @@ runs:
       id: meta
       shell: bash
       env:
-        ACTION_PATH: ${{ github.action_path }}
+        ACTION_ROOT: ${{ github.action_path }}/../../..
         INPUT_METADATA_FILE: ${{ inputs.metadata_file }}
       run: |
-        python3 "${ACTION_PATH}/scripts/ci/write_github_output.py" \
+        python3 "${ACTION_ROOT}/scripts/ci/write_github_output.py" \
           --github-output "${GITHUB_OUTPUT}" \
           --metadata-file "${INPUT_METADATA_FILE}"

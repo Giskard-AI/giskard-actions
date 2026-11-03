@@ -12,7 +12,11 @@ from pathlib import Path
 
 _SEMVER_TAG_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
 _BREAKING_HEADER_RE = re.compile(r"^[a-z]+(?:\([^)]+\))?!:")
+_BREAKING_FOOTER_RE = re.compile(r"^BREAKING[ -]CHANGE: ")
 _FEAT_HEADER_RE = re.compile(r"^feat(?:\([^)]+\))?:")
+_PATCH_HEADER_RE = re.compile(r"^(?:fix|perf)(?:\([^)]+\))?:")
+_DEPS_HEADER_RE = re.compile(r"^[a-z]+\(deps\):")
+_BUMP_RANK = {"patch": 1, "minor": 2, "major": 3}
 
 
 def sanitize_scalar(value: object) -> str:
@@ -67,6 +71,30 @@ def _parse_semver_tag(tag: str) -> tuple[int, int, int] | None:
     return int(match.group(1)), int(match.group(2)), int(match.group(3))
 
 
+def _git_lines(repo_root: Path, *args: str) -> list[str]:
+    out = subprocess.run(
+        ["git", *args], cwd=repo_root, check=True, capture_output=True, text=True
+    ).stdout
+    return [line.strip() for line in out.splitlines() if line.strip()]
+
+
+def commit_bump(message: str) -> str | None:
+    """Return the SemVer bump a conventional commit asks for, or None if it releases nothing."""
+    lines = message.strip().splitlines()
+    if not lines:
+        return None
+    header = lines[0].strip()
+    if _BREAKING_HEADER_RE.match(header) or any(
+        _BREAKING_FOOTER_RE.match(line) for line in lines[1:]
+    ):
+        return "major"
+    if _FEAT_HEADER_RE.match(header):
+        return "minor"
+    if _PATCH_HEADER_RE.match(header) or _DEPS_HEADER_RE.match(header):
+        return "patch"
+    return None
+
+
 def compute_next_release_tag(repo_root: Path) -> dict[str, str]:
     head_tags_out = subprocess.run(
         ["git", "tag", "--points-at", "HEAD"],
@@ -89,19 +117,21 @@ def compute_next_release_tag(repo_root: Path) -> dict[str, str]:
             "previous_tag": existing_tag,
         }
 
-    all_tags_out = subprocess.run(
-        ["git", "tag", "--merged", "HEAD"],
-        cwd=repo_root,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout
     semver_tags = [
-        (parsed, tag.strip())
-        for tag in all_tags_out.splitlines()
+        (parsed, tag)
+        for tag in _git_lines(repo_root, "tag", "--merged", "HEAD")
         if (parsed := _parse_semver_tag(tag)) is not None
     ]
     if not semver_tags:
+        unreachable = [
+            tag for tag in _git_lines(repo_root, "tag", "--list", "v*") if _parse_semver_tag(tag)
+        ]
+        if unreachable:
+            raise SystemExit(
+                "::error::No SemVer tag is reachable from HEAD, but these exist: "
+                f"{', '.join(sorted(unreachable))}. Fetch full history with tags "
+                "(fetch-depth: 0) or fix the branch instead of bootstrapping from pyproject.toml."
+            )
         pyproject = tomllib.loads((repo_root / "pyproject.toml").read_text(encoding="utf-8"))
         base_version = str(pyproject.get("project", {}).get("version", "0.1.0")).strip()
         return {
@@ -120,16 +150,12 @@ def compute_next_release_tag(repo_root: Path) -> dict[str, str]:
         capture_output=True,
         text=True,
     ).stdout
-    messages = [msg.strip() for msg in log_out.split("\x00") if msg.strip()]
-
-    bump = "patch"
-    for msg in messages:
-        first_line = msg.splitlines()[0].strip()
-        if _BREAKING_HEADER_RE.match(first_line) or "BREAKING CHANGE:" in msg:
-            bump = "major"
-            break
-        if _FEAT_HEADER_RE.match(first_line):
-            bump = "minor"
+    bumps = [bump for msg in log_out.split("\x00") if (bump := commit_bump(msg))]
+    if not bumps:
+        return {"should_release": "false", "tag": prev_tag, "previous_tag": prev_tag}
+    bump = max(bumps, key=_BUMP_RANK.__getitem__)
+    if bump == "major" and major == 0:
+        bump = "minor"
 
     if bump == "major":
         next_tag = f"v{major + 1}.0.0"

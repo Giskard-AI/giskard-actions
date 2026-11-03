@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Giskard-AI/giskard-actions/main/schemas/release-notes.schema.json",
+  "title": "Release notes configuration",
+  "description": "Consumer configuration for the release-notes action, read from .github/giskard/release-notes.json.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional JSON Schema reference for editor support."
+    },
+    "github_repository": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+      "description": "owner/repo used for compare URLs and GitHub issue enrichment. Defaults to GITHUB_REPOSITORY."
+    },
+    "manifest_paths": {
+      "$ref": "#/$defs/pathList",
+      "description": "Dependency manifests (pyproject.toml, package.json, pom.xml) diffed for the dependency table."
+    },
+    "high_signal_prefixes": {
+      "$ref": "#/$defs/pathList",
+      "description": "Path prefixes whose per-file diffs are prioritized in commit digests."
+    },
+    "ignored_basenames": {
+      "$ref": "#/$defs/pathList",
+      "description": "File basenames excluded from diff stats and digests. Defaults to [\"uv.lock\", \"pnpm-lock.yaml\"]."
+    },
+    "file_diffs": {
+      "$ref": "#/$defs/pathList",
+      "description": "Paths whose unified tag-range diff is embedded in the rendered notes."
+    },
+    "ignored_path_prefixes": {
+      "$ref": "#/$defs/pathList",
+      "description": "Path prefixes excluded from diff stats."
+    },
+    "sections": {
+      "type": "array",
+      "description": "Ordered output sections. When non-empty, only the listed sections are rendered. Omit to use summary, features, fixes, misc.",
+      "items": { "$ref": "#/$defs/section" }
+    },
+    "upgrade_rules": {
+      "type": "array",
+      "description": "Deterministic rules that emit an upgrade note when matching paths change in the tag range.",
+      "items": { "$ref": "#/$defs/upgradeRule" }
+    },
+    "model": {
+      "type": "string",
+      "description": "Default giskard-llm model name, e.g. azure_ai/gpt-5.6-luna."
+    },
+    "effort": {
+      "type": "string",
+      "description": "Default reasoning effort (low, medium, high)."
+    },
+    "consolidation_model": {
+      "type": "string",
+      "description": "Model override for per-commit consolidation."
+    },
+    "consolidation_effort": {
+      "type": "string",
+      "description": "Reasoning effort override for per-commit consolidation."
+    },
+    "synthesis_model": {
+      "type": "string",
+      "description": "Model override for release notes synthesis."
+    },
+    "synthesis_effort": {
+      "type": "string",
+      "description": "Reasoning effort override for release notes synthesis."
+    },
+    "llm_concurrency": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Maximum parallel LLM calls during consolidation. Defaults to 10."
+    }
+  },
+  "$defs": {
+    "pathList": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "section": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+          "not": { "const": "unknowns" },
+          "description": "Section identifier. Built-ins: summary, features, fixes, misc, ux_frontend, api_backend, python_api, infra_deps, upgrade_notes, deps, appendix. Any other identifier creates a custom section."
+        },
+        "title": {
+          "type": "string",
+          "description": "Rendered heading. Defaults to the built-in title or the id."
+        },
+        "description": {
+          "type": "string",
+          "description": "Writing instructions for the LLM. Defaults to the built-in description."
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "upgradeRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "short_name", "description"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "short_name": { "type": "string", "minLength": 1 },
+        "description": { "type": "string", "minLength": 1 },
+        "paths": {
+          "$ref": "#/$defs/pathList",
+          "description": "Exact paths that trigger the rule."
+        },
+        "path_prefixes": {
+          "$ref": "#/$defs/pathList",
+          "description": "Path prefixes that trigger the rule."
+        },
+        "filename_keywords": {
+          "$ref": "#/$defs/pathList",
+          "description": "Optional keywords; when set, a path_prefixes match also requires one keyword in the filename."
+        }
+      }
+    }
+  }
+}
