@@ -6,6 +6,8 @@ baseurl: /giskard-actions
 remote_theme: just-the-docs/just-the-docs@v0.12.0
 plugins:
   - jekyll-remote-theme
+  - jekyll-include-cache
+  - jekyll-seo-tag
 
 search_enabled: true
 heading_anchors: true
