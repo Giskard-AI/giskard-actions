@@ -1,7 +1,8 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "schedule": ["before 4am on Monday"],
-  "minimumReleaseAge": "3 days",
+  "minimumReleaseAge": "7 days",
+  "osvVulnerabilityAlerts": true,
   "labels": ["dependencies"],
   "extends": [
     "config:recommended",
@@ -28,6 +29,23 @@
       "groupName": "python deps",
       "groupSlug": "python-deps",
       "labels": ["dependencies", "deps:lockfile=python"]
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Default Codex CLI version of the Codex review action, reusable workflow, and docs.",
+      "managerFilePatterns": [
+        "/^\\.github/actions/codex-pr-review/action\\.yml$/",
+        "/^\\.github/workflows/codex-pr-review\\.yml$/",
+        "/^docs/codex-pr-review\\.md$/"
+      ],
+      "matchStrings": [
+        "codex_version:\\n(?:\\s+(?:description|type|required): .*\\n)+\\s+default: \"(?<currentValue>\\d+\\.\\d+\\.\\d+)\"",
+        "\\| `codex_version` \\| string \\| `(?<currentValue>\\d+\\.\\d+\\.\\d+)` \\|"
+      ],
+      "depNameTemplate": "@openai/codex",
+      "datasourceTemplate": "npm"
     }
   ]
 }
