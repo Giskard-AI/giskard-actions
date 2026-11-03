@@ -7,26 +7,15 @@ import codex_pr_assessment
 import pytest
 
 NEW_MAP = ".github/giskard/codex-reviewer-map.json"
-LEGACY_MAP = ".github/codex/reviewer-map.json"
+V0_3_MAP = ".github/codex/reviewer-map.json"
 
 
 @pytest.mark.parametrize(
-    ("files", "expected", "warning"),
+    ("files", "expected"),
     [
-        pytest.param([NEW_MAP], NEW_MAP, None, id="new_only"),
-        pytest.param(
-            [LEGACY_MAP],
-            LEGACY_MAP,
-            f"::warning::Reading legacy {LEGACY_MAP}; move it to {NEW_MAP}",
-            id="legacy_only_warns_and_is_used",
-        ),
-        pytest.param(
-            [NEW_MAP, LEGACY_MAP],
-            NEW_MAP,
-            f"::warning::Ignoring legacy {LEGACY_MAP} because {NEW_MAP} exists",
-            id="both_prefers_new_and_warns",
-        ),
-        pytest.param([], None, None, id="neither_uses_defaults"),
+        pytest.param([NEW_MAP], NEW_MAP, id="new_path_is_used"),
+        pytest.param([V0_3_MAP], None, id="v0_3_path_is_ignored"),
+        pytest.param([], None, id="no_map_uses_defaults"),
     ],
 )
 def test_reviewer_map_location(
@@ -34,7 +23,6 @@ def test_reviewer_map_location(
     capsys: pytest.CaptureFixture[str],
     files: list[str],
     expected: str | None,
-    warning: str | None,
 ) -> None:
     for relative in files:
         (tmp_path / relative).parent.mkdir(parents=True, exist_ok=True)
@@ -43,13 +31,7 @@ def test_reviewer_map_location(
     resolved = codex_pr_assessment.resolve_reviewer_map_path(tmp_path / NEW_MAP)
 
     assert resolved == (tmp_path / expected if expected else None)
-    stderr = capsys.readouterr().err
-    if warning is None:
-        assert "::warning::" not in stderr
-    else:
-        assert warning in stderr
-    if expected == LEGACY_MAP:
-        assert "v1.0.0" in stderr
+    assert "::warning::" not in capsys.readouterr().err
 
 
 def _stage(tmp_path: Path, name: str) -> tuple[int, Path]:

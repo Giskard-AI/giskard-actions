@@ -164,26 +164,11 @@ class TestLoadProjectConfig:
             assert not any(s.id == "ux_frontend" for s in cfg.sections if s.enabled)
 
     @pytest.mark.parametrize(
-        ("write_new", "write_legacy", "expected_model", "warning"),
+        ("write_new", "write_v0_3", "expected_model"),
         [
-            pytest.param(True, False, "current", None, id="new_only"),
-            pytest.param(
-                False,
-                True,
-                "legacy",
-                "::warning::Reading legacy .release-notes.json; "
-                "move it to .github/giskard/release-notes.json",
-                id="legacy_only_warns_and_is_used",
-            ),
-            pytest.param(
-                True,
-                True,
-                "current",
-                "::warning::Ignoring legacy .release-notes.json because "
-                ".github/giskard/release-notes.json exists",
-                id="both_prefers_new_and_warns",
-            ),
-            pytest.param(False, False, None, None, id="neither_uses_defaults"),
+            pytest.param(True, False, "current", id="new_path_is_used"),
+            pytest.param(False, True, None, id="v0_3_root_file_is_ignored"),
+            pytest.param(False, False, None, id="no_config_uses_defaults"),
         ],
     )
     def test_config_location(
@@ -192,23 +177,16 @@ class TestLoadProjectConfig:
         capsys,
         write_release_notes_config,
         write_new,
-        write_legacy,
+        write_v0_3,
         expected_model,
-        warning,
     ):
         if write_new:
             write_release_notes_config(json.dumps({"model": "current"}))
-        if write_legacy:
-            (tmp_path / ".release-notes.json").write_text(json.dumps({"model": "legacy"}))
+        if write_v0_3:
+            (tmp_path / ".release-notes.json").write_text(json.dumps({"model": "v0.3"}))
 
         assert load_project_config(tmp_path).model == expected_model
-        stderr = capsys.readouterr().err
-        if warning is None:
-            assert "::warning::" not in stderr
-        else:
-            assert warning in stderr
-        if expected_model == "legacy":
-            assert "v1.0.0" in stderr
+        assert "::warning::" not in capsys.readouterr().err
 
 
 class TestWithSectionDisabled:
