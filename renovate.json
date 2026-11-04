@@ -4,6 +4,9 @@
   "minimumReleaseAge": "7 days",
   "osvVulnerabilityAlerts": true,
   "labels": ["dependencies"],
+  "lockFileMaintenance": {
+    "enabled": true
+  },
   "extends": [
     "config:recommended",
     ":semanticCommits",
@@ -24,11 +27,10 @@
       "matchPackageNames": ["*"]
     },
     {
-      "description": "Group pep621 Python updates and flag them for the in-PR lockfile refresh workflow.",
+      "description": "Group pep621 Python updates into one PR.",
       "matchManagers": ["pep621"],
       "groupName": "python deps",
-      "groupSlug": "python-deps",
-      "labels": ["dependencies", "deps:lockfile=python"]
+      "groupSlug": "python-deps"
     },
     {
       "description": "GHCR gives zizmor images no release timestamp, which minimumReleaseAge needs; read zizmor releases from PyPI instead.",
