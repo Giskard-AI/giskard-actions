@@ -7,6 +7,9 @@ import pytest
 
 WORKFLOWS_DIR = Path(__file__).resolve().parents[1] / ".github" / "workflows"
 WORKFLOW_FILES = sorted(WORKFLOWS_DIR.glob("*.yml"))
+SHARED_WORKFLOW_FILES = [
+    WORKFLOWS_DIR / f"{name}.yml" for name in ("python-ci", "ts-ci", "zizmor-scan")
+]
 
 USES_RE = re.compile(r"^\s*(?:-\s+)?uses:\s*(?P<ref>\S+)(?P<comment>.*)$")
 RUN_RE = re.compile(r"^\s*(?:-\s+)?run:\s*(?P<value>.*)$")
@@ -133,3 +136,35 @@ def test_checkout_does_not_persist_credentials(path: Path):
 def test_run_scripts_have_no_expressions(path: Path):
     for script in run_scripts(path.read_text()):
         assert "${{" not in script, script
+
+
+def job_blocks(text: str) -> dict[str, str]:
+    lines = text.splitlines()
+    start = lines.index("jobs:")
+    return {
+        line.strip().rstrip(":"): "\n".join(_children(lines, i, 2))
+        for i, line in enumerate(lines[start + 1 :], start + 1)
+        if re.match(r"^  [\w-]+:$", line)
+    }
+
+
+@pytest.mark.parametrize(
+    ("snippet", "expected"),
+    [
+        pytest.param(
+            "jobs:\n  a:\n    timeout-minutes: 5\n  b:\n    runs-on: x\n",
+            {"a": "    timeout-minutes: 5", "b": "    runs-on: x"},
+            id="one-block-per-job",
+        ),
+    ],
+)
+def test_job_blocks(snippet: str, expected: dict[str, str]):
+    assert job_blocks(snippet) == expected
+
+
+@pytest.mark.parametrize("path", SHARED_WORKFLOW_FILES, ids=lambda p: p.stem)
+def test_shared_workflow_jobs_set_timeout(path: Path):
+    jobs = job_blocks(path.read_text())
+    assert jobs
+    for name, block in jobs.items():
+        assert re.search(r"^    timeout-minutes: ", block, re.MULTILINE), f"job {name}"
