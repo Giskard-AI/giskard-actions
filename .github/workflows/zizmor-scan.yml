@@ -1,0 +1,51 @@
+name: zizmor scan
+
+# Enforced on every code repository by an organization ruleset ("Require
+# workflows to pass") and callable as a reusable workflow. Checkout targets the
+# repository the run belongs to, so its .github/zizmor.yml is discovered.
+# Callers must grant at least contents: read.
+
+on:
+  pull_request:
+  merge_group:
+  workflow_call:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-zizmor-scan-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  zizmor:
+    name: zizmor
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Find files zizmor audits
+        id: inputs
+        shell: bash
+        run: |
+          if git ls-files -- \
+            ':(glob).github/workflows/*.yml' ':(glob).github/workflows/*.yaml' \
+            ':(glob)**/action.yml' ':(glob)**/action.yaml' \
+            ':(glob).github/dependabot.yml' ':(glob).github/dependabot.yaml' \
+            | grep -q .; then
+            echo "found=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "found=false" >> "${GITHUB_OUTPUT}"
+            echo "::notice title=zizmor skipped::No workflow, action or Dependabot files to audit."
+          fi
+
+      - name: Run zizmor
+        if: steps.inputs.outputs.found == 'true'
+        uses: zizmorcore/zizmor-action@53290badfa369cb0bf7ad16342cb62c2fa47ac7b # v0.8.0
+        with:
+          advanced-security: false
+          version: "1.31.1"
