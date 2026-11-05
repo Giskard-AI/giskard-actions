@@ -49,7 +49,7 @@ A `workflow_call` workflow (`.github/workflows/python-ci.yml` or `.github/workfl
 _Avoid_: CI template, starter workflow
 
 **Required Scan Workflow**:
-`.github/workflows/zizmor-scan.yml`, run on the pull requests and merge groups of every code repository by an organization ruleset ("Require workflows to pass before merging") that references it at a fixed commit SHA, and also callable as a reusable workflow. Its job name `zizmor` is the check name and must stay stable. Renovate cannot bump the ruleset's SHA; an organization admin does.
+`.github/workflows/zizmor-scan.yml`, run on the pull requests and merge groups of every code repository by an organization ruleset ("Require workflows to pass before merging") that pins its repository, path and commit SHA, and also callable as a reusable workflow. It reads the zizmor config from the pull request's base commit. Only that ruleset rule is a trustworthy gate: a required status check matched by the name `zizmor` can be satisfied by a job the pull request adds itself. Renovate cannot bump the ruleset's SHA; an organization admin does.
 _Avoid_: Org workflow, global zizmor, zizmor shim
 
 ### Release Notes Pipeline
