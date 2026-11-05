@@ -11,9 +11,9 @@ on:
         type: string
         default: ""
       uv-version:
-        description: uv version pin, installed instead of the project's [tool.uv] required-version
+        description: uv version. Empty uses the project's [tool.uv] required-version, or the latest uv.
         type: string
-        default: "0.13.6"
+        default: ""
       working-directory:
         description: Directory holding pyproject.toml and uv.lock, relative to the repository root
         type: string

@@ -204,3 +204,15 @@ def test_dependency_cache_is_off_by_default(
     text = (WORKFLOWS_DIR / f"{workflow}.yml").read_text()
     assert input_default(text, cache_input) == off_value
     assert text.count(f"          {step_line}\n") == len(job_blocks(text))
+
+
+@pytest.mark.parametrize(
+    ("workflow", "name", "expected"),
+    [
+        pytest.param("python-ci", "uv-version", '""', id="uv-from-project-or-latest"),
+        pytest.param("python-ci", "python-version", '""', id="python-from-project"),
+        pytest.param("ts-ci", "node-version", '"26"', id="node-active-lts"),
+    ],
+)
+def test_tool_version_defaults(workflow: str, name: str, expected: str):
+    assert input_default((WORKFLOWS_DIR / f"{workflow}.yml").read_text(), name) == expected
