@@ -1,0 +1,135 @@
+"""Static security checks on .github/workflows/*.yml, parsed line by line (no YAML dependency)."""
+
+import re
+from pathlib import Path
+
+import pytest
+
+WORKFLOWS_DIR = Path(__file__).resolve().parents[1] / ".github" / "workflows"
+WORKFLOW_FILES = sorted(WORKFLOWS_DIR.glob("*.yml"))
+
+USES_RE = re.compile(r"^\s*(?:-\s+)?uses:\s*(?P<ref>\S+)(?P<comment>.*)$")
+RUN_RE = re.compile(r"^\s*(?:-\s+)?run:\s*(?P<value>.*)$")
+SHA_PIN_RE = re.compile(r"^[\w.-]+/[\w./-]+@[0-9a-f]{40}$")
+VERSION_COMMENT_RE = re.compile(r"^\s*#\s*v\d+\.\d+\.\d+")
+
+
+def _indent(line: str) -> int:
+    return len(line) - len(line.lstrip())
+
+
+def _children(lines: list[str], start: int, parent_indent: int) -> list[str]:
+    """Lines after ``start`` until the first non-blank line indented at most ``parent_indent``."""
+    block = []
+    for line in lines[start + 1 :]:
+        if line.strip() and _indent(line) <= parent_indent:
+            break
+        block.append(line)
+    return block
+
+
+def run_scripts(text: str) -> list[str]:
+    lines = text.splitlines()
+    scripts = []
+    for i, line in enumerate(lines):
+        match = RUN_RE.match(line)
+        if not match:
+            continue
+        value = match["value"]
+        if value.startswith(("|", ">")):
+            scripts.append("\n".join(_children(lines, i, line.index("run:"))))
+        else:
+            scripts.append(value)
+    return scripts
+
+
+def action_refs(text: str) -> list[tuple[str, str]]:
+    return [(m["ref"], m["comment"]) for line in text.splitlines() if (m := USES_RE.match(line))]
+
+
+def checkout_steps(text: str) -> list[str]:
+    lines = text.splitlines()
+    steps = []
+    for i, line in enumerate(lines):
+        match = USES_RE.match(line)
+        if not match or not match["ref"].startswith("actions/checkout@"):
+            continue
+        start = next(j for j in range(i, -1, -1) if lines[j].lstrip().startswith("- "))
+        steps.append("\n".join([lines[start], *_children(lines, start, _indent(lines[start]))]))
+    return steps
+
+
+@pytest.mark.parametrize(
+    ("snippet", "expected"),
+    [
+        pytest.param(
+            "- run: echo ${{ inputs.cmd }}\n",
+            ["echo ${{ inputs.cmd }}"],
+            id="inline-run-keeps-expression",
+        ),
+        pytest.param(
+            "- run: |\n    echo ok\n    echo ${{ inputs.cmd }}\n  env:\n    A: b\n",
+            ["    echo ok\n    echo ${{ inputs.cmd }}"],
+            id="block-run-stops-at-sibling-key",
+        ),
+        pytest.param(
+            '- env:\n    CMD: ${{ inputs.cmd }}\n  run: bash -c "$CMD"\n',
+            ['bash -c "$CMD"'],
+            id="expression-in-env-is-not-run",
+        ),
+        pytest.param(
+            "defaults:\n  run:\n    working-directory: ${{ inputs.dir }}\n",
+            [""],
+            id="defaults-run-mapping-is-not-a-script",
+        ),
+    ],
+)
+def test_run_scripts(snippet: str, expected: list[str]):
+    assert run_scripts(snippet) == expected
+
+
+@pytest.mark.parametrize(
+    ("snippet", "expected"),
+    [
+        pytest.param(
+            "- name: Checkout\n  uses: actions/checkout@abc # v1.0.0\n  with:\n"
+            "    persist-credentials: false\n- run: echo\n",
+            True,
+            id="checkout-with-persist-credentials-false",
+        ),
+        pytest.param(
+            "- uses: actions/checkout@abc # v1.0.0\n- with:\n    persist-credentials: false\n",
+            False,
+            id="persist-credentials-on-next-step-does-not-count",
+        ),
+    ],
+)
+def test_checkout_steps(snippet: str, expected: bool):
+    (step,) = checkout_steps(snippet)
+    assert ("persist-credentials: false" in step) is expected
+
+
+@pytest.mark.parametrize("path", WORKFLOW_FILES, ids=lambda p: p.stem)
+def test_top_level_permissions_are_empty(path: Path):
+    assert re.search(r"^permissions: \{\}\s*$", path.read_text(), re.MULTILINE)
+
+
+@pytest.mark.parametrize("path", WORKFLOW_FILES, ids=lambda p: p.stem)
+def test_third_party_actions_are_sha_pinned(path: Path):
+    for ref, comment in action_refs(path.read_text()):
+        if ref.startswith(("./", "$/")):
+            continue
+        assert SHA_PIN_RE.match(ref), f"{ref} is not pinned to a full commit SHA"
+        assert VERSION_COMMENT_RE.match(comment), f"{ref} has no `# vX.Y.Z` comment"
+
+
+@pytest.mark.parametrize("path", WORKFLOW_FILES, ids=lambda p: p.stem)
+def test_checkout_does_not_persist_credentials(path: Path):
+    for step in checkout_steps(path.read_text()):
+        assert "persist-credentials: false" in step, step
+
+
+@pytest.mark.parametrize("path", WORKFLOW_FILES, ids=lambda p: p.stem)
+def test_run_scripts_have_no_expressions(path: Path):
+    for script in run_scripts(path.read_text()):
+        assert "${{" not in script, script
