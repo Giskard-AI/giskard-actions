@@ -7,11 +7,11 @@ on:
   workflow_call:
     inputs:
       python-version:
-        description: Python version installed by setup-uv
+        description: Python version for uv. Empty lets uv pick it from .python-version or requires-python.
         type: string
-        default: "3.12"
+        default: ""
       uv-version:
-        description: uv version pin
+        description: uv version pin, installed instead of the project's [tool.uv] required-version
         type: string
         default: "0.13.6"
       working-directory:
@@ -34,6 +34,10 @@ on:
         description: Shell command of the test job
         type: string
         default: "uv run pytest"
+      timeout-minutes:
+        description: Timeout of each job in minutes
+        type: number
+        default: 30
 
 permissions: {}
 
@@ -41,8 +45,12 @@ jobs:
   lint:
     name: lint
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
     permissions:
       contents: read
+    env:
+      # Keeps `uv run` from re-adding groups that sync-args left out.
+      UV_NO_SYNC: "1"
     defaults:
       run:
         shell: bash
@@ -76,8 +84,12 @@ jobs:
   test:
     name: test
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
     permissions:
       contents: read
+    env:
+      # Keeps `uv run` from re-adding groups that sync-args left out.
+      UV_NO_SYNC: "1"
     defaults:
       run:
         shell: bash
