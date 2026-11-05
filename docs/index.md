@@ -12,8 +12,11 @@ Reusable GitHub Actions automation from [Giskard](https://github.com/Giskard-AI)
 | --- | --- | --- |
 | [Release notes](release-notes.html) | Composite action | `Giskard-AI/giskard-actions/.github/actions/release-notes@<sha>` |
 | [Codex PR review](codex-pr-review.html) | Reusable workflow | `Giskard-AI/giskard-actions/.github/workflows/codex-pr-review.yml@<sha>` |
+| [Python CI](ci-workflows.html#python-ci) | Reusable workflow | `Giskard-AI/giskard-actions/.github/workflows/python-ci.yml@<sha>` |
+| [TypeScript CI](ci-workflows.html#typescript-ci) | Reusable workflow | `Giskard-AI/giskard-actions/.github/workflows/ts-ci.yml@<sha>` |
+| [zizmor scan](ci-workflows.html#zizmor-scan) | Reusable and organization-required workflow | `Giskard-AI/giskard-actions/.github/workflows/zizmor-scan.yml@<sha>` |
 
-Both read their per-repository settings from `.github/giskard/` in your repository. See [Configuration](configuration.html) for the files and their JSON Schemas.
+Release notes and Codex PR review read their per-repository settings from `.github/giskard/` in your repository. See [Configuration](configuration.html) for the files and their JSON Schemas. The [shared CI workflows](ci-workflows.html) take inputs only.
 
 ## Pinning and versioning
 

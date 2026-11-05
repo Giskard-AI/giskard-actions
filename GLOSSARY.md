@@ -1,6 +1,6 @@
 # giskard-actions
 
-Reusable GitHub Actions automation (`Giskard-AI/giskard-actions`): a composite action for LLM-powered release notes generation and a reusable workflow for advisory Codex PR code review.
+Reusable GitHub Actions automation (`Giskard-AI/giskard-actions`): a composite action for LLM-powered release notes generation, a reusable workflow for advisory Codex PR code review, and shared CI workflows.
 
 ## Language
 
@@ -41,6 +41,16 @@ _Avoid_: Config spec, config template
 **Base-SHA Overlay**:
 Trusted configuration and reviewer persona files (`.github/giskard/codex-reviewer-map.json`, `.cursor/agents/*.md`, and `.cursor/agents/references/*`) fetched strictly from the **Consumer Repository** pull request base commit rather than the untrusted pull request head. When a persona is missing, a generic **Bundled Overlay** from `.github/codex/overlays/` is used if one exists for that reviewer name.
 _Avoid_: PR head config, caller checkout config
+
+### Shared CI
+
+**Shared CI Workflow**:
+A `workflow_call` workflow (`.github/workflows/python-ci.yml` or `.github/workflows/ts-ci.yml`) that runs a **Consumer Repository**'s lint, format check and tests in `lint` and `test` jobs, with every command overridable by an input. The repository baseline requires such a CI, not the use of these workflows.
+_Avoid_: CI template, starter workflow
+
+**Required Scan Workflow**:
+`.github/workflows/zizmor-scan.yml`, run on the pull requests and merge groups of every code repository by an organization ruleset ("Require workflows to pass before merging") that references it at a fixed commit SHA, and also callable as a reusable workflow. Its job name `zizmor` is the check name and must stay stable. Renovate cannot bump the ruleset's SHA; an organization admin does.
+_Avoid_: Org workflow, global zizmor, zizmor shim
 
 ### Release Notes Pipeline
 
