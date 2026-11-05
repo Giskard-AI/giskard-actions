@@ -8,7 +8,7 @@ Reusable GitHub Actions automation from [Giskard](https://github.com/Giskard-AI)
 | **Codex PR review**: advisory pull request review by sequential [Codex](https://github.com/openai/codex-action) reviewer passes plus an aggregator, posted as a PR review comment | Reusable workflow | `Giskard-AI/giskard-actions/.github/workflows/codex-pr-review.yml` |
 | **Python CI**: `lint` (ruff format check and lint) and `test` (pytest) jobs for uv projects, every command overridable | Reusable workflow | `Giskard-AI/giskard-actions/.github/workflows/python-ci.yml` |
 | **TypeScript CI**: `lint` (lint and prettier check) and `test` jobs for npm projects, every command overridable | Reusable workflow | `Giskard-AI/giskard-actions/.github/workflows/ts-ci.yml` |
-| **zizmor scan**: [zizmor](https://docs.zizmor.sh/) audit of GitHub Actions files, with the zizmor config read from the pull request's base commit; passes when there are no such files | Reusable workflow, and required workflow for organization rulesets | `Giskard-AI/giskard-actions/.github/workflows/zizmor-scan.yml` |
+| **zizmor scan**: [zizmor](https://docs.zizmor.sh/) audit of every GitHub Actions file, offline, from a digest-pinned image; exceptions come only from the zizmor config of the pull request's base commit; passes when there are no such files | Reusable workflow, and required workflow for organization rulesets | `Giskard-AI/giskard-actions/.github/workflows/zizmor-scan.yml` |
 
 Full documentation: <https://giskard-ai.github.io/giskard-actions/>
 
@@ -96,6 +96,8 @@ The review job defaults to `ubuntu-slim` with a 15-minute timeout, matching GitH
 
 ## Quick start: shared CI workflows
 
+Get the commit SHA of a release from the [releases page](https://github.com/Giskard-AI/giskard-actions/releases) or with `gh api repos/Giskard-AI/giskard-actions/git/ref/tags/v1.1.0 --jq .object.sha`, and pin it with the version as a comment. A Python project:
+
 ```yaml
 name: CI
 
@@ -115,17 +117,22 @@ jobs:
   python:
     permissions:
       contents: read
-    uses: Giskard-AI/giskard-actions/.github/workflows/python-ci.yml@<full-commit-sha> # vX.Y.Z
+    uses: Giskard-AI/giskard-actions/.github/workflows/python-ci.yml@<full-commit-sha> # v1.1.0
+```
 
+A TypeScript project uses the same file with this job instead (add both jobs only when the repository has both):
+
+```yaml
+jobs:
   frontend:
     permissions:
       contents: read
-    uses: Giskard-AI/giskard-actions/.github/workflows/ts-ci.yml@<full-commit-sha> # vX.Y.Z
+    uses: Giskard-AI/giskard-actions/.github/workflows/ts-ci.yml@<full-commit-sha> # v1.1.0
     with:
-      working-directory: frontend
+      working-directory: frontend # optional, defaults to the repository root
 ```
 
-Every command is an input (`lint-command`, `test-command`, ...). Never add `secrets: inherit`; the workflows take no secret. `zizmor-scan.yml` is meant to be required on every code repository by an organization ruleset ("Require workflows to pass before merging", pinned to this repository, path and SHA); it can also be called the same way. See the [shared CI workflows docs](https://giskard-ai.github.io/giskard-actions/ci-workflows.html) for inputs and the ruleset setup.
+Every command is an input (`lint-command`, `test-command`, ...). Never add `secrets: inherit`; the workflows take no secret. `zizmor-scan.yml` is rolled out repository by repository through an organization ruleset ("Require workflows to pass before merging", pinned to this repository, path and SHA); it can also be called the same way. See the [shared CI workflows docs](https://giskard-ai.github.io/giskard-actions/ci-workflows.html) for prerequisites, inputs and the zizmor exception workflow.
 
 ## Pinning and versioning
 

@@ -13,9 +13,27 @@ The repository baseline requires a CI that lints, checks formatting and runs tes
 1. TOC
 {:toc}
 
+## Prerequisites
+
+- **Python CI**: a uv project with a committed `uv.lock`, `ruff` and `pytest` in a dependency group, and at least one test. Otherwise override `lint-command` and `test-command`.
+- **TypeScript CI**: a `package.json` with a `lint` script, `prettier` in `devDependencies`, a `test` script, and a committed `package-lock.json` (npm) or `yarn.lock` (Yarn 1). pnpm is not supported yet.
+- **Not supported**: pnpm, service containers (for example Postgres for integration tests) and build matrices. Repositories that need them keep their own CI for now.
+- **zizmor scan**: nothing in the repository; it runs on GitHub-hosted `ubuntu-latest`, which has Docker.
+- **Every caller** grants `contents: read` and passes no secrets.
+
 ## Pinning
 
-Pin the full commit SHA of a [release](https://github.com/Giskard-AI/giskard-actions/releases) with a version comment, like every other reference to this repository. Renovate with `helpers:pinGitHubActionDigests` proposes updates. See [Pinning and versioning](index.html#pinning-and-versioning).
+Pin the full commit SHA of a [release](https://github.com/Giskard-AI/giskard-actions/releases) with its version as a comment, and use the same SHA for every reference to this repository. Get the SHA from the release page or with:
+
+```bash
+gh api repos/Giskard-AI/giskard-actions/git/ref/tags/v1.1.0 --jq .object.sha
+```
+
+```yaml
+uses: Giskard-AI/giskard-actions/.github/workflows/python-ci.yml@<full-commit-sha> # v1.1.0
+```
+
+Renovate with `helpers:pinGitHubActionDigests` then proposes updates. See [Pinning and versioning](index.html#pinning-and-versioning).
 
 ## Python CI
 
@@ -41,7 +59,7 @@ jobs:
   python:
     permissions:
       contents: read
-    uses: Giskard-AI/giskard-actions/.github/workflows/python-ci.yml@<full-commit-sha> # vX.Y.Z
+    uses: Giskard-AI/giskard-actions/.github/workflows/python-ci.yml@<full-commit-sha> # v1.1.0
     with:
       working-directory: backend # optional, defaults to the repository root
 ```
@@ -52,7 +70,7 @@ The checks appear as `python / lint` and `python / test` (calling job name, then
 | Input | Type | Default | Description |
 | --- | --- | --- | --- |
 | `python-version` | string | `''` | Python version for uv; empty lets uv choose from `.python-version` or `requires-python` |
-| `uv-version` | string | `0.13.6` | uv version. setup-uv installs it instead of reading `[tool.uv] required-version`, and uv still fails if it does not satisfy that constraint |
+| `uv-version` | string | `''` | uv version; empty uses `[tool.uv] required-version` from `uv.toml` or `pyproject.toml` in `working-directory`, else the latest uv |
 | `working-directory` | string | `.` | Directory holding `pyproject.toml` and `uv.lock`; every command runs there |
 | `runner` | string | `ubuntu-latest` | Runner label for both jobs |
 | `sync-args` | string | `--locked --all-groups` | Arguments of `uv sync`, split on whitespace |
@@ -87,7 +105,7 @@ jobs:
   frontend:
     permissions:
       contents: read
-    uses: Giskard-AI/giskard-actions/.github/workflows/ts-ci.yml@<full-commit-sha> # vX.Y.Z
+    uses: Giskard-AI/giskard-actions/.github/workflows/ts-ci.yml@<full-commit-sha> # v1.1.0
     with:
       working-directory: frontend # optional, defaults to the repository root
 ```
@@ -130,38 +148,54 @@ Both CI workflows and the zizmor scan only need `contents: read`. Grant it on th
 
 ## zizmor scan
 
-`zizmor-scan.yml` runs [zizmor](https://docs.zizmor.sh/) with its default persona (not pedantic), `advanced-security: false` (private repositories have no GitHub Advanced Security) and `annotations: true`, so findings appear as annotations on the pull request and fail the `zizmor` job. The job times out after 10 minutes.
+`zizmor-scan.yml` runs [zizmor](https://docs.zizmor.sh/) 1.32.0 from its container image, pinned by digest (`ghcr.io/zizmorcore/zizmor:<version>@sha256:...`), with the default persona. Findings appear as annotations on the pull request and fail the `zizmor` job, which times out after 10 minutes.
 
-- **Config from the base commit.** On `pull_request` and `merge_group` runs, the zizmor config is read from the base commit (`github.event.pull_request.base.sha` or `github.event.merge_group.base_sha`), in zizmor's discovery order: `.github/zizmor.yml`, `.github/zizmor.yaml`, `zizmor.yml`, `zizmor.yaml`. With none, an empty config (`rules: {}`) is used. A pull request therefore cannot disable rules in its own config to turn the check green. On other events, such as a reusable call from a `push` workflow, zizmor discovers the config of the checked-out commit.
-- **Inline ignores are not covered.** A pull request can still add `# zizmor: ignore[<rule>]` comments to its workflows. Where that matters, require code owner review on `.github/**` (a `CODEOWNERS` entry plus the "Require review from Code Owners" rule).
-- **No workflow files is a pass.** `fail-on-no-inputs: false` lets the job succeed with a warning when the repository has no workflow, action or Dependabot files.
-- **PyPI at runtime.** `zizmorcore/zizmor-action` downloads the zizmor wheel from PyPI on every run and verifies it against hashes pinned in the action, so every pull request in the organization depends on PyPI being reachable.
+- **PR content cannot touch the scanner.** The pull request is checked out into `src/` and mounted read-only into the container, which runs without network. The config is checked out into a sibling directory, never inside `src/`.
+- **Config from the base commit.** On `pull_request` and `merge_group` runs, the zizmor config is read from the base commit (`github.event.pull_request.base.sha` or `github.event.merge_group.base_sha`), in zizmor's discovery order: `.github/zizmor.yml`, `.github/zizmor.yaml`, `zizmor.yml`, `zizmor.yaml`. With none, an empty config (`rules: {}`) is used. On other events, such as a reusable call from a `push` workflow, the config of the scanned commit is used.
+- **No ignores from the pull request.** zizmor runs with `--no-ignores`: inline `# zizmor: ignore[...]` comments and the config's `ignore:` entries are not honoured. See [Exceptions](#exceptions).
+- **Every file counts.** `--collect=all` audits workflows, composite actions, Dependabot and pre-commit files even when `.gitignore` lists them, since GitHub runs a force-added workflow regardless. `--strict-collection` fails on a file zizmor cannot parse.
+- **Offline.** Online audits (known vulnerable actions, impostor commits, ref confusion) depend on external advisories and could turn every pull request in the organization red without a code change. They run in the weekly repo-baseline scan instead.
+- **No files is a pass.** A repository with nothing to audit passes with a notice.
+- **Never call it from `pull_request_target`.** That event checks out the base branch, so the scan would pass on code the pull request does not contain.
 
-This repository's own `zizmor.yml` workflow keeps the pedantic persona.
+> **zizmor failed on my PR?**
+> Fix the finding; the annotation names the rule and links its documentation. For a justified exception, merge a `.github/zizmor.yml` change in a separate pull request first, then rebase. The config is read from the base commit, so editing it in the same pull request has no effect, and inline `# zizmor: ignore` comments are not honoured.
 
-### Enforce it with an organization ruleset
+### Exceptions
 
-The workflow triggers on `pull_request` and `merge_group`, so an organization ruleset can run it on every code repository without a caller file:
+`--no-ignores` drops both inline ignore comments and `rules.<id>.ignore` entries, so the only exceptions are rule-wide, in `.github/zizmor.yml` on the default branch:
 
-1. In the organization settings, create a branch ruleset that targets the code repositories (for example by the `kind=code` custom property) and their default branch.
-2. Enable **Require workflows to pass before merging** and add `.github/workflows/zizmor-scan.yml` from `Giskard-AI/giskard-actions`, at the full commit SHA of a release.
-3. Start in **Evaluate** mode. Rule insights then show which pull requests would have been blocked without blocking them. Fix or configure the findings in those repositories (`.github/zizmor.yml`), then switch the ruleset to **Active**.
+```yaml
+rules:
+  dangerous-triggers:
+    disable: true # why this repository needs it
+```
+
+Rules with options (`rules.<id>.config`, for example the `unpinned-uses` policies) can be tuned there as well. A disabled rule no longer reports anywhere in the repository, so keep the reason next to it and require code owner review on `.github/**` (a `CODEOWNERS` entry plus "Require review from Code Owners").
+
+### Rollout with an organization ruleset
+
+The workflow triggers on `pull_request` and `merge_group`, so an organization ruleset can run it on code repositories without a caller file. The rollout is progressive (rulesets have no Evaluate mode outside GitHub Enterprise):
+
+1. The repo-baseline dashboard reports which repositories would fail the scan, so they can fix findings or merge exceptions first.
+2. An organization ruleset with **Require workflows to pass before merging** requires `.github/workflows/zizmor-scan.yml` from `Giskard-AI/giskard-actions` at the full commit SHA of a release, for repositories whose `zizmor-gate` custom property is `true`. Admins set the property repository by repository once each one is green.
+3. Once every code repository is green, the ruleset targets all repositories with `kind=code`.
+
+The ruleset and the `zizmor-gate` property are defined in repo-baseline and applied by admins, not in this repository.
 
 Only this rule is a trustworthy gate: it pins the repository, path and SHA of the workflow that must pass. A required status check that matches the name `zizmor` can be satisfied by a job of the same name in a workflow the pull request itself adds or edits. The check shows as `zizmor` in the ruleset run and as `<caller job> / zizmor` when the workflow is called as a reusable workflow.
 
-The ruleset references a fixed SHA that lives in the organization settings, not in a repository file, so Renovate cannot bump it. An organization admin updates the SHA when a release changes `zizmor-scan.yml`.
+The ruleset's SHA lives in the organization settings, not in a repository file, so Renovate cannot bump it. An organization admin updates it when a release changes `zizmor-scan.yml`.
 
-### Organization actions allowlist
+### Dependencies
 
-If the organization restricts which actions may run, the allowlist must include:
-
-- `actions/checkout`
-- `zizmorcore/zizmor-action`
-- `github/codeql-action/upload-sarif`, which `zizmor-action` references in a step that only runs with `advanced-security: true`. The runner resolves every action of a job, including those nested in composite actions, when the job starts and before any `if:` is evaluated, so a disallowed action fails the job even when its step would be skipped.
+- **Actions**: only `actions/checkout`. If the organization restricts which actions may run, the allowlist must include it. The zizmor image is started with `docker run` in a script, which the actions allowlist does not cover.
+- **GHCR**: every run pulls the zizmor image from `ghcr.io`, so every pull request in the organization depends on it being reachable.
+- **Updates**: Renovate proposes new zizmor versions with their digest. GHCR publishes no release timestamps, so the 7-day cooldown cannot apply automatically; the update waits for approval on the Dependency Dashboard, given once the same version has been on PyPI for 7 days.
 
 ### Call it as a reusable workflow
 
-Repositories that want the scan before the ruleset is active, or on other events, can call it:
+Repositories that want the scan before the ruleset covers them, or on other events, can call it:
 
 {% raw %}
 ```yaml
@@ -179,8 +213,10 @@ jobs:
   zizmor:
     permissions:
       contents: read
-    uses: Giskard-AI/giskard-actions/.github/workflows/zizmor-scan.yml@<full-commit-sha> # vX.Y.Z
+    uses: Giskard-AI/giskard-actions/.github/workflows/zizmor-scan.yml@<full-commit-sha> # v1.1.0
 ```
 {% endraw %}
 
 Its `pull_request` and `merge_group` triggers are ignored when called; the caller's triggers apply, and the base commit is still read from the caller's event. Its concurrency group appends `zizmor-scan` to the caller's workflow name, so it does not collide with a workflow-level group on the caller.
+
+This repository's own `zizmor.yml` workflow runs the same image with the pedantic persona and online audits. It keeps line-scoped inline ignores (`--no-config`), while `.github/zizmor.yml` holds the rule-wide exceptions the shared scan needs here.
