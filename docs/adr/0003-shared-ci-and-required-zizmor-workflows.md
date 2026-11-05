@@ -12,8 +12,8 @@ The reusable lint, format and test workflows (**Shared CI Workflows** `python-ci
 
 **Summary for managers**
 
-- **Cost**: about one runner minute per pull request for the zizmor scan, on top of the lint and test jobs a repository already runs, and one admin change per release that touches the scan.
-- **Friction**: a pull request that adds a risky workflow pattern is blocked until it is fixed or a rule-wide exception is merged first; rollout is repository by repository, so no repository turns red by surprise.
+- **Cost**: about one runner minute per pull request for the zizmor scan, on top of the lint and test jobs a repository already runs, and one monthly admin step to upgrade zizmor.
+- **Friction**: a pull request that adds a risky workflow pattern is blocked until it is fixed or a rule-wide exception is merged first; repositories are gated one by one once green, but a zizmor upgrade reaches every gated repository at once, so it is dry-run on the dashboard first.
 - **Value**: one maintained, pinned CI for Python and TypeScript repositories, and a GitHub Actions security gate that pull requests cannot switch off.
 
 ## Context
@@ -36,11 +36,15 @@ An organization ruleset can require a workflow to pass ("Require workflows to pa
 - **Exceptions are rule-wide and merged first.** The config comes from the base commit on pull requests and merge groups, and under `--no-ignores` only `rules.<id>.disable` and rule options apply. An exception is merged to the default branch in its own pull request, behind code owner review on `.github/**`, before the pull request that needs it.
 - **Only the ruleset rule is the gate.** "Require workflows to pass before merging" pins the repository, path and SHA of the workflow that must pass. A required status check matched by the name `zizmor` is not used: a pull request can satisfy it with a job of the same name in a workflow it adds or edits.
 - **Rollout is progressive.** The repo-baseline dashboard first reports which repositories would fail. The ruleset targets repositories whose `zizmor-gate` custom property is `true`, set repository by repository once green, then all `kind=code` repositories. The ruleset and the property are defined in repo-baseline and applied by admins.
-- **Versions move forward only.** Callers pin a release SHA and Renovate proposes the next one. A bad release is fixed forward with a patch release, never by moving or deleting a tag; a caller can stay on, or go back to, the previous SHA meanwhile. The ruleset pins `zizmor-scan.yml` by ref in the organization settings, outside any repository file, so bumping or rolling it back is an admin change.
+- **Versions move forward only.** Callers pin a release SHA and Renovate proposes the next one. A bad release is fixed forward with a patch release, never by moving or deleting a tag; a caller can stay on, or go back to, the previous SHA meanwhile. The ruleset pins `zizmor-scan.yml` by SHA; its JSON lives in repo-baseline as code (repo-baseline ADR 0001), so bumping or rolling it back is a reviewed pull request there, which Renovate can propose, applied by an admin.
 
 ## Consequences
 
-- A `feat:` change to any shared workflow cuts a minor release that Renovate proposes to every caller; changes to `zizmor-scan.yml` also need an admin to move the ruleset SHA.
+- A `feat:` change to any shared workflow cuts a minor release that Renovate proposes to every caller; changes to `zizmor-scan.yml` also need a reviewed repo-baseline pull request that moves the ruleset SHA.
+- zizmor upgrades are one monthly admin step: approve the Renovate update, release, dry-run the new version in the repo-baseline dashboard, then bump the ruleset SHA.
+- In an emergency an organization owner unsets the repository's `zizmor-gate` property or disables the ruleset; nobody merges around it. Gated repositories drop any direct `workflow_call` of the scan, which would otherwise run twice.
+- The job fails on symlinked `action.yml`/`action.yaml` files and on symlinks in `.github`: the runner follows them, but zizmor audits the target under its own name or skips it when it lies outside the checkout.
+- Files zizmor cannot parse (test fixtures, Jinja or copier templates) fail strict collection and cannot be excepted; the dashboard dry run surfaces them before a repository is gated.
 - The check shows as `zizmor` in the ruleset run and as `<caller job> / zizmor` when called as a reusable workflow. Keep the job name stable so callers' checks keep their names.
 - Every pull request in a gated repository pulls the zizmor image from GHCR. The only action the scan uses is `actions/checkout`, so it is the only entry the organization actions allowlist needs; `docker run` in a script is not covered by that allowlist.
 - GHCR publishes no release timestamps, so Renovate's 7-day cooldown cannot apply to the image: zizmor updates (version and digest, through a regex manager) wait for Dependency Dashboard approval, given once the same version has been on PyPI for 7 days.

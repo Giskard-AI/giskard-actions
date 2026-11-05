@@ -49,7 +49,7 @@ A `workflow_call` workflow (`.github/workflows/python-ci.yml` or `.github/workfl
 _Avoid_: CI template, starter workflow
 
 **Required Scan Workflow**:
-`.github/workflows/zizmor-scan.yml`, run on the pull requests and merge groups of code repositories by an organization ruleset ("Require workflows to pass before merging") that pins its repository, path and commit SHA, and also callable as a reusable workflow. It runs a digest-pinned zizmor image offline on every Actions file of the pull request, ignores inline ignore comments, and reads the zizmor config, the only source of a **zizmor Exception**, from the pull request's base commit. Only that ruleset rule is a trustworthy gate: a required status check matched by the name `zizmor` can be satisfied by a job the pull request adds itself. Renovate cannot bump the ruleset's SHA; an organization admin does.
+`.github/workflows/zizmor-scan.yml`, run on the pull requests and merge groups of code repositories by an organization ruleset ("Require workflows to pass before merging") that pins its repository, path and commit SHA, and also callable as a reusable workflow. It runs a digest-pinned zizmor image offline on every Actions file of the pull request, ignores inline ignore comments, and reads the zizmor config, the only source of a **zizmor Exception**, from the pull request's base commit. Only that ruleset rule is a trustworthy gate: a required status check matched by the name `zizmor` can be satisfied by a job the pull request adds itself. The ruleset JSON lives in repo-baseline as code, so its SHA moves through a reviewed pull request there, which Renovate can propose.
 _Avoid_: Org workflow, global zizmor, zizmor shim
 
 **zizmor Gate**:
