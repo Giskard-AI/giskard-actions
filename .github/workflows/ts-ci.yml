@@ -11,13 +11,21 @@ on:
         type: string
         default: "26"
       working-directory:
-        description: Directory holding package.json and package-lock.json, relative to the repository root
+        description: Directory holding package.json, relative to the repository root
         type: string
         default: "."
       runner:
         description: Runner label for both jobs
         type: string
         default: ubuntu-latest
+      cache:
+        description: Package manager whose cache setup-node restores (npm or yarn). Empty disables caching.
+        type: string
+        default: npm
+      cache-dependency-path:
+        description: Lockfile(s) keying the cache, relative to the repository root. Empty means <working-directory>/package-lock.json.
+        type: string
+        default: ""
       install-command:
         description: Shell command that installs dependencies
         type: string
@@ -29,11 +37,15 @@ on:
       format-command:
         description: Shell command of the format check step
         type: string
-        default: "npx prettier --check ."
+        default: "npx --no prettier --check ."
       test-command:
         description: Shell command of the test job
         type: string
         default: "npm test"
+      timeout-minutes:
+        description: Timeout of each job in minutes
+        type: number
+        default: 30
 
 permissions: {}
 
@@ -41,6 +53,7 @@ jobs:
   lint:
     name: lint
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
     permissions:
       contents: read
     defaults:
@@ -57,8 +70,9 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ inputs.node-version }}
-          cache: npm
-          cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
+          cache: ${{ inputs.cache }}
+          cache-dependency-path: ${{ inputs.cache-dependency-path || format('{0}/package-lock.json', inputs.working-directory) }}
+          package-manager-cache: false
 
       - name: Install dependencies
         env:
@@ -78,6 +92,7 @@ jobs:
   test:
     name: test
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
     permissions:
       contents: read
     defaults:
@@ -94,8 +109,9 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ inputs.node-version }}
-          cache: npm
-          cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
+          cache: ${{ inputs.cache }}
+          cache-dependency-path: ${{ inputs.cache-dependency-path || format('{0}/package-lock.json', inputs.working-directory) }}
+          package-manager-cache: false
 
       - name: Install dependencies
         env:
