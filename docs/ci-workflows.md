@@ -148,18 +148,26 @@ Both CI workflows and the zizmor scan only need `contents: read`. Grant it on th
 
 ## zizmor scan
 
+### zizmor failed on my PR?
+{: #zizmor-failed-on-my-pr }
+
+- **Fix the finding.** The annotation names the rule and links its documentation.
+- **For a justified exception**, merge a `.github/zizmor.yml` change in a separate pull request first (see [Exceptions](#exceptions)), then push a commit or click **Update branch** on your pull request. Editing the config in the same pull request has no effect: it is read from the base commit. Inline `# zizmor: ignore` comments are not honoured.
+- **Re-running the failed job does not pick up a newly merged exception.** A re-run reuses the original event, so the same base commit and config.
+- **A symlinked action, workflow or `.github` file fails the scan.** Commit the file itself.
+
+### How it runs
+
 `zizmor-scan.yml` runs [zizmor](https://docs.zizmor.sh/) 1.32.0 from its container image, pinned by digest (`ghcr.io/zizmorcore/zizmor:<version>@sha256:...`), with the default persona. Findings appear as annotations on the pull request and fail the `zizmor` job, which times out after 10 minutes.
 
 - **PR content cannot touch the scanner.** The pull request is checked out into `src/` and mounted read-only into the container, which runs without network. The config is checked out into a sibling directory, never inside `src/`.
+- **No symlinked Actions files.** The runner follows a symlink when it loads a local action, but zizmor audits the target under its own name, or skips it when the target is outside the checkout. The job fails before scanning if `action.yml`, `action.yaml`, a `.github` directory or anything under one is a symlink.
 - **Config from the base commit.** On `pull_request` and `merge_group` runs, the zizmor config is read from the base commit (`github.event.pull_request.base.sha` or `github.event.merge_group.base_sha`), in zizmor's discovery order: `.github/zizmor.yml`, `.github/zizmor.yaml`, `zizmor.yml`, `zizmor.yaml`. With none, an empty config (`rules: {}`) is used. On other events, such as a reusable call from a `push` workflow, the config of the scanned commit is used.
 - **No ignores from the pull request.** zizmor runs with `--no-ignores`: inline `# zizmor: ignore[...]` comments and the config's `ignore:` entries are not honoured. See [Exceptions](#exceptions).
 - **Every file counts.** `--collect=all` audits workflows, composite actions, Dependabot and pre-commit files even when `.gitignore` lists them, since GitHub runs a force-added workflow regardless. `--strict-collection` fails on a file zizmor cannot parse.
 - **Offline.** Online audits (known vulnerable actions, impostor commits, ref confusion) depend on external advisories and could turn every pull request in the organization red without a code change. They run in the weekly repo-baseline scan instead.
 - **No files is a pass.** A repository with nothing to audit passes with a notice.
 - **Never call it from `pull_request_target`.** That event checks out the base branch, so the scan would pass on code the pull request does not contain.
-
-> **zizmor failed on my PR?**
-> Fix the finding; the annotation names the rule and links its documentation. For a justified exception, merge a `.github/zizmor.yml` change in a separate pull request first, then rebase. The config is read from the base commit, so editing it in the same pull request has no effect, and inline `# zizmor: ignore` comments are not honoured.
 
 ### Exceptions
 
@@ -173,6 +181,8 @@ rules:
 
 Rules with options (`rules.<id>.config`, for example the `unpinned-uses` policies) can be tuned there as well. A disabled rule no longer reports anywhere in the repository, so keep the reason next to it and require code owner review on `.github/**` (a `CODEOWNERS` entry plus "Require review from Code Owners").
 
+Strict collection failures cannot be excepted: a file zizmor cannot parse (test fixtures, Jinja or copier templates, syntax zizmor does not support) fails the scan. The repo-baseline dashboard dry run surfaces them before a repository is gated.
+
 ### Rollout with an organization ruleset
 
 The workflow triggers on `pull_request` and `merge_group`, so an organization ruleset can run it on code repositories without a caller file. The rollout is progressive (rulesets have no Evaluate mode outside GitHub Enterprise):
@@ -181,11 +191,15 @@ The workflow triggers on `pull_request` and `merge_group`, so an organization ru
 2. An organization ruleset with **Require workflows to pass before merging** requires `.github/workflows/zizmor-scan.yml` from `Giskard-AI/giskard-actions` at the full commit SHA of a release, for repositories whose `zizmor-gate` custom property is `true`. Admins set the property repository by repository once each one is green.
 3. Once every code repository is green, the ruleset targets all repositories with `kind=code`.
 
-The ruleset and the `zizmor-gate` property are defined in repo-baseline and applied by admins, not in this repository.
+The ruleset JSON and the `zizmor-gate` property live in repo-baseline as code (repo-baseline ADR 0001) and change through a reviewed pull request there, where Renovate can propose the workflow SHA bump; admins apply them.
 
 Only this rule is a trustworthy gate: it pins the repository, path and SHA of the workflow that must pass. A required status check that matches the name `zizmor` can be satisfied by a job of the same name in a workflow the pull request itself adds or edits. The check shows as `zizmor` in the ruleset run and as `<caller job> / zizmor` when the workflow is called as a reusable workflow.
 
-The ruleset's SHA lives in the organization settings, not in a repository file, so Renovate cannot bump it. An organization admin updates it when a release changes `zizmor-scan.yml`.
+### Operations
+
+- **Emergency.** If the scan blocks a repository and cannot be fixed in time, an organization owner unsets that repository's `zizmor-gate` property, or disables the ruleset. Never merge around it with a bypass.
+- **Gated repositories drop their direct call.** Once the ruleset gates a repository, remove any `workflow_call` of `zizmor-scan.yml` from it, or the scan runs twice.
+- **zizmor upgrades are one monthly admin step.** A ruleset bump reaches every gated repository at once, so: approve the update on the Renovate Dependency Dashboard, cut the release, dry-run the new version in the repo-baseline dashboard, then bump the ruleset SHA in repo-baseline.
 
 ### Dependencies
 

@@ -2,6 +2,7 @@
 
 import json
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -267,8 +268,95 @@ def test_renovate_tracks_zizmor_image(path: Path):
     ],
 )
 def test_zizmor_scan_flags(flag: str):
-    (script,) = run_scripts((WORKFLOWS_DIR / "zizmor-scan.yml").read_text())
-    assert flag in script
+    assert flag in zizmor_scan_script("docker run")
+
+
+def zizmor_scan_script(marker: str) -> str:
+    (script,) = [
+        s for s in run_scripts((WORKFLOWS_DIR / "zizmor-scan.yml").read_text()) if marker in s
+    ]
+    return script
+
+
+ACTION = "name: a\ndescription: a\nruns:\n  using: composite\n  steps: []\n"
+
+
+@pytest.mark.parametrize(
+    ("files", "links", "rejected"),
+    [
+        pytest.param({"x/action.yml": ACTION}, {}, [], id="regular-action-passes"),
+        pytest.param(
+            {"README.md": "hi"}, {"docs/link.md": "../README.md"}, [], id="unrelated-symlink-passes"
+        ),
+        pytest.param(
+            {"docs/notes.txt": ACTION},
+            {"x/action.yml": "../docs/notes.txt"},
+            ["x/action.yml"],
+            id="symlinked-action-yml-rejected",
+        ),
+        pytest.param(
+            {"docs/notes.txt": ACTION},
+            {"x/action.yaml": "../docs/notes.txt"},
+            ["x/action.yaml"],
+            id="symlinked-action-yaml-rejected",
+        ),
+        pytest.param(
+            {},
+            {"x/action.yml": "/home/runner/work/repo/repo/docs/notes.txt"},
+            ["x/action.yml"],
+            id="dangling-absolute-action-symlink-rejected",
+        ),
+        pytest.param(
+            {"docs/wf.txt": "on: push\n"},
+            {".github/workflows/ci.yml": "../../docs/wf.txt"},
+            [".github/workflows/ci.yml"],
+            id="symlinked-workflow-rejected",
+        ),
+        pytest.param(
+            {"ci/workflows/ci.yml": "on: push\n"},
+            {".github": "ci"},
+            [".github"],
+            id="symlinked-github-dir-rejected",
+        ),
+        pytest.param(
+            {"dependabot.yml": "version: 2\n"},
+            {"pkg/.github/dependabot.yml": "../../dependabot.yml"},
+            ["pkg/.github/dependabot.yml"],
+            id="nested-github-symlink-rejected",
+        ),
+        pytest.param(
+            {"notes.txt": ACTION},
+            {".git/x/action.yml": "../../notes.txt"},
+            [],
+            id="git-dir-ignored",
+        ),
+    ],
+)
+def test_zizmor_scan_rejects_symlinked_actions_files(
+    tmp_path: Path, files: dict[str, str], links: dict[str, str], rejected: list[str]
+):
+    for name, content in files.items():
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_text(content)
+    for name, target in links.items():
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).symlink_to(target)
+    result = subprocess.run(
+        ["bash", "-c", zizmor_scan_script("find . ")],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == (1 if rejected else 0)
+    assert re.findall(r"^::error file=([^,]+),", result.stdout, re.MULTILINE) == rejected
+
+
+def test_zizmor_scan_failure_points_to_exception_docs():
+    script = zizmor_scan_script("docker run")
+    assert "ci-workflows.html#zizmor-failed-on-my-pr" in script
+    docs = (WORKFLOWS_DIR.parents[1] / "docs" / "ci-workflows.md").read_text()
+    assert "### zizmor failed on my PR?\n{: #zizmor-failed-on-my-pr }\n" in docs
 
 
 @pytest.mark.parametrize(

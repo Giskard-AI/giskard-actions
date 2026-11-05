@@ -49,6 +49,22 @@ jobs:
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
+      # The runner follows symlinks when it loads a local action, but zizmor
+      # audits the link's target under its own name, or skips it when the
+      # target is outside the checkout.
+      - name: Reject symlinked Actions files
+        shell: bash
+        working-directory: src
+        run: |
+          mapfile -t links < <(find . -path ./.git -prune -o -type l \
+            \( -name action.yml -o -name action.yaml -o -name .github -o -path '*/.github/*' \) -print)
+          for link in "${links[@]}"; do
+            echo "::error file=${link#./},title=zizmor::${link#./} is a symlink. Commit the file itself: zizmor cannot audit what a symlinked action, workflow or .github file points to."
+          done
+          if (( ${#links[@]} )); then
+            exit 1
+          fi
+
       - name: Run zizmor
         shell: bash
         run: |
@@ -76,5 +92,8 @@ jobs:
           if [[ "${status}" -eq 3 ]]; then
             echo "::notice title=zizmor::No workflow, action, Dependabot or pre-commit files to audit."
             exit 0
+          fi
+          if [[ "${status}" -ne 0 ]]; then
+            echo "::error title=zizmor failed::Fix the findings, or merge a rule-wide exception to .github/zizmor.yml in a separate pull request first, then push a commit or click Update branch (re-running this job keeps the old base commit). See https://giskard-ai.github.io/giskard-actions/ci-workflows.html#zizmor-failed-on-my-pr"
           fi
           exit "${status}"
