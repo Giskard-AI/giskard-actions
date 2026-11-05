@@ -1,5 +1,6 @@
 """Static security checks on .github/workflows/*.yml, parsed line by line (no YAML dependency)."""
 
+import json
 import re
 from pathlib import Path
 
@@ -216,3 +217,61 @@ def test_dependency_cache_is_off_by_default(
 )
 def test_tool_version_defaults(workflow: str, name: str, expected: str):
     assert input_default((WORKFLOWS_DIR / f"{workflow}.yml").read_text(), name) == expected
+
+
+ZIZMOR_WORKFLOW_FILES = [WORKFLOWS_DIR / f"{name}.yml" for name in ("zizmor", "zizmor-scan")]
+ZIZMOR_IMAGE_RE = re.compile(
+    r"^      ZIZMOR_IMAGE: ghcr\.io/zizmorcore/zizmor:\d+\.\d+\.\d+@sha256:[0-9a-f]{64}$",
+    re.MULTILINE,
+)
+
+
+@pytest.mark.parametrize("path", ZIZMOR_WORKFLOW_FILES, ids=lambda p: p.stem)
+def test_zizmor_image_is_digest_pinned(path: Path):
+    text = path.read_text()
+    assert len(ZIZMOR_IMAGE_RE.findall(text)) == 1
+    assert "zizmorcore/zizmor-action" not in text
+
+
+def test_zizmor_workflows_share_one_image():
+    images = {ZIZMOR_IMAGE_RE.search(path.read_text())[0] for path in ZIZMOR_WORKFLOW_FILES}
+    assert len(images) == 1
+
+
+@pytest.mark.parametrize("path", ZIZMOR_WORKFLOW_FILES, ids=lambda p: p.stem)
+def test_renovate_tracks_zizmor_image(path: Path):
+    config = json.loads((WORKFLOWS_DIR.parents[1] / "renovate.json").read_text())
+    (manager,) = [m for m in config["customManagers"] if m.get("datasourceTemplate") == "docker"]
+    assert any(
+        re.search(p.strip("/"), f".github/workflows/{path.name}")
+        for p in manager["managerFilePatterns"]
+    )
+    (pattern,) = manager["matchStrings"]
+    match = re.search(pattern.replace("(?<", "(?P<"), path.read_text())
+    assert match and match["currentDigest"].startswith("sha256:")
+
+
+@pytest.mark.parametrize(
+    "flag",
+    [
+        pytest.param("--collect=all", id="audits-gitignored-files"),
+        pytest.param("--strict-collection", id="fails-on-unparsable-files"),
+        pytest.param("--no-ignores", id="drops-pull-request-ignores"),
+        pytest.param("--offline", id="runs-offline"),
+        pytest.param("--format=github", id="annotates-findings"),
+        pytest.param("--network none", id="container-has-no-network"),
+        pytest.param(
+            '--volume "${GITHUB_WORKSPACE}/src:/src:ro"', id="pull-request-mounted-read-only"
+        ),
+        pytest.param("--config=/config/zizmor.yml", id="config-from-outside-the-checkout"),
+    ],
+)
+def test_zizmor_scan_flags(flag: str):
+    (script,) = run_scripts((WORKFLOWS_DIR / "zizmor-scan.yml").read_text())
+    assert flag in script
+
+
+def test_zizmor_scan_checkouts_do_not_overlap():
+    steps = checkout_steps((WORKFLOWS_DIR / "zizmor-scan.yml").read_text())
+    paths = [re.search(r"^\s+path: (\S+)$", step, re.MULTILINE)[1] for step in steps]
+    assert paths == ["src", "config"]

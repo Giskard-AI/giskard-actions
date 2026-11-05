@@ -1,8 +1,9 @@
 name: zizmor scan
 
-# Enforced on every code repository by an organization ruleset ("Require
-# workflows to pass") and callable as a reusable workflow. Checkout targets the
-# repository the run belongs to. Callers must grant at least contents: read.
+# Enforced on code repositories by an organization ruleset ("Require workflows
+# to pass") and callable as a reusable workflow. Callers must grant at least
+# contents: read. A pull_request_target caller would scan the base branch, not
+# the pull request.
 
 on:
   pull_request:
@@ -18,26 +19,27 @@ concurrency:
 jobs:
   zizmor:
     name: zizmor
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: read
     env:
       # A pull request could disable rules in its own zizmor config, so pull
       # requests and merge groups use the config of their base commit.
-      BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+      CONFIG_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.sha }}
+      ZIZMOR_IMAGE: ghcr.io/zizmorcore/zizmor:1.32.0@sha256:3014cc8f68f663935f69b3c3e0e41f5ce102b268d97db13db0f62208747f860d
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          path: src
           persist-credentials: false
 
-      - name: Checkout zizmor config of the base commit
-        if: env.BASE_SHA != ''
+      - name: Checkout zizmor config
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ env.BASE_SHA }}
-          path: .zizmor-base
+          ref: ${{ env.CONFIG_SHA }}
+          path: config
           filter: blob:none
           sparse-checkout: |
             /.github/zizmor.yml
@@ -47,29 +49,32 @@ jobs:
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
-      - name: Select zizmor config of the base commit
-        id: config
-        if: env.BASE_SHA != ''
+      - name: Run zizmor
         shell: bash
         run: |
-          config="${RUNNER_TEMP}/zizmor.yml"
-          echo "rules: {}" > "${config}"
+          config_dir="${RUNNER_TEMP}/zizmor-config"
+          mkdir -p "${config_dir}"
+          echo "rules: {}" > "${config_dir}/zizmor.yml"
           # zizmor's own discovery order; the first file found wins.
           for candidate in .github/zizmor.yml .github/zizmor.yaml zizmor.yml zizmor.yaml; do
-            if [[ -f ".zizmor-base/${candidate}" ]]; then
-              cp ".zizmor-base/${candidate}" "${config}"
-              echo "Using ${candidate} from ${BASE_SHA}"
+            if [[ -f "config/${candidate}" ]]; then
+              cp "config/${candidate}" "${config_dir}/zizmor.yml"
+              echo "Using ${candidate} from ${CONFIG_SHA}"
               break
             fi
           done
-          rm -rf .zizmor-base
-          echo "path=${config}" >> "${GITHUB_OUTPUT}"
 
-      - name: Run zizmor
-        uses: zizmorcore/zizmor-action@45d7276c9ca790aabd705e31ca99c6185c3e76dd # v0.8.1
-        with:
-          advanced-security: false
-          annotations: true
-          config: ${{ steps.config.outputs.path }}
-          fail-on-no-inputs: false
-          version: "1.32.0"
+          status=0
+          docker run --rm --network none --read-only \
+            --volume "${GITHUB_WORKSPACE}/src:/src:ro" \
+            --volume "${config_dir}:/config:ro" \
+            --workdir /src \
+            "${ZIZMOR_IMAGE}" \
+            --offline --format=github --collect=all --strict-collection --no-ignores \
+            --config=/config/zizmor.yml . || status=$?
+
+          if [[ "${status}" -eq 3 ]]; then
+            echo "::notice title=zizmor::No workflow, action, Dependabot or pre-commit files to audit."
+            exit 0
+          fi
+          exit "${status}"

@@ -14,18 +14,26 @@ concurrency:
 jobs:
   zizmor:
     name: zizmor
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
+    env:
+      ZIZMOR_IMAGE: ghcr.io/zizmorcore/zizmor:1.32.0@sha256:3014cc8f68f663935f69b3c3e0e41f5ce102b268d97db13db0f62208747f860d
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          path: src
           persist-credentials: false
 
       - name: Run zizmor
-        uses: zizmorcore/zizmor-action@45d7276c9ca790aabd705e31ca99c6185c3e76dd # v0.8.1
-        with:
-          advanced-security: false
-          persona: pedantic
-          version: "1.32.0"
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          docker run --rm --read-only --tmpfs /root/.cache --env GH_TOKEN \
+            --volume "${GITHUB_WORKSPACE}/src:/src:ro" \
+            --workdir /src \
+            "${ZIZMOR_IMAGE}" \
+            --persona=pedantic --format=github --collect=all --strict-collection --no-config .

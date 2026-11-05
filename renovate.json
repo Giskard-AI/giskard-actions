@@ -33,10 +33,10 @@
       "groupSlug": "python-deps"
     },
     {
-      "description": "GHCR gives zizmor images no release timestamp, which minimumReleaseAge needs; read zizmor releases from PyPI instead.",
+      "description": "GHCR gives zizmor images no release timestamp, so minimumReleaseAge cannot apply: wait for Dependency Dashboard approval, given once the PyPI release of the same version is 7 days old.",
       "matchPackageNames": ["ghcr.io/zizmorcore/zizmor"],
-      "overrideDatasource": "pypi",
-      "overridePackageName": "zizmor"
+      "minimumReleaseAgeBehaviour": "timestamp-optional",
+      "dependencyDashboardApproval": true
     }
   ],
   "customManagers": [
@@ -54,6 +54,15 @@
       ],
       "depNameTemplate": "@openai/codex",
       "datasourceTemplate": "npm"
+    },
+    {
+      "customType": "regex",
+      "description": "zizmor image (version and digest) run by the zizmor workflows.",
+      "managerFilePatterns": ["/^\\.github/workflows/zizmor(-scan)?\\.yml$/"],
+      "matchStrings": [
+        "ZIZMOR_IMAGE: (?<depName>ghcr\\.io/zizmorcore/zizmor):(?<currentValue>\\d+\\.\\d+\\.\\d+)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker"
     }
   ]
 }
