@@ -360,6 +360,20 @@ def test_zizmor_scan_failure_points_to_exception_docs():
 
 
 @pytest.mark.parametrize(
+    "workflow",
+    [
+        pytest.param("python-ci", id="python-ci-lint-and-test-checks"),
+        pytest.param("ts-ci", id="ts-ci-lint-and-test-checks"),
+    ],
+)
+def test_shared_ci_job_names(workflow: str):
+    jobs = job_blocks((WORKFLOWS_DIR / f"{workflow}.yml").read_text())
+    assert list(jobs) == ["lint", "test"]
+    for job, block in jobs.items():
+        assert re.search(rf"^    name: {job}$", block, re.MULTILINE), job
+
+
+@pytest.mark.parametrize(
     ("workflow", "job"),
     [
         pytest.param("zizmor-scan", "zizmor", id="shared-scan-owns-the-zizmor-check"),
