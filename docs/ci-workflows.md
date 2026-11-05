@@ -219,4 +219,4 @@ jobs:
 
 Its `pull_request` and `merge_group` triggers are ignored when called; the caller's triggers apply, and the base commit is still read from the caller's event. Its concurrency group appends `zizmor-scan` to the caller's workflow name, so it does not collide with a workflow-level group on the caller.
 
-This repository's own `zizmor.yml` workflow runs the same image with the pedantic persona and online audits. It keeps line-scoped inline ignores (`--no-config`), while `.github/zizmor.yml` holds the rule-wide exceptions the shared scan needs here.
+This repository's own `zizmor.yml` workflow (job `zizmor-pedantic`, so the `zizmor` check name stays unique) runs the same image with the pedantic persona and online audits. It keeps line-scoped inline ignores (`--no-config`), while `.github/zizmor.yml` holds the rule-wide exceptions the shared scan needs here.

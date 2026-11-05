@@ -12,8 +12,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  zizmor:
-    name: zizmor
+  zizmor-pedantic:
+    name: zizmor-pedantic
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

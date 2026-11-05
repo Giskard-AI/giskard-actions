@@ -271,6 +271,19 @@ def test_zizmor_scan_flags(flag: str):
     assert flag in script
 
 
+@pytest.mark.parametrize(
+    ("workflow", "job"),
+    [
+        pytest.param("zizmor-scan", "zizmor", id="shared-scan-owns-the-zizmor-check"),
+        pytest.param("zizmor", "zizmor-pedantic", id="own-pedantic-scan-has-a-distinct-check"),
+    ],
+)
+def test_zizmor_job_names(workflow: str, job: str):
+    jobs = job_blocks((WORKFLOWS_DIR / f"{workflow}.yml").read_text())
+    assert list(jobs) == [job]
+    assert f"    name: {job}\n" in jobs[job] + "\n"
+
+
 def test_zizmor_scan_checkouts_do_not_overlap():
     steps = checkout_steps((WORKFLOWS_DIR / "zizmor-scan.yml").read_text())
     paths = [re.search(r"^\s+path: (\S+)$", step, re.MULTILINE)[1] for step in steps]
