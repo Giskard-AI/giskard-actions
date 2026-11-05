@@ -1,0 +1,109 @@
+name: Python CI (reusable)
+
+# Callers own the triggers and concurrency, and must grant at least
+# contents: read.
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: Python version installed by setup-uv
+        type: string
+        default: "3.12"
+      uv-version:
+        description: uv version pin
+        type: string
+        default: "0.13.6"
+      working-directory:
+        description: Directory holding pyproject.toml and uv.lock, relative to the repository root
+        type: string
+        default: "."
+      runner:
+        description: Runner label for both jobs
+        type: string
+        default: ubuntu-latest
+      sync-args:
+        description: Arguments passed to `uv sync`, split on whitespace
+        type: string
+        default: "--locked --all-groups"
+      lint-command:
+        description: Shell command of the lint job (format check and lint)
+        type: string
+        default: "uv run ruff format --check . && uv run ruff check ."
+      test-command:
+        description: Shell command of the test job
+        type: string
+        default: "uv run pytest"
+
+permissions: {}
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ${{ inputs.runner }}
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ inputs.uv-version }}
+          python-version: ${{ inputs.python-version }}
+          working-directory: ${{ inputs.working-directory }}
+          enable-cache: true
+
+      - name: Sync dependencies
+        env:
+          UV_SYNC_ARGS: ${{ inputs.sync-args }}
+        run: |
+          read -ra sync_args <<< "${UV_SYNC_ARGS}"
+          uv sync "${sync_args[@]}"
+
+      - name: Check formatting and lint
+        env:
+          LINT_COMMAND: ${{ inputs.lint-command }}
+        run: bash -eo pipefail -c "${LINT_COMMAND}"
+
+  test:
+    name: test
+    runs-on: ${{ inputs.runner }}
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ inputs.uv-version }}
+          python-version: ${{ inputs.python-version }}
+          working-directory: ${{ inputs.working-directory }}
+          enable-cache: true
+
+      - name: Sync dependencies
+        env:
+          UV_SYNC_ARGS: ${{ inputs.sync-args }}
+        run: |
+          read -ra sync_args <<< "${UV_SYNC_ARGS}"
+          uv sync "${sync_args[@]}"
+
+      - name: Run tests
+        env:
+          TEST_COMMAND: ${{ inputs.test-command }}
+        run: bash -eo pipefail -c "${TEST_COMMAND}"

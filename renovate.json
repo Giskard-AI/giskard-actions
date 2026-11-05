@@ -54,6 +54,20 @@
       ],
       "depNameTemplate": "@openai/codex",
       "datasourceTemplate": "npm"
+    },
+    {
+      "customType": "regex",
+      "description": "Default uv version of the reusable Python CI workflow and docs.",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/python-ci\\.yml$/",
+        "/^docs/ci-workflows\\.md$/"
+      ],
+      "matchStrings": [
+        "uv-version:\\n(?:\\s+(?:description|type|required): .*\\n)+\\s+default: \"(?<currentValue>\\d+\\.\\d+\\.\\d+)\"",
+        "\\| `uv-version` \\| string \\| `(?<currentValue>\\d+\\.\\d+\\.\\d+)` \\|"
+      ],
+      "depNameTemplate": "uv",
+      "datasourceTemplate": "pypi"
     }
   ]
 }
