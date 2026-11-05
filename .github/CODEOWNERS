@@ -1,1 +1,7 @@
 * @Giskard-AI/r-d
+
+# Last match wins: zizmor exceptions, workflows, actions and this file need an admin.
+/.github/zizmor.yml @Hartorn @pierlj
+/.github/workflows/ @Hartorn @pierlj
+/.github/actions/ @Hartorn @pierlj
+/.github/CODEOWNERS @Hartorn @pierlj
