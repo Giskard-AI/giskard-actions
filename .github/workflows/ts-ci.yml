@@ -19,9 +19,9 @@ on:
         type: string
         default: ubuntu-latest
       cache:
-        description: Package manager whose cache setup-node restores (npm or yarn). Empty disables caching.
+        description: Set to npm or yarn to opt in to setup-node's dependency cache; leave empty (off) in workflows that publish or hold secrets
         type: string
-        default: npm
+        default: ""
       cache-dependency-path:
         description: Lockfile(s) keying the cache, relative to the repository root. Empty means <working-directory>/package-lock.json.
         type: string

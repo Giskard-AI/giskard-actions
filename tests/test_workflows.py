@@ -168,3 +168,39 @@ def test_shared_workflow_jobs_set_timeout(path: Path):
     assert jobs
     for name, block in jobs.items():
         assert re.search(r"^    timeout-minutes: ", block, re.MULTILINE), f"job {name}"
+
+
+def input_default(text: str, name: str) -> str:
+    lines = text.splitlines()
+    start = lines.index(f"      {name}:")
+    (default,) = [
+        line for line in _children(lines, start, 6) if line.startswith("        default:")
+    ]
+    return default.split(":", 1)[1].strip()
+
+
+@pytest.mark.parametrize(
+    ("workflow", "cache_input", "off_value", "step_line"),
+    [
+        pytest.param(
+            "python-ci",
+            "enable-cache",
+            "false",
+            "enable-cache: ${{ inputs.enable-cache }}",
+            id="python-ci-setup-uv-cache-off",
+        ),
+        pytest.param(
+            "ts-ci",
+            "cache",
+            '""',
+            "cache: ${{ inputs.cache }}",
+            id="ts-ci-setup-node-cache-off",
+        ),
+    ],
+)
+def test_dependency_cache_is_off_by_default(
+    workflow: str, cache_input: str, off_value: str, step_line: str
+):
+    text = (WORKFLOWS_DIR / f"{workflow}.yml").read_text()
+    assert input_default(text, cache_input) == off_value
+    assert text.count(f"          {step_line}\n") == len(job_blocks(text))
