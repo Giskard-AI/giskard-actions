@@ -1325,6 +1325,23 @@ runs:
         codex-args: >-
           ["--ephemeral","--config","model_catalog_json=\"${{ inputs.model_catalog_path != '' && inputs.model_catalog_path || format('{0}/../../../.github/codex/azure-model-catalog.json', github.action_path) }}\""]
 
+    - name: TEMP verify Codex User isolation
+      if: steps.resolve.outputs.should_run == 'true'
+      run: |
+        info="/home/codex/.codex/${GITHUB_RUN_ID}.json"
+        pid="$(sudo cat "$info" | python3 -c 'import json,sys; print(json.load(sys.stdin)["pid"])')"
+        echo "runner: $(id); HOME=$HOME $(stat -c '%U:%G %a' "$HOME")"
+        echo "proxy: $(ps -o user=,pid=,comm= -p "$pid")"
+        sudo -u codex -- id
+        if sudo -u codex -- sudo -n true 2>/dev/null; then echo "FAIL: codex has sudo"; else echo "OK: codex has no sudo"; fi
+        ls -l /var/run/docker.sock 2>&1 || true
+        if sudo -u codex -- test -w /var/run/docker.sock; then echo "FAIL: codex can write docker.sock"; else echo "OK: codex cannot write docker.sock"; fi
+        if sudo -u codex -- docker ps >/dev/null 2>&1; then echo "FAIL: codex can use docker"; else echo "OK: codex cannot use docker"; fi
+        if sudo -u codex -- cat "/proc/$pid/maps" >/dev/null 2>&1; then echo "FAIL: proxy maps readable"; else echo "OK: proxy maps not readable"; fi
+        if sudo -u codex -- cat "/proc/$pid/environ" >/dev/null 2>&1; then echo "FAIL: proxy environ readable"; else echo "OK: proxy environ not readable"; fi
+        ls -la assessment/reviewer-outputs
+      shell: bash
+
     - name: Sanitize final review
       if: steps.resolve.outputs.should_run == 'true'
       env:

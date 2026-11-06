@@ -40,5 +40,6 @@ jobs:
     uses: $/.github/workflows/codex-pr-review.yml
     with:
       environment: ci
+      runner: ubuntu-latest
     secrets:
       AZURE_AI_API_KEY: ${{ secrets.AZURE_AI_API_KEY }}
