@@ -1,6 +1,6 @@
 name: Codex PR Code Review
 
-on: # zizmor: ignore[dangerous-triggers] -- gated to OWNER/MEMBER/COLLABORATOR on /review or /codex-assess
+on: # zizmor: ignore[dangerous-triggers] -- /review gated to OWNER/MEMBER/COLLABORATOR; Codex runs as the Codex User in a read-only, no-network sandbox; the API key stays in codex-action's proxy
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, labeled]
   issue_comment:

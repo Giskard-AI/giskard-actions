@@ -42,6 +42,14 @@ _Avoid_: Config spec, config template
 Trusted configuration and reviewer persona files (`.github/giskard/codex-reviewer-map.json`, `.cursor/agents/*.md`, and `.cursor/agents/references/*`) fetched strictly from the **Consumer Repository** pull request base commit rather than the untrusted pull request head. When a persona is missing, a generic **Bundled Overlay** from `.github/codex/overlays/` is used if one exists for that reviewer name.
 _Avoid_: PR head config, caller checkout config
 
+**Codex User**:
+The separate operating-system account, without `sudo`, that every reviewer pass and the aggregator of the **Reusable Review Workflow** run Codex as. It is distinct from the runner account, which holds the API key in `openai/codex-action`'s proxy, so Codex cannot read that key even after escaping its sandbox.
+_Avoid_: Guest user, sandbox user
+
+**Key Leak Check**:
+The check that fails the review job when the API key's value appears in any Codex output, before anything is uploaded or posted. It blocks the output rather than editing it.
+_Avoid_: Secret scan, redaction
+
 ### Release Notes Pipeline
 
 **Project Config**:

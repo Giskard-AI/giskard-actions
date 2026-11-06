@@ -6,7 +6,7 @@ inputs:
     description: Azure Responses-compatible API base URL
     required: true
   azure_ai_api_key:
-    description: Azure API key for Codex (mapped only onto openai/codex-action)
+    description: Azure API key for Codex (mapped only onto openai/codex-action and the Key Leak Check)
     required: true
   github_token:
     description: Token for GitHub API reads
@@ -91,6 +91,29 @@ runs:
         npm install -g "@openai/codex@${CODEX_VERSION}"
         if ! codex sandbox -- true; then
           echo "::error title=Codex sandbox unavailable::'codex sandbox -- true' failed on this runner; Codex cannot run its read-only bubblewrap sandbox. Use runner ubuntu-slim or ubuntu-latest, or on a self-hosted runner allow unprivileged user namespaces (kernel.apparmor_restrict_unprivileged_userns=0)."
+          exit 1
+        fi
+      shell: bash
+
+    - name: Create Codex User
+      if: steps.resolve.outputs.should_run == 'true'
+      run: |
+        set -euo pipefail
+        # Codex runs as this account, without sudo, so it can't read the memory of the
+        # codex-action proxy that holds the API key under the runner account.
+        if ! id -u codex >/dev/null 2>&1; then
+          sudo useradd --system --user-group --create-home --home-dir /home/codex --shell /bin/bash codex
+        fi
+        # codex-action's proxy runs as the runner and writes its server info under /home/codex/.codex.
+        sudo chmod 755 /home/codex
+        # The runner's home is not world-readable; the workspace and the action unpack live under it.
+        sudo usermod -a -G "$(stat -c %G "$HOME")" codex
+        # Codex writes each pass's output-file into assessment/.
+        mkdir -p assessment
+        sudo chgrp codex assessment
+        chmod 775 assessment
+        if sudo -n -u codex -- sudo -n true 2>/dev/null; then
+          echo "::error title=Codex User has sudo::The codex account can use sudo, so it could read the API key proxy's memory."
           exit 1
         fi
       shell: bash
@@ -186,8 +209,9 @@ runs:
         effort: ${{ steps.select.outputs.reviewer_0_effort }}
         prompt-file: assessment/reviewer-task.md
         output-file: assessment/reviewer-output-${{ steps.select.outputs.reviewer_0_name }}.json
-        sandbox: read-only
-        safety-strategy: read-only
+        permission-profile: ":read-only"
+        safety-strategy: unprivileged-user
+        codex-user: codex
         allow-bots: true
         allow-bot-users: "github-actions[bot],cursor[bot],renovate[bot]"
         codex-args: >-
@@ -203,6 +227,7 @@ runs:
         mkdir -p assessment/reviewer-outputs
         out="assessment/reviewer-output-${REVIEWER_NAME}.json"
         if [ "${CODEX_OUTCOME}" != "success" ] || [ ! -s "$out" ]; then
+          rm -f "$out"
           python3 - <<'PY'
         import json
         import os
@@ -234,7 +259,8 @@ runs:
         PY
         fi
         mv -f "$out" "assessment/reviewer-outputs/${REVIEWER_NAME}.json"
-        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md "${HOME}/.codex/config.toml"
+        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md
+        sudo rm -f /home/codex/.codex/config.toml
         rm -rf assessment/role-references
       shell: bash
 
@@ -275,8 +301,9 @@ runs:
         effort: ${{ steps.select.outputs.reviewer_1_effort }}
         prompt-file: assessment/reviewer-task.md
         output-file: assessment/reviewer-output-${{ steps.select.outputs.reviewer_1_name }}.json
-        sandbox: read-only
-        safety-strategy: read-only
+        permission-profile: ":read-only"
+        safety-strategy: unprivileged-user
+        codex-user: codex
         allow-bots: true
         allow-bot-users: "github-actions[bot],cursor[bot],renovate[bot]"
         codex-args: >-
@@ -292,6 +319,7 @@ runs:
         mkdir -p assessment/reviewer-outputs
         out="assessment/reviewer-output-${REVIEWER_NAME}.json"
         if [ "${CODEX_OUTCOME}" != "success" ] || [ ! -s "$out" ]; then
+          rm -f "$out"
           python3 - <<'PY'
         import json
         import os
@@ -323,7 +351,8 @@ runs:
         PY
         fi
         mv -f "$out" "assessment/reviewer-outputs/${REVIEWER_NAME}.json"
-        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md "${HOME}/.codex/config.toml"
+        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md
+        sudo rm -f /home/codex/.codex/config.toml
         rm -rf assessment/role-references
       shell: bash
 
@@ -364,8 +393,9 @@ runs:
         effort: ${{ steps.select.outputs.reviewer_2_effort }}
         prompt-file: assessment/reviewer-task.md
         output-file: assessment/reviewer-output-${{ steps.select.outputs.reviewer_2_name }}.json
-        sandbox: read-only
-        safety-strategy: read-only
+        permission-profile: ":read-only"
+        safety-strategy: unprivileged-user
+        codex-user: codex
         allow-bots: true
         allow-bot-users: "github-actions[bot],cursor[bot],renovate[bot]"
         codex-args: >-
@@ -381,6 +411,7 @@ runs:
         mkdir -p assessment/reviewer-outputs
         out="assessment/reviewer-output-${REVIEWER_NAME}.json"
         if [ "${CODEX_OUTCOME}" != "success" ] || [ ! -s "$out" ]; then
+          rm -f "$out"
           python3 - <<'PY'
         import json
         import os
@@ -412,7 +443,8 @@ runs:
         PY
         fi
         mv -f "$out" "assessment/reviewer-outputs/${REVIEWER_NAME}.json"
-        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md "${HOME}/.codex/config.toml"
+        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md
+        sudo rm -f /home/codex/.codex/config.toml
         rm -rf assessment/role-references
       shell: bash
 
@@ -453,8 +485,9 @@ runs:
         effort: ${{ steps.select.outputs.reviewer_3_effort }}
         prompt-file: assessment/reviewer-task.md
         output-file: assessment/reviewer-output-${{ steps.select.outputs.reviewer_3_name }}.json
-        sandbox: read-only
-        safety-strategy: read-only
+        permission-profile: ":read-only"
+        safety-strategy: unprivileged-user
+        codex-user: codex
         allow-bots: true
         allow-bot-users: "github-actions[bot],cursor[bot],renovate[bot]"
         codex-args: >-
@@ -470,6 +503,7 @@ runs:
         mkdir -p assessment/reviewer-outputs
         out="assessment/reviewer-output-${REVIEWER_NAME}.json"
         if [ "${CODEX_OUTCOME}" != "success" ] || [ ! -s "$out" ]; then
+          rm -f "$out"
           python3 - <<'PY'
         import json
         import os
@@ -501,7 +535,8 @@ runs:
         PY
         fi
         mv -f "$out" "assessment/reviewer-outputs/${REVIEWER_NAME}.json"
-        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md "${HOME}/.codex/config.toml"
+        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md
+        sudo rm -f /home/codex/.codex/config.toml
         rm -rf assessment/role-references
       shell: bash
 
@@ -542,8 +577,9 @@ runs:
         effort: ${{ steps.select.outputs.reviewer_4_effort }}
         prompt-file: assessment/reviewer-task.md
         output-file: assessment/reviewer-output-${{ steps.select.outputs.reviewer_4_name }}.json
-        sandbox: read-only
-        safety-strategy: read-only
+        permission-profile: ":read-only"
+        safety-strategy: unprivileged-user
+        codex-user: codex
         allow-bots: true
         allow-bot-users: "github-actions[bot],cursor[bot],renovate[bot]"
         codex-args: >-
@@ -559,6 +595,7 @@ runs:
         mkdir -p assessment/reviewer-outputs
         out="assessment/reviewer-output-${REVIEWER_NAME}.json"
         if [ "${CODEX_OUTCOME}" != "success" ] || [ ! -s "$out" ]; then
+          rm -f "$out"
           python3 - <<'PY'
         import json
         import os
@@ -590,7 +627,8 @@ runs:
         PY
         fi
         mv -f "$out" "assessment/reviewer-outputs/${REVIEWER_NAME}.json"
-        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md "${HOME}/.codex/config.toml"
+        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md
+        sudo rm -f /home/codex/.codex/config.toml
         rm -rf assessment/role-references
       shell: bash
 
@@ -631,8 +669,9 @@ runs:
         effort: ${{ steps.select.outputs.reviewer_5_effort }}
         prompt-file: assessment/reviewer-task.md
         output-file: assessment/reviewer-output-${{ steps.select.outputs.reviewer_5_name }}.json
-        sandbox: read-only
-        safety-strategy: read-only
+        permission-profile: ":read-only"
+        safety-strategy: unprivileged-user
+        codex-user: codex
         allow-bots: true
         allow-bot-users: "github-actions[bot],cursor[bot],renovate[bot]"
         codex-args: >-
@@ -648,6 +687,7 @@ runs:
         mkdir -p assessment/reviewer-outputs
         out="assessment/reviewer-output-${REVIEWER_NAME}.json"
         if [ "${CODEX_OUTCOME}" != "success" ] || [ ! -s "$out" ]; then
+          rm -f "$out"
           python3 - <<'PY'
         import json
         import os
@@ -679,7 +719,8 @@ runs:
         PY
         fi
         mv -f "$out" "assessment/reviewer-outputs/${REVIEWER_NAME}.json"
-        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md "${HOME}/.codex/config.toml"
+        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md
+        sudo rm -f /home/codex/.codex/config.toml
         rm -rf assessment/role-references
       shell: bash
 
@@ -720,8 +761,9 @@ runs:
         effort: ${{ steps.select.outputs.reviewer_6_effort }}
         prompt-file: assessment/reviewer-task.md
         output-file: assessment/reviewer-output-${{ steps.select.outputs.reviewer_6_name }}.json
-        sandbox: read-only
-        safety-strategy: read-only
+        permission-profile: ":read-only"
+        safety-strategy: unprivileged-user
+        codex-user: codex
         allow-bots: true
         allow-bot-users: "github-actions[bot],cursor[bot],renovate[bot]"
         codex-args: >-
@@ -737,6 +779,7 @@ runs:
         mkdir -p assessment/reviewer-outputs
         out="assessment/reviewer-output-${REVIEWER_NAME}.json"
         if [ "${CODEX_OUTCOME}" != "success" ] || [ ! -s "$out" ]; then
+          rm -f "$out"
           python3 - <<'PY'
         import json
         import os
@@ -768,7 +811,8 @@ runs:
         PY
         fi
         mv -f "$out" "assessment/reviewer-outputs/${REVIEWER_NAME}.json"
-        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md "${HOME}/.codex/config.toml"
+        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md
+        sudo rm -f /home/codex/.codex/config.toml
         rm -rf assessment/role-references
       shell: bash
 
@@ -809,8 +853,9 @@ runs:
         effort: ${{ steps.select.outputs.reviewer_7_effort }}
         prompt-file: assessment/reviewer-task.md
         output-file: assessment/reviewer-output-${{ steps.select.outputs.reviewer_7_name }}.json
-        sandbox: read-only
-        safety-strategy: read-only
+        permission-profile: ":read-only"
+        safety-strategy: unprivileged-user
+        codex-user: codex
         allow-bots: true
         allow-bot-users: "github-actions[bot],cursor[bot],renovate[bot]"
         codex-args: >-
@@ -826,6 +871,7 @@ runs:
         mkdir -p assessment/reviewer-outputs
         out="assessment/reviewer-output-${REVIEWER_NAME}.json"
         if [ "${CODEX_OUTCOME}" != "success" ] || [ ! -s "$out" ]; then
+          rm -f "$out"
           python3 - <<'PY'
         import json
         import os
@@ -857,7 +903,8 @@ runs:
         PY
         fi
         mv -f "$out" "assessment/reviewer-outputs/${REVIEWER_NAME}.json"
-        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md "${HOME}/.codex/config.toml"
+        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md
+        sudo rm -f /home/codex/.codex/config.toml
         rm -rf assessment/role-references
       shell: bash
 
@@ -898,8 +945,9 @@ runs:
         effort: ${{ steps.select.outputs.reviewer_8_effort }}
         prompt-file: assessment/reviewer-task.md
         output-file: assessment/reviewer-output-${{ steps.select.outputs.reviewer_8_name }}.json
-        sandbox: read-only
-        safety-strategy: read-only
+        permission-profile: ":read-only"
+        safety-strategy: unprivileged-user
+        codex-user: codex
         allow-bots: true
         allow-bot-users: "github-actions[bot],cursor[bot],renovate[bot]"
         codex-args: >-
@@ -915,6 +963,7 @@ runs:
         mkdir -p assessment/reviewer-outputs
         out="assessment/reviewer-output-${REVIEWER_NAME}.json"
         if [ "${CODEX_OUTCOME}" != "success" ] || [ ! -s "$out" ]; then
+          rm -f "$out"
           python3 - <<'PY'
         import json
         import os
@@ -946,7 +995,8 @@ runs:
         PY
         fi
         mv -f "$out" "assessment/reviewer-outputs/${REVIEWER_NAME}.json"
-        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md "${HOME}/.codex/config.toml"
+        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md
+        sudo rm -f /home/codex/.codex/config.toml
         rm -rf assessment/role-references
       shell: bash
 
@@ -987,8 +1037,9 @@ runs:
         effort: ${{ steps.select.outputs.reviewer_9_effort }}
         prompt-file: assessment/reviewer-task.md
         output-file: assessment/reviewer-output-${{ steps.select.outputs.reviewer_9_name }}.json
-        sandbox: read-only
-        safety-strategy: read-only
+        permission-profile: ":read-only"
+        safety-strategy: unprivileged-user
+        codex-user: codex
         allow-bots: true
         allow-bot-users: "github-actions[bot],cursor[bot],renovate[bot]"
         codex-args: >-
@@ -1004,6 +1055,7 @@ runs:
         mkdir -p assessment/reviewer-outputs
         out="assessment/reviewer-output-${REVIEWER_NAME}.json"
         if [ "${CODEX_OUTCOME}" != "success" ] || [ ! -s "$out" ]; then
+          rm -f "$out"
           python3 - <<'PY'
         import json
         import os
@@ -1035,7 +1087,8 @@ runs:
         PY
         fi
         mv -f "$out" "assessment/reviewer-outputs/${REVIEWER_NAME}.json"
-        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md "${HOME}/.codex/config.toml"
+        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md
+        sudo rm -f /home/codex/.codex/config.toml
         rm -rf assessment/role-references
       shell: bash
 
@@ -1076,8 +1129,9 @@ runs:
         effort: ${{ steps.select.outputs.reviewer_10_effort }}
         prompt-file: assessment/reviewer-task.md
         output-file: assessment/reviewer-output-${{ steps.select.outputs.reviewer_10_name }}.json
-        sandbox: read-only
-        safety-strategy: read-only
+        permission-profile: ":read-only"
+        safety-strategy: unprivileged-user
+        codex-user: codex
         allow-bots: true
         allow-bot-users: "github-actions[bot],cursor[bot],renovate[bot]"
         codex-args: >-
@@ -1093,6 +1147,7 @@ runs:
         mkdir -p assessment/reviewer-outputs
         out="assessment/reviewer-output-${REVIEWER_NAME}.json"
         if [ "${CODEX_OUTCOME}" != "success" ] || [ ! -s "$out" ]; then
+          rm -f "$out"
           python3 - <<'PY'
         import json
         import os
@@ -1124,7 +1179,8 @@ runs:
         PY
         fi
         mv -f "$out" "assessment/reviewer-outputs/${REVIEWER_NAME}.json"
-        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md "${HOME}/.codex/config.toml"
+        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md
+        sudo rm -f /home/codex/.codex/config.toml
         rm -rf assessment/role-references
       shell: bash
 
@@ -1165,8 +1221,9 @@ runs:
         effort: ${{ steps.select.outputs.reviewer_11_effort }}
         prompt-file: assessment/reviewer-task.md
         output-file: assessment/reviewer-output-${{ steps.select.outputs.reviewer_11_name }}.json
-        sandbox: read-only
-        safety-strategy: read-only
+        permission-profile: ":read-only"
+        safety-strategy: unprivileged-user
+        codex-user: codex
         allow-bots: true
         allow-bot-users: "github-actions[bot],cursor[bot],renovate[bot]"
         codex-args: >-
@@ -1182,6 +1239,7 @@ runs:
         mkdir -p assessment/reviewer-outputs
         out="assessment/reviewer-output-${REVIEWER_NAME}.json"
         if [ "${CODEX_OUTCOME}" != "success" ] || [ ! -s "$out" ]; then
+          rm -f "$out"
           python3 - <<'PY'
         import json
         import os
@@ -1213,7 +1271,8 @@ runs:
         PY
         fi
         mv -f "$out" "assessment/reviewer-outputs/${REVIEWER_NAME}.json"
-        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md "${HOME}/.codex/config.toml"
+        rm -f assessment/reviewer-instructions.md assessment/reviewer-task.md
+        sudo rm -f /home/codex/.codex/config.toml
         rm -rf assessment/role-references
       shell: bash
 
@@ -1223,7 +1282,7 @@ runs:
         ACTION_LIB: ${{ github.action_path }}/../_lib
       run: |
         set -euo pipefail
-        rm -f "${HOME}/.codex/config.toml"
+        sudo rm -f /home/codex/.codex/config.toml
         mkdir -p assessment/reviewer-outputs
         cp "${ACTION_LIB}/../../../.github/codex/prompts/pr-aggregator.md" assessment/aggregator-task.md
       shell: bash
@@ -1251,8 +1310,9 @@ runs:
         effort: ${{ steps.select.outputs.aggregator_effort }}
         prompt-file: assessment/aggregator-task.md
         output-file: assessment/final-review.md
-        sandbox: read-only
-        safety-strategy: read-only
+        permission-profile: ":read-only"
+        safety-strategy: unprivileged-user
+        codex-user: codex
         allow-bots: true
         allow-bot-users: "github-actions[bot],cursor[bot],renovate[bot]"
         codex-args: >-
@@ -1262,16 +1322,27 @@ runs:
       if: steps.resolve.outputs.should_run == 'true'
       env:
         ACTION_LIB: ${{ github.action_path }}/../_lib
-      run: >-
-        bash "${ACTION_LIB}/run-assess.sh" sanitize-review
-        --input assessment/final-review.md
-        --output assessment/final-review.md
-        --title "Codex advisory code review"
+      run: |
+        set -euo pipefail
+        # final-review.md belongs to the Codex User; replace it rather than rewrite it.
+        bash "${ACTION_LIB}/run-assess.sh" sanitize-review \
+          --input assessment/final-review.md \
+          --output assessment/final-review.sanitized.md \
+          --title "Codex advisory code review"
+        mv -f assessment/final-review.sanitized.md assessment/final-review.md
       shell: bash
 
     - name: Ensure final review exists
       if: steps.resolve.outputs.should_run == 'true'
       run: test -s assessment/final-review.md
+      shell: bash
+
+    - name: Check Codex output for the API key
+      if: steps.resolve.outputs.should_run == 'true'
+      env:
+        ACTION_LIB: ${{ github.action_path }}/../_lib
+        AZURE_AI_API_KEY: ${{ inputs.azure_ai_api_key }}
+      run: bash "${ACTION_LIB}/run-assess.sh" check-key-leak --path assessment
       shell: bash
 
     - name: Upload Codex review artifacts

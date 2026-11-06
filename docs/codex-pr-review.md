@@ -101,7 +101,7 @@ Accepted forms (HTTPS on an Azure host):
 
 | Secret | Required | Description |
 | --- | --- | --- |
-| `AZURE_AI_API_KEY` | yes | Azure key, passed only to `openai/codex-action` |
+| `AZURE_AI_API_KEY` | yes | Azure key, passed only to `openai/codex-action` and the Key Leak Check |
 
 ## Outputs
 
@@ -112,7 +112,7 @@ Accepted forms (HTTPS on an Azure host):
 
 ## Jobs
 
-1. **`review`** runs on `runner` in your `environment` with read-only permissions. It resolves the pull request, preflights the Codex sandbox, checks out your repository at the pull request **base SHA** into `trusted-config/` (the only source of the reviewer map and personas), collects the diff and discussion, runs up to 12 reviewer passes plus the aggregator, sanitizes the result and uploads the `codex-reviewer-outputs` artifact.
+1. **`review`** runs on `runner` in your `environment` with read-only permissions. It resolves the pull request, preflights the Codex sandbox, creates the Codex User, checks out your repository at the pull request **base SHA** into `trusted-config/` (the only source of the reviewer map and personas), collects the diff and discussion, runs up to 12 reviewer passes plus the aggregator, sanitizes the result, runs the Key Leak Check and uploads the `codex-reviewer-outputs` artifact.
 2. **`post`** runs on `ubuntu-slim` with `pull-requests: write` and no Azure credentials. It downloads the artifact and posts `final-review.md` as a `COMMENT` review.
 
 ## Reviewer personas
@@ -125,14 +125,26 @@ Codex gets the pull request patches, title and body, unresolved review threads, 
 
 Before posting, the review body is sanitized: secret patterns are redacted, `@mentions` are defanged, images, raw HTML and bidirectional or zero-width characters are removed, and links are kept only for `github.com` and `sonarcloud.io` (any scheme case, protocol-relative `//host`, `www.` autolinks and HTML-entity-encoded URLs included).
 
+## Security model
+
+Codex reads text the pull request author controls (the diff and the discussion), so a review must assume that text contains a prompt injection aimed at `AZURE_AI_API_KEY`. That holds for every trigger: the `/review` comment, the `codex-review` label and manual runs start the same job. The review job never checks out or runs the pull request's code.
+
+- **The key stays in codex-action's proxy.** `openai/codex-action` starts a local Responses API proxy that receives the key on stdin and keeps it out of its environment. Codex only gets a `127.0.0.1` URL.
+- **Codex runs as the Codex User.** Every reviewer pass and the aggregator use `safety-strategy: unprivileged-user` with `codex-user: codex`, an account the review job creates without `sudo`. The proxy runs under the runner account, so Codex can't read its memory even after escaping its sandbox. With the previous `read-only` strategy, the runner's passwordless `sudo` made that memory readable ([why](https://github.com/openai/codex-action/blob/main/docs/security.md#protecting-your-openai_api_key)).
+- **Read-only, no network.** Each pass uses `permission-profile: ":read-only"`: Codex's commands run in a bubblewrap sandbox that can't write files or open network connections.
+- **Key Leak Check.** After the aggregator and before the artifact upload, the job fails if the key's value appears anywhere under `assessment/`. Nothing is then uploaded or posted; the error says to rotate `AZURE_AI_API_KEY` and never prints the value. It only catches the key in plain text: the Codex User is the real protection.
+- **Why not `drop-sudo`.** codex-action's default removes `sudo` from the runner for the rest of the job, so a second Codex run in the same job fails. The review runs up to 13 passes in one job; `drop-sudo` would need one job per pass.
+- **Comment trigger.** `/review` only runs for `OWNER`, `MEMBER` and `COLLABORATOR` comments. zizmor flags the `issue_comment` trigger as `dangerous-triggers`; callers keep it with an inline ignore that states both the gate and the protections above.
+
 ## Residual risks
 
-- **Key exposure inside the job.** `openai/codex-action` runs with `safety-strategy: read-only`, which keeps `sudo` available on the runner. Codex itself runs in a read-only, network-isolated sandbox, but code running as the runner user could in theory read the Azure key from process memory. Use a dedicated Azure key with a spending limit, scoped to this workflow.
+- **Encoded key in output.** The Key Leak Check only matches the key in plain text. Keep using a dedicated Azure key with a spending limit, scoped to this workflow.
 - **Advisory output.** Model output is sanitized but not verified. Treat findings as suggestions.
 
 ## Known limitations
 
-- All reviewer passes run sequentially in one job. Running each pass in its own job that drops `sudo` before Codex starts would remove the key-exposure risk above; this is not implemented yet.
+- All reviewer passes run sequentially in one job.
+- Self-hosted runners need passwordless `sudo` for the runner account (to create the Codex User) and `useradd`.
 
 ## Runner requirements
 

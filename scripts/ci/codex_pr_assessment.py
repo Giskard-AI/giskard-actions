@@ -1638,6 +1638,45 @@ def add_sanitize_review_parser(subparsers: argparse._SubParsersAction) -> None:
     parser.set_defaults(func=main_sanitize_review)
 
 
+def find_key_leaks(key: str, roots: list[Path]) -> list[Path]:
+    needle = key.encode("utf-8")
+    files: list[Path] = []
+    for root in roots:
+        if root.is_dir():
+            files.extend(sorted(path for path in root.rglob("*") if path.is_file()))
+        elif root.is_file():
+            files.append(root)
+    return [path for path in files if needle in path.read_bytes()]
+
+
+def main_check_key_leak(args: argparse.Namespace) -> int:
+    key = os.environ.get("AZURE_AI_API_KEY", "")
+    if not key:
+        print(
+            "::error title=Key Leak Check::AZURE_AI_API_KEY is not set, "
+            "so Codex output can't be checked.",
+            file=sys.stderr,
+        )
+        return 1
+    leaks = find_key_leaks(key, [Path(path) for path in args.path])
+    for leak in leaks:
+        print(
+            f"::error file={leak},title=Key Leak Check::Codex output contained the API key, "
+            "so nothing was uploaded or posted; rotate AZURE_AI_API_KEY.",
+            file=sys.stderr,
+        )
+    if leaks:
+        return 1
+    print("Key Leak Check passed")
+    return 0
+
+
+def add_check_key_leak_parser(subparsers: argparse._SubParsersAction) -> None:
+    parser = subparsers.add_parser("check-key-leak")
+    parser.add_argument("--path", action="append", required=True)
+    parser.set_defaults(func=main_check_key_leak)
+
+
 def main_post_review(args: argparse.Namespace) -> int:
     post_review(repo_from_env(), args.pr_number, Path(args.body_file))
     return 0
@@ -1705,6 +1744,7 @@ def main() -> int:
     add_endpoint_parser(subparsers)
     add_prepare_azure_catalog_parser(subparsers)
     add_sanitize_review_parser(subparsers)
+    add_check_key_leak_parser(subparsers)
     add_post_review_parser(subparsers)
     add_stage_overlay_parser(subparsers)
     args = parser.parse_args()
