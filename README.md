@@ -5,7 +5,7 @@ Reusable GitHub Actions automation from [Giskard](https://github.com/Giskard-AI)
 | What | Form | Entry point |
 | --- | --- | --- |
 | **Release notes**: structured, LLM-written release notes from git history, with optional Linear and GitHub issue enrichment | Composite action | `Giskard-AI/giskard-actions/.github/actions/release-notes` |
-| **Codex PR review**: advisory pull request review by sequential [Codex](https://github.com/openai/codex-action) reviewer passes plus an aggregator, posted as a PR review comment | Reusable workflow | `Giskard-AI/giskard-actions/.github/workflows/codex-pr-review.yml` |
+| **Codex PR review**: advisory pull request review by parallel [Codex](https://github.com/openai/codex-action) reviewer jobs plus an aggregator, posted as a PR review comment | Reusable workflow | `Giskard-AI/giskard-actions/.github/workflows/codex-pr-review.yml` |
 | **Python CI**: `lint` (ruff format check and lint) and `test` (pytest) jobs for uv projects, every command overridable | Reusable workflow | `Giskard-AI/giskard-actions/.github/workflows/python-ci.yml` |
 | **TypeScript CI**: `lint` (lint and prettier check) and `test` jobs for npm projects, every command overridable | Reusable workflow | `Giskard-AI/giskard-actions/.github/workflows/ts-ci.yml` |
 | **zizmor scan**: [zizmor](https://docs.zizmor.sh/) audit of every GitHub Actions file, offline, pedantic, from a digest-pinned image; exceptions are inline ignores with a reason, and the ones a pull request adds are flagged for review; the config comes from the pull request's base commit; passes when there are no such files | Reusable workflow, and required workflow for organization rulesets | `Giskard-AI/giskard-actions/.github/workflows/zizmor-scan.yml` |
@@ -90,9 +90,9 @@ jobs:
       AZURE_AI_API_KEY: ${{ secrets.AZURE_AI_API_KEY }}
 ```
 
-Your repository keeps the triggers, the comment gate, concurrency and the permission ceiling. The `author_association` gate is a cheap pre-filter; the workflow then confirms the commenter has write, maintain or admin permission before reviewing. Pass the secret explicitly by name; never use `secrets: inherit`. Reviewer selection lives in `.github/giskard/codex-reviewer-map.json`, and reviewer personas in `.cursor/agents/<name>.md`, both read from the pull request **base** commit.
+Your repository keeps the triggers, the comment gate, concurrency and the permission ceiling. The `author_association` gate is a cheap pre-filter; the workflow then confirms the commenter has write, maintain or admin permission before reviewing. Pass the secret explicitly by name; never use `secrets: inherit`. Reviewer selection lives in `.github/giskard/codex-reviewer-map.json`, and reviewer personas in `<agents_dir>/<name>.md` (default `.cursor/agents`), both read from the **default branch** HEAD.
 
-The review job defaults to `ubuntu-slim` with a 15-minute timeout, matching GitHub's hard cap for that runner; typical reviews take a few minutes. For large pull requests, pass `runner: ubuntu-latest` and a larger `timeout_minutes`. See the [Codex PR review docs](https://giskard-ai.github.io/giskard-actions/codex-pr-review.html) for every input.
+Each reviewer pass runs in its own job with sudo dropped before Codex starts, at most `max_parallel` (default 4) at a time, followed by an aggregate job and a post job. Jobs default to `ubuntu-slim` with a 15-minute timeout each, matching GitHub's hard cap for that runner. Self-hosted runners need `allow_self_hosted: true`. See the [Codex PR review docs](https://giskard-ai.github.io/giskard-actions/codex-pr-review.html) for every input and the security model.
 
 ## Quick start: shared CI workflows
 
@@ -163,8 +163,9 @@ The schemas' `$id` points at `main`. Reference the schema of the release you pin
 ## Security model
 
 - **Trusted code is the pinned unpack.** Helper scripts, prompts, output schemas and the model catalog run from the action directory GitHub unpacks at your pinned SHA (`github.action_path`). Callers cannot point the helpers at other code, and the Codex helper never runs `scripts/` from your workspace.
-- **Reviewer configuration comes from the PR base SHA.** The reviewer map, personas and role references are checked out from the pull request base commit, never from the PR head, so a pull request cannot rewrite its own review instructions.
-- **Least privilege.** Workflows declare `permissions: {}` and grant per job. The review job only reads; only the separate post job can write a PR review. The Azure key is passed only to `openai/codex-action`, which runs Codex in a read-only sandbox (bubblewrap; `codex sandbox` is probed before the first pass).
+- **Reviewer configuration comes from the default branch.** The reviewer map, personas and role references are checked out from the default branch HEAD, never from the PR head or its base commit, so a pull request cannot rewrite or retarget its own review instructions.
+- **Least privilege.** Workflows declare `permissions: {}` and grant per job. Only the prepare job reads GitHub; only reviewer and aggregate jobs receive the Azure key, and only `openai/codex-action` and the Key Leak Check use it; only the separate post job can write a PR review.
+- **Codex cannot reach the key.** Each Codex pass runs in its own job with sudo dropped before Codex starts (`drop-sudo`), in a read-only bubblewrap sandbox without web search. Every output is checked for the key before it is uploaded. Anyone with write access can still read CI secrets through a workflow change; see the [security model](https://giskard-ai.github.io/giskard-actions/codex-pr-review.html#security-model).
 - **Untrusted input stays data.** Diffs, comments and logs are treated as untrusted evidence in prompts. Only comments by owners, members and collaborators reach Codex, and release notes only enrich issues and pull requests opened by them. Model output (review bodies and release notes) is sanitized before publishing: secret patterns redacted, images, raw HTML and invisible characters dropped, and links restricted to GitHub and SonarCloud (release notes: your repository on GitHub only). Only same-repository pull requests are reviewed.
 
 Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).

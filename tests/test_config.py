@@ -315,7 +315,7 @@ class TestCommitCategoryHelpers:
         assert cfg.effort == "high"
         assert cfg.manifest_paths == ("pyproject.toml",)
         assert ".github/actions/release-notes/action.yml" in cfg.file_diffs
-        assert ".github/actions/codex-pr-review/action.yml" in cfg.file_diffs
+        assert ".github/actions/codex-review-pass/action.yml" in cfg.file_diffs
         assert len(cfg.upgrade_rules) == 1
         assert cfg.upgrade_rules[0].id == "action_interface"
         assert [s.id for s in cfg.sections] == [

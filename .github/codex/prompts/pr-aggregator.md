@@ -18,6 +18,7 @@ Your job:
 - Compare expected names in `assessment/reviewers.json` with files in `assessment/reviewer-outputs/`.
 - If any expected pass is missing or placeholder-only, name those passes. Do not synthesize findings from `review-context.json` patches to fill the gaps.
 - If every expected pass is missing or placeholder-only, write a short failure note with the assessed head SHA and no code-review findings. A placeholder is a reviewer file whose only finding is titled `Reviewer pass failed`.
+- For each reviewer whose `persona_source` in `assessment/reviewers.json` is `generic`, say in the review's coverage note that the repository has no persona for that reviewer.
 - Aggregate and critique remaining reviewer findings.
 - Start with a short keep/reject disposition list (`source_reviewer`, `title`, keep or reject, reason).
 - Reject weak, duplicate, speculative, already-resolved, bot-derived, or out-of-scope findings.

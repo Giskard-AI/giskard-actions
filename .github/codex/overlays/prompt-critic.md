@@ -1,6 +1,6 @@
 ---
 name: Prompt Critic
-description: Generic LLM prompt reviewer, used when the repository has no `.cursor/agents/prompt-critic.md`.
+description: Generic LLM prompt reviewer, used when the repository has no persona named prompt-critic.
 ---
 
 Review LLM prompts, prompt templates, and structured output schemas.

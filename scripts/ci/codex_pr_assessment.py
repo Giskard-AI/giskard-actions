@@ -4,9 +4,11 @@ import importlib.util
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import tempfile
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -18,7 +20,14 @@ KEY_WORKFLOWS = ()
 TRUSTED_ASSOCIATIONS = {"OWNER", "MEMBER", "COLLABORATOR"}
 WRITE_ROLES = {"admin", "maintain", "write"}
 REVIEWER_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
+ROLE_REFERENCE_RE = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9._-]*\.md")
+CONFIG_DIR_SEGMENT_RE = re.compile(r"[A-Za-z0-9._-]+")
 MAX_REVIEWERS = 12
+DEFAULT_AGENTS_DIR = ".cursor/agents"
+MAX_PERSONA_CHARS = 30_000
+MAX_REFERENCE_CHARS = 30_000
+MAX_REFERENCES_TOTAL_CHARS = 60_000
+MIN_KEY_NEEDLE_CHARS = 16
 DEFAULT_AZURE_HOST_SUFFIXES = (
     ".openai.azure.com",
     ".cognitiveservices.azure.com",
@@ -39,6 +48,14 @@ VENDORED_AZURE_MODEL_CATALOG = (
     Path(__file__).resolve().parents[2] / ".github/codex/azure-model-catalog.json"
 )
 BUNDLED_OVERLAYS_DIR = Path(__file__).resolve().parents[2] / ".github/codex/overlays"
+PROMPTS_DIR = Path(__file__).resolve().parents[2] / ".github/codex/prompts"
+FINDING_CATEGORIES = ("must_fix", "no_action", "informational")
+FINDING_SEVERITIES = ("critical", "high", "medium", "low", "info")
+FINDING_KEYS = {"category", "severity", "path", "line", "title", "rationale", "suggested_action"}
+PLACEHOLDER_TITLE = "Reviewer pass failed"
+NO_OUTPUT_REASON = "no output (job failed, timed out or was cancelled)"
+STALE_OUTPUT_REASON = "output from another review run"
+INVALID_OUTPUT_REASON = "output does not match the reviewer schema"
 
 
 def _load_sanitize_module() -> Any:
@@ -971,43 +988,39 @@ def is_package_related_path(path: str) -> bool:
 def is_prompt_or_agent_path(path: str) -> bool:
     path = normalize_path(path)
     return (
-        path == "AGENTS.md"
+        path in {"AGENTS.md", "CLAUDE.md", "GEMINI.md", ".github/copilot-instructions.md"}
         or path.startswith(
             (
-                ".agents/skills/",
+                ".agents/",
                 ".cursor/agents/",
                 ".cursor/rules/",
                 ".cursor/skills/",
-                ".github/codex/schemas/",
-                "codex/skills/",
-                "backend/src/backend/evaluation/",
-                "backend/tests/evaluators/",
+                ".claude/",
+                ".gemini/",
+                ".codex/",
+                ".github/agents/",
+                ".github/codex/",
             )
         )
-        or "/prompts/" in path
-        or "/assertions/" in path
+        or "/prompts/" in f"/{path}"
+        or "/assertions/" in f"/{path}"
     )
+
+
+def is_action_metadata_path(path: str) -> bool:
+    return Path(normalize_path(path)).name in {"action.yml", "action.yaml"}
 
 
 def is_infra_path(path: str) -> bool:
     path = normalize_path(path)
     return (
-        path.startswith(
-            (
-                ".devcontainer/",
-                "db/",
-                "helm/",
-                "keycloak/",
-                "local-install/",
-                "ssl/",
-            )
-        )
+        path.startswith((".devcontainer/", "helm/"))
         or path.startswith("docker-compose")
         or "/docker-compose" in path
         or path == "Dockerfile"
         or path.endswith("/Dockerfile")
         or path == "Makefile"
-        or path == "action.yml"
+        or is_action_metadata_path(path)
         or path == "renovate.json"
         or path.endswith(".sh")
         or path.endswith((".yaml", ".yml"))
@@ -1055,7 +1068,6 @@ def _reviewer_entry(
     )
     return {
         "name": safe_name,
-        "prompt_file": f".cursor/agents/{safe_name}.md",
         "model_kind": model_kind,
         "model": resolved_model,
         "effort": resolved_effort,
@@ -1069,16 +1081,38 @@ def parse_role_references(values: list[Any]) -> list[str]:
         name = str(raw).strip()
         if not name:
             continue
-        if "/" in name or "\\" in name or name in {".", ".."} or ".." in name:
-            raise ValueError(f"invalid role reference {name!r}; expected a basename")
-        if Path(name).name != name:
-            raise ValueError(f"invalid role reference {name!r}; expected a basename")
+        if not ROLE_REFERENCE_RE.fullmatch(name):
+            raise ValueError(
+                f"invalid role reference {name!r}; expected a basename matching {ROLE_REFERENCE_RE.pattern}"
+            )
         parsed.append(name)
     return parsed
 
 
+def validate_config_dir(value: str) -> str:
+    if not isinstance(value, str) or not value or value.startswith("/") or "\\" in value:
+        raise ValueError(f"invalid config directory {value!r}; expected a relative POSIX path")
+    for segment in value.split("/"):
+        if (
+            not CONFIG_DIR_SEGMENT_RE.fullmatch(segment)
+            or segment in {".", ".."}
+            or segment.lower() == ".git"
+        ):
+            raise ValueError(f"invalid config directory {value!r}; bad segment {segment!r}")
+    return value
+
+
+def load_persona_dirs(map_path: str | Path | None) -> tuple[str, str]:
+    payload = load_json(map_path) if map_path and Path(map_path).is_file() else {}
+    agents_dir = validate_config_dir(payload.get("agents_dir", DEFAULT_AGENTS_DIR))
+    references_dir = validate_config_dir(payload.get("references_dir", f"{agents_dir}/references"))
+    return agents_dir, references_dir
+
+
 def _rule_matches_path(path: str, rule: dict[str, Any]) -> bool:
     path = normalize_path(path)
+    if _path_matches_prefixes(path, [str(item) for item in (rule.get("path_excludes") or ())]):
+        return False
     names = tuple(rule.get("path_names") or ())
     if path in names or Path(path).name in names:
         return True
@@ -1149,33 +1183,87 @@ def select_reviewers_from_map(
     critical_model: str = DEFAULT_CRITICAL_MODEL,
     critical_effort: str = DEFAULT_CRITICAL_EFFORT,
 ) -> list[dict[str, str]]:
-    selected: dict[str, dict[str, str]] = {}
+    selected: dict[str, dict[str, Any]] = {}
     for file_path in changed_files:
         path = normalize_path(file_path)
         for rule in rules:
             if not _rule_matches_path(path, rule):
                 continue
-            name = str(rule["name"])
-            model_kind = str(rule.get("model_kind") or "normal")
-            rule_model = str(rule.get("model") or "").strip() or None
-            rule_effort = str(rule.get("effort") or "").strip() or None
-            refs = parse_role_references(list(rule.get("role_references") or []))
-            selected[name] = _reviewer_entry(
-                name,
-                model_kind,
-                refs,
-                model=rule_model,
-                effort=rule_effort,
-                normal_model=normal_model,
-                normal_effort=normal_effort,
-                critical_model=critical_model,
-                critical_effort=critical_effort,
+            _merge_reviewer(
+                selected,
+                str(rule["name"]),
+                str(rule.get("model_kind") or "normal"),
+                parse_role_references(list(rule.get("role_references") or [])),
+                model=str(rule.get("model") or "").strip() or None,
+                effort=str(rule.get("effort") or "").strip() or None,
             )
-            if len(selected) >= MAX_REVIEWERS:
-                break
-        if len(selected) >= MAX_REVIEWERS:
-            break
-    return sorted(selected.values(), key=lambda item: item["name"])
+    return _reviewer_entries(
+        selected,
+        normal_model=normal_model,
+        normal_effort=normal_effort,
+        critical_model=critical_model,
+        critical_effort=critical_effort,
+    )
+
+
+def _merge_reviewer(
+    selected: dict[str, dict[str, Any]],
+    name: str,
+    model_kind: str,
+    role_references: list[str] | None = None,
+    *,
+    model: str | None = None,
+    effort: str | None = None,
+) -> None:
+    """A critical match is never downgraded by a later normal one; references are unioned."""
+    refs = role_references or []
+    current = selected.get(name)
+    if current is None:
+        if len(selected) < MAX_REVIEWERS:
+            selected[name] = {
+                "model_kind": model_kind,
+                "role_references": list(dict.fromkeys(refs)),
+                "model": model,
+                "effort": effort,
+            }
+        return
+    current["role_references"] = list(dict.fromkeys([*current["role_references"], *refs]))
+    if model_kind == "critical" and current["model_kind"] != "critical":
+        current.update(model_kind=model_kind, model=model, effort=effort)
+
+
+def _reviewer_entries(selected: dict[str, dict[str, Any]], **llm_cfg: str) -> list[dict[str, str]]:
+    return [
+        _reviewer_entry(
+            name,
+            item["model_kind"],
+            item["role_references"],
+            model=item["model"],
+            effort=item["effort"],
+            **llm_cfg,
+        )
+        for name, item in sorted(selected.items())
+    ]
+
+
+def default_reviewers_for_path(path: str) -> list[tuple[str, str]]:
+    path = normalize_path(path)
+    automation = path.startswith((".github/workflows/", ".github/actions/"))
+    package = is_package_related_path(path)
+    matched: list[tuple[str, str]] = []
+    if (
+        automation
+        or is_action_metadata_path(path)
+        or path.startswith("scripts/ci/")
+        or package
+        or is_security_sensitive_path(path)
+    ):
+        matched.append(("security-auditor", "critical"))
+    if automation or package or is_infra_path(path):
+        matched.append(("infra-reviewer", "normal"))
+    if is_prompt_or_agent_path(path):
+        matched.append(("prompt-critic", "normal"))
+    return matched
 
 
 def resolve_reviewer_map_path(map_path: str | Path | None = None) -> Path | None:
@@ -1227,47 +1315,17 @@ def select_reviewers(
         )
 
     llm_cfg = _resolve_llm_defaults()
-    selected: dict[str, dict[str, str]] = {}
-
-    def add(name: str, model_kind: str = "normal") -> None:
-        selected[name] = _reviewer_entry(
-            name,
-            model_kind,
-            normal_model=llm_cfg["normal_model"],
-            normal_effort=llm_cfg["normal_effort"],
-            critical_model=llm_cfg["critical_model"],
-            critical_effort=llm_cfg["critical_effort"],
-        )
-
+    selected: dict[str, dict[str, Any]] = {}
     for file_path in changed_files:
-        path = normalize_path(file_path)
-        if path.startswith("src/") and path.endswith(".py"):
-            add("python-builder")
-        if path.startswith("backend/") and path.endswith(".py"):
-            add("clean-arch-guard")
-        if path.startswith(("backend/migrations/", "backend/migrations_control/")):
-            add("migration-reviewer", "critical")
-        if path.startswith("frontend/"):
-            add("frontend-reviewer")
-            if re.search(r"/(app|components)/|/(page|layout)\.tsx$|\.tsx$", path):
-                add("user-advocate")
-        if path.startswith(".github/workflows/") or path == "action.yml":
-            add("security-auditor", "critical")
-            add("infra-reviewer")
-        if path.startswith("scripts/ci/"):
-            add("security-auditor", "critical")
-            add("infra-reviewer")
-        if is_package_related_path(path):
-            add("security-auditor", "critical")
-            add("infra-reviewer")
-        if is_infra_path(path):
-            add("infra-reviewer")
-        if is_prompt_or_agent_path(path):
-            add("prompt-critic")
-        if is_security_sensitive_path(path):
-            add("security-auditor", "critical")
-
-    return sorted(selected.values(), key=lambda item: item["name"])[:MAX_REVIEWERS]
+        for name, model_kind in default_reviewers_for_path(file_path):
+            _merge_reviewer(selected, name, model_kind)
+    return _reviewer_entries(
+        selected,
+        normal_model=llm_cfg["normal_model"],
+        normal_effort=llm_cfg["normal_effort"],
+        critical_model=llm_cfg["critical_model"],
+        critical_effort=llm_cfg["critical_effort"],
+    )
 
 
 def is_security_sensitive_path(path: str) -> bool:
@@ -1452,17 +1510,18 @@ def main_resolve(args: argparse.Namespace) -> int:
     outputs = {"should_run": "false"}
     if pr_number is not None:
         pr = get_pr(repo, pr_number)
-        should_run = pr.get("state") == "open"
-        if should_run and os.environ.get("CODEX_ASSESS_REQUIRE_SAME_REPO", "true") == "true":
-            should_run = is_same_repo_pr(pr)
+        should_run = pr.get("state") == "open" and is_same_repo_pr(pr)
         if should_run and os.environ.get("GITHUB_EVENT_NAME") == "workflow_run":
             workflow_run = event.get("workflow_run") or {}
             should_run = workflow_run.get("head_sha") == pr["head"]["sha"]
+        default_branch = pr["base"]["repo"]["default_branch"]
+        config_commit = gh_json(["api", f"repos/{repo.full_name}/commits/{quote(default_branch)}"])
         outputs = {
             "should_run": "true" if should_run else "false",
             "pr_number": str(pr_number),
             "head_sha": pr["head"]["sha"],
             "base_sha": pr["base"]["sha"],
+            "config_sha": config_commit["sha"],
         }
     if args.output:
         append_github_output(args.output, outputs)
@@ -1548,19 +1607,6 @@ def main_select(args: argparse.Namespace) -> int:
             "aggregator_effort": llm_cfg["aggregator_effort"],
             "matrix": json.dumps({"include": reviewers}, separators=(",", ":")),
         }
-        for index in range(MAX_REVIEWERS):
-            if index < len(reviewers):
-                values[f"reviewer_{index}_name"] = reviewers[index]["name"]
-                values[f"reviewer_{index}_model_kind"] = reviewers[index]["model_kind"]
-                values[f"reviewer_{index}_model"] = reviewers[index]["model"]
-                values[f"reviewer_{index}_effort"] = reviewers[index]["effort"]
-                values[f"reviewer_{index}_refs"] = reviewers[index].get("role_references", "")
-            else:
-                values[f"reviewer_{index}_name"] = ""
-                values[f"reviewer_{index}_model_kind"] = ""
-                values[f"reviewer_{index}_model"] = ""
-                values[f"reviewer_{index}_effort"] = ""
-                values[f"reviewer_{index}_refs"] = ""
         append_github_output(args.github_output, values)
     print(json.dumps(payload, sort_keys=True))
     return 0
@@ -1650,48 +1696,299 @@ def add_post_review_parser(subparsers: argparse._SubParsersAction) -> None:
     parser.set_defaults(func=main_post_review)
 
 
-def main_stage_overlay(args: argparse.Namespace) -> int:
-    name = validate_reviewer_name(args.name)
-    trusted = Path(args.trusted_config)
-    overlay = trusted / ".cursor" / "agents" / f"{name}.md"
-    if not overlay.is_file():
-        bundled_overlay = BUNDLED_OVERLAYS_DIR / f"{name}.md"
-        if bundled_overlay.is_file():
-            overlay = bundled_overlay
-        else:
-            print(f"missing reviewer overlay: {overlay}", file=sys.stderr)
-            return 1
-    dest = Path(args.output)
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(overlay.read_text(encoding="utf-8"), encoding="utf-8")
-    refs_dir = Path(args.references_output)
-    if refs_dir.exists():
-        for child in refs_dir.iterdir():
-            if child.is_file() or child.is_symlink():
-                child.unlink()
-            elif child.is_dir():
-                raise ValueError(f"unexpected directory in role-references: {child}")
-    refs_dir.mkdir(parents=True, exist_ok=True)
-    source_dir = trusted / ".cursor" / "agents" / "references"
-    for basename in parse_role_references(
-        [part for part in args.role_references.split(",") if part]
-    ):
-        source = source_dir / basename
-        if not source.is_file():
-            print(f"missing role reference: {source}", file=sys.stderr)
-            return 1
-        (refs_dir / basename).write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+def key_leak_needles(key: str) -> set[bytes]:
+    raw = key.encode("utf-8")
+    needles = {
+        raw,
+        raw[::-1],
+        raw.hex().encode(),
+        raw.hex().upper().encode(),
+        quote(key, safe="").encode(),
+    }
+    for encode in (base64.b64encode, base64.urlsafe_b64encode):
+        for offset in range(3):
+            data = b"\0" * offset + raw
+            encoded = encode(data)
+            # Keep only the characters fed exclusively by key bits.
+            needle = encoded[(4 * offset + 2) // 3 : len(data) * 8 // 6]
+            if len(needle) >= MIN_KEY_NEEDLE_CHARS:
+                needles.add(needle)
+    return needles
+
+
+def find_key_leaks(key: str, roots: list[Path]) -> list[Path]:
+    needles = key_leak_needles(key)
+    files: list[Path] = []
+    for root in roots:
+        if root.is_dir():
+            files.extend(sorted(path for path in root.rglob("*") if path.is_file()))
+        elif root.is_file():
+            files.append(root)
+    leaks = []
+    for path in files:
+        content = path.read_bytes()
+        haystacks = (content, re.sub(rb"\s+", b"", content))
+        if any(needle in haystack for haystack in haystacks for needle in needles):
+            leaks.append(path)
+    return leaks
+
+
+def main_check_key_leak(args: argparse.Namespace) -> int:
+    key = os.environ.get("AZURE_AI_API_KEY", "")
+    if not key:
+        print(
+            "::error title=Key Leak Check::AZURE_AI_API_KEY is not set, "
+            "so Codex output can't be checked.",
+            file=sys.stderr,
+        )
+        return 1
+    leaks = find_key_leaks(key, [Path(path) for path in args.path])
+    for leak in leaks:
+        print(
+            f"::error file={leak},title=Key Leak Check::Codex output contained the API key, "
+            "so nothing was uploaded or posted; rotate AZURE_AI_API_KEY.",
+            file=sys.stderr,
+        )
+    if leaks:
+        return 1
+    print("Key Leak Check passed")
     return 0
 
 
-def add_stage_overlay_parser(subparsers: argparse._SubParsersAction) -> None:
-    parser = subparsers.add_parser("stage-overlay")
-    parser.add_argument("--name", required=True)
+def add_check_key_leak_parser(subparsers: argparse._SubParsersAction) -> None:
+    parser = subparsers.add_parser("check-key-leak")
+    parser.add_argument("--path", action="append", required=True)
+    parser.set_defaults(func=main_check_key_leak)
+
+
+def read_trusted_file(base: Path, rel: str, max_chars: int) -> str | None:
+    """Read a regular, non-symlinked file under base; None only when nothing is there."""
+    candidate = base / rel
+    if not os.path.lexists(candidate):
+        return None
+    try:
+        resolved = candidate.resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        raise ValueError(f"{rel} is a broken or looping symlink") from exc
+    if resolved != base.resolve() / rel:
+        raise ValueError(f"{rel} resolves outside the trusted config or through a symlink")
+    fd = os.open(candidate, os.O_RDONLY | os.O_NOFOLLOW)
+    info = os.fstat(fd)
+    if not stat.S_ISREG(info.st_mode):
+        os.close(fd)
+        raise ValueError(f"{rel} is not a regular file")
+    with os.fdopen(fd, "rb") as handle:
+        if info.st_size > max_chars * 4:
+            raise ValueError(f"{rel} exceeds {max_chars} characters")
+        try:
+            text = handle.read().decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ValueError(f"{rel} is not valid UTF-8") from exc
+    if len(text) > max_chars:
+        raise ValueError(f"{rel} exceeds {max_chars} characters")
+    return text
+
+
+def strip_frontmatter(text: str) -> str:
+    lines = text.splitlines(keepends=True)
+    if lines and lines[0].rstrip("\r\n") == "---":
+        for index, line in enumerate(lines[1:], start=1):
+            if line.rstrip("\r\n") == "---":
+                lines = lines[index + 1 :]
+                break
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    return "".join(lines)
+
+
+def load_persona(trusted: Path, agents_dir: str, name: str) -> tuple[str, str]:
+    for rel in (f"{agents_dir}/{name}.md", f"{agents_dir}/{name}.agent.md"):
+        text = read_trusted_file(trusted, rel, MAX_PERSONA_CHARS)
+        if text is not None:
+            return strip_frontmatter(text), "repository"
+    bundled = BUNDLED_OVERLAYS_DIR / f"{name}.md"
+    if bundled.is_file():
+        return strip_frontmatter(bundled.read_text(encoding="utf-8")), "bundled"
+    return (PROMPTS_DIR / "generic-reviewer.md").read_text(encoding="utf-8"), "generic"
+
+
+def stage_reviewer(
+    reviewer: dict[str, Any],
+    trusted: Path,
+    agents_dir: str,
+    references_dir: str,
+    output_dir: Path,
+    task_prefix: str,
+) -> str:
+    name = validate_reviewer_name(str(reviewer["name"]))
+    persona, persona_source = load_persona(trusted, agents_dir, name)
+    refs_dir = output_dir / name / "role-references"
+    refs_dir.mkdir(parents=True, exist_ok=True)
+    total = 0
+    for ref in parse_role_references(str(reviewer.get("role_references") or "").split(",")):
+        text = read_trusted_file(trusted, f"{references_dir}/{ref}", MAX_REFERENCE_CHARS)
+        if text is None:
+            print(
+                f"::warning::Role reference {references_dir}/{ref} for {name} not found; skipped."
+            )
+            continue
+        total += len(text)
+        if total > MAX_REFERENCES_TOTAL_CHARS:
+            raise ValueError(
+                f"role references for {name} exceed {MAX_REFERENCES_TOTAL_CHARS} characters"
+            )
+        (refs_dir / ref).write_text(text, encoding="utf-8")
+    (output_dir / name / "instructions.md").write_text(persona, encoding="utf-8")
+    (output_dir / name / "task.md").write_text(
+        f"{task_prefix}\nReviewer name: {name}\n", encoding="utf-8"
+    )
+    return persona_source
+
+
+def main_stage_reviewers(args: argparse.Namespace) -> int:
+    payload = load_json(args.reviewers)
+    trusted = Path(args.trusted_config)
+    output_dir = Path(args.output_dir)
+    task_prefix = (
+        (PROMPTS_DIR / "pr-reviewer.md").read_text(encoding="utf-8")
+        + "\n"
+        + (PROMPTS_DIR / "reviewer-pass-wrapper.md").read_text(encoding="utf-8")
+    )
+    try:
+        agents_dir, references_dir = load_persona_dirs(resolve_reviewer_map_path(args.reviewer_map))
+        for reviewer in payload["reviewers"]:
+            reviewer["persona_source"] = stage_reviewer(
+                reviewer, trusted, agents_dir, references_dir, output_dir, task_prefix
+            )
+    except ValueError as exc:
+        print(f"::error::{exc}", file=sys.stderr)
+        return 1
+    write_json(args.reviewers, payload)
+    write_json(
+        args.expected_output,
+        {
+            "review_id": uuid.uuid4().hex,
+            "head_sha": args.head_sha,
+            "pr_number": args.pr_number,
+            "reviewers": [
+                {"name": item["name"], "persona_source": item["persona_source"]}
+                for item in payload["reviewers"]
+            ],
+        },
+    )
+    return 0
+
+
+def add_stage_reviewers_parser(subparsers: argparse._SubParsersAction) -> None:
+    parser = subparsers.add_parser("stage-reviewers")
+    parser.add_argument("--reviewers", required=True)
     parser.add_argument("--trusted-config", required=True)
-    parser.add_argument("--output", required=True)
-    parser.add_argument("--references-output", required=True)
-    parser.add_argument("--role-references", default="")
-    parser.set_defaults(func=main_stage_overlay)
+    parser.add_argument("--reviewer-map")
+    parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--head-sha", required=True)
+    parser.add_argument("--pr-number", required=True, type=int)
+    parser.add_argument("--expected-output", required=True)
+    parser.set_defaults(func=main_stage_reviewers)
+
+
+def is_valid_finding(finding: Any) -> bool:
+    return (
+        isinstance(finding, dict)
+        and set(finding) == FINDING_KEYS
+        and finding["category"] in FINDING_CATEGORIES
+        and finding["severity"] in FINDING_SEVERITIES
+        and (finding["path"] is None or isinstance(finding["path"], str))
+        and (
+            finding["line"] is None
+            or (isinstance(finding["line"], int) and not isinstance(finding["line"], bool))
+        )
+        and all(isinstance(finding[key], str) for key in ("title", "rationale", "suggested_action"))
+    )
+
+
+def is_valid_reviewer_output(payload: Any, name: str) -> bool:
+    return (
+        isinstance(payload, dict)
+        and set(payload) == {"reviewer", "summary", "findings"}
+        and payload["reviewer"] == name
+        and isinstance(payload["summary"], str)
+        and isinstance(payload["findings"], list)
+        and all(is_valid_finding(finding) for finding in payload["findings"])
+    )
+
+
+def placeholder_reviewer_output(name: str, reason: str) -> dict[str, Any]:
+    return {
+        "reviewer": name,
+        "summary": "Reviewer pass failed before producing usable output.",
+        "findings": [
+            {
+                "category": "informational",
+                "severity": "info",
+                "path": None,
+                "line": None,
+                "title": PLACEHOLDER_TITLE,
+                "rationale": f"Codex reviewer output was not used: {reason}.",
+                "suggested_action": "Inspect this workflow run if the missing reviewer output matters.",
+            }
+        ],
+    }
+
+
+def load_reviewer_output(directory: Path, name: str, review_id: str) -> tuple[Any, str]:
+    try:
+        meta = load_json(directory / "meta.json")
+    except (OSError, ValueError):
+        return None, NO_OUTPUT_REASON
+    if (
+        not isinstance(meta, dict)
+        or meta.get("review_id") != review_id
+        or meta.get("reviewer") != name
+    ):
+        return None, STALE_OUTPUT_REASON
+    if not (directory / "output.json").is_file():
+        return None, NO_OUTPUT_REASON
+    try:
+        output = load_json(directory / "output.json")
+    except (OSError, ValueError):
+        return None, INVALID_OUTPUT_REASON
+    if not is_valid_reviewer_output(output, name):
+        return None, INVALID_OUTPUT_REASON
+    return output, ""
+
+
+def main_collect_reviewer_outputs(args: argparse.Namespace) -> int:
+    expected = load_json(args.expected)
+    source = Path(args.reviewers_dir)
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    rows = []
+    for reviewer in expected["reviewers"]:
+        name = validate_reviewer_name(str(reviewer["name"]))
+        output, reason = load_reviewer_output(source / name, name, expected["review_id"])
+        write_json(output_dir / f"{name}.json", output or placeholder_reviewer_output(name, reason))
+        result = f"placeholder: {reason}" if reason else "output"
+        rows.append(f"| `{name}` | {result} | {reviewer.get('persona_source', '')} |")
+    expected_names = {str(item["name"]) for item in expected["reviewers"]}
+    if source.is_dir():
+        for child in sorted(source.iterdir()):
+            if child.name not in expected_names:
+                print(f"::notice::Ignoring unexpected reviewer output {child.name!r}.")
+    if args.summary:
+        with Path(args.summary).open("a", encoding="utf-8") as handle:
+            handle.write("### Codex reviewer passes\n\n| Reviewer | Result | Persona |\n")
+            handle.write("| --- | --- | --- |\n")
+            handle.write("\n".join(rows) + "\n")
+    return 0
+
+
+def add_collect_reviewer_outputs_parser(subparsers: argparse._SubParsersAction) -> None:
+    parser = subparsers.add_parser("collect-reviewer-outputs")
+    parser.add_argument("--expected", required=True)
+    parser.add_argument("--reviewers-dir", required=True)
+    parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--summary")
+    parser.set_defaults(func=main_collect_reviewer_outputs)
 
 
 def main() -> int:
@@ -1706,7 +2003,9 @@ def main() -> int:
     add_prepare_azure_catalog_parser(subparsers)
     add_sanitize_review_parser(subparsers)
     add_post_review_parser(subparsers)
-    add_stage_overlay_parser(subparsers)
+    add_stage_reviewers_parser(subparsers)
+    add_collect_reviewer_outputs_parser(subparsers)
+    add_check_key_leak_parser(subparsers)
     args = parser.parse_args()
     return args.func(args)
 

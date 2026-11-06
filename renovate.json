@@ -44,7 +44,7 @@
       "customType": "regex",
       "description": "Default Codex CLI version of the Codex review action, reusable workflow, and docs.",
       "managerFilePatterns": [
-        "/^\\.github/actions/codex-pr-review/action\\.yml$/",
+        "/^\\.github/actions/codex-review-pass/action\\.yml$/",
         "/^\\.github/workflows/codex-pr-review\\.yml$/",
         "/^docs/codex-pr-review\\.md$/"
       ],

@@ -3,6 +3,10 @@ name: Codex PR review (reusable)
 # Callers own the triggers, the comment gate, concurrency, and the permission
 # ceiling on the calling job. They must grant at least: contents: read,
 # issues: read, pull-requests: write.
+#
+# Each Codex pass runs in its own job because openai/codex-action's drop-sudo
+# can only run once per job. Only prepare reads GitHub and consumer config;
+# only reviewer and aggregate jobs receive the API key; only post can write.
 
 on:
   workflow_call:
@@ -12,13 +16,21 @@ on:
         type: string
         required: true
       runner:
-        description: Runner label for the review job
+        description: Runner label for the prepare, reviewer and aggregate jobs
         type: string
         default: ubuntu-slim
       timeout_minutes:
-        description: Timeout of the review job in minutes (ubuntu-slim is capped at 15 by GitHub)
+        description: Timeout of each reviewer job and of the aggregate job, in minutes (ubuntu-slim is capped at 15 by GitHub)
         type: number
         default: 15
+      max_parallel:
+        description: Maximum number of reviewer jobs running at once in this review (each open PR's review counts separately)
+        type: number
+        default: 4
+      allow_self_hosted:
+        description: Allow self-hosted runners. drop-sudo changes a persistent runner for good, so only use ephemeral one-job-per-VM runners.
+        type: boolean
+        default: false
       responses_api_base:
         description: Azure Responses-compatible API base URL. Empty falls back to the caller's `vars.AZURE_AI_RESPONSES_BASE`.
         type: string
@@ -58,35 +70,43 @@ on:
     outputs:
       should_run:
         description: Whether a same-repository open pull request was resolved and reviewed
-        value: ${{ jobs.review.outputs.should_run }}
+        value: ${{ jobs.prepare.outputs.should_run }}
       pr_number:
         description: Resolved pull request number
-        value: ${{ jobs.review.outputs.pr_number }}
+        value: ${{ jobs.prepare.outputs.pr_number }}
 
 permissions: {}
 
 jobs:
-  review:
-    name: Run Codex PR review
+  prepare:
+    name: Prepare Codex review
     runs-on: ${{ inputs.runner }}
-    timeout-minutes: ${{ inputs.timeout_minutes }}
-    environment:
-      name: ${{ inputs.environment }}
-      deployment: false
+    timeout-minutes: 10
     permissions:
-      contents: read # Check out consumer config at the PR base SHA
+      contents: read # Check out consumer config at the default branch HEAD
       issues: read # Read PR conversation comments
       pull-requests: read # Read PR diffs and metadata
     outputs:
-      should_run: ${{ steps.codex.outputs.should_run }}
-      pr_number: ${{ steps.codex.outputs.pr_number }}
+      should_run: ${{ steps.prepare.outputs.should_run }}
+      pr_number: ${{ steps.prepare.outputs.pr_number }}
+      has_reviewers: ${{ steps.prepare.outputs.has_reviewers }}
+      matrix: ${{ steps.prepare.outputs.matrix }}
+      aggregator_model: ${{ steps.prepare.outputs.aggregator_model }}
+      aggregator_effort: ${{ steps.prepare.outputs.aggregator_effort }}
     steps:
-      - name: Run Codex PR review
-        id: codex
-        uses: $/.github/actions/codex-pr-review
+      - name: Check max_parallel
+        env:
+          MAX_PARALLEL: ${{ inputs.max_parallel }}
+        run: |
+          if ! [ "$MAX_PARALLEL" -ge 1 ] 2>/dev/null; then
+            echo "::error::max_parallel must be at least 1"
+            exit 1
+          fi
+
+      - name: Prepare Codex review
+        id: prepare
+        uses: $/.github/actions/codex-review-prepare
         with:
-          responses_api_base: ${{ inputs.responses_api_base != '' && inputs.responses_api_base || vars.AZURE_AI_RESPONSES_BASE }}
-          azure_ai_api_key: ${{ secrets.AZURE_AI_API_KEY }}
           github_token: ${{ github.token }}
           normal_model: ${{ inputs.normal_model }}
           normal_effort: ${{ inputs.normal_effort }}
@@ -94,26 +114,79 @@ jobs:
           critical_effort: ${{ inputs.critical_effort }}
           aggregator_model: ${{ inputs.aggregator_model }}
           aggregator_effort: ${{ inputs.aggregator_effort }}
+          allow_self_hosted: ${{ inputs.allow_self_hosted }}
+
+  reviewer:
+    name: Codex reviewer (${{ matrix.name }})
+    needs: prepare
+    if: needs.prepare.outputs.should_run == 'true' && needs.prepare.outputs.has_reviewers == 'true'
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    environment:
+      name: ${{ inputs.environment }}
+      deployment: false
+    permissions:
+      contents: read # openai/codex-action checks the triggering actor's repository permission
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ inputs.max_parallel }}
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    steps:
+      - name: Run Codex reviewer pass
+        uses: $/.github/actions/codex-review-pass
+        with:
+          kind: reviewer
+          name: ${{ matrix.name }}
+          model: ${{ matrix.model }}
+          effort: ${{ matrix.effort }}
+          pr_number: ${{ needs.prepare.outputs.pr_number }}
+          responses_api_base: ${{ inputs.responses_api_base != '' && inputs.responses_api_base || vars.AZURE_AI_RESPONSES_BASE }}
+          azure_ai_api_key: ${{ secrets.AZURE_AI_API_KEY }}
+          codex_version: ${{ inputs.codex_version }}
+
+  aggregate:
+    name: Codex review aggregator
+    needs: [prepare, reviewer]
+    # Runs when reviewers failed or were skipped (no reviewers selected); missing passes become placeholders.
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.should_run == 'true' }}
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    environment:
+      name: ${{ inputs.environment }}
+      deployment: false
+    permissions:
+      contents: read # openai/codex-action checks the triggering actor's repository permission
+    steps:
+      - name: Run Codex aggregator pass
+        uses: $/.github/actions/codex-review-pass
+        with:
+          kind: aggregator
+          model: ${{ needs.prepare.outputs.aggregator_model }}
+          effort: ${{ needs.prepare.outputs.aggregator_effort }}
+          pr_number: ${{ needs.prepare.outputs.pr_number }}
+          responses_api_base: ${{ inputs.responses_api_base != '' && inputs.responses_api_base || vars.AZURE_AI_RESPONSES_BASE }}
+          azure_ai_api_key: ${{ secrets.AZURE_AI_API_KEY }}
           codex_version: ${{ inputs.codex_version }}
 
   post:
     name: Post advisory review
-    needs: review
-    if: needs.review.result == 'success' && needs.review.outputs.should_run == 'true'
+    needs: [prepare, aggregate]
+    if: ${{ !cancelled() && needs.aggregate.result == 'success' && needs.prepare.outputs.should_run == 'true' }}
     runs-on: ubuntu-slim
+    timeout-minutes: 5
     permissions:
       contents: read # Minimal read access for the job token
       pull-requests: write # Post the advisory PR review
     steps:
-      - name: Download Codex review artifacts
+      - name: Download Codex review
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: codex-reviewer-outputs
+          name: codex-reviewer-outputs-${{ needs.prepare.outputs.pr_number }}
           path: assessment
 
       - name: Post advisory review
         uses: $/.github/actions/codex-post-review
         with:
           github_token: ${{ github.token }}
-          pr_number: ${{ needs.review.outputs.pr_number }}
+          pr_number: ${{ needs.prepare.outputs.pr_number }}
           body_file: assessment/final-review.md

@@ -1,6 +1,6 @@
 name: Codex PR Code Review
 
-on: # zizmor: ignore[dangerous-triggers] -- gated to OWNER/MEMBER/COLLABORATOR on /review or /codex-assess
+on: # zizmor: ignore[dangerous-triggers] -- /review gated to OWNER/MEMBER/COLLABORATOR; each Codex pass runs in its own job with sudo dropped, read-only, without web search; the API key stays in codex-action's proxy
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, labeled]
   issue_comment:
@@ -34,7 +34,7 @@ jobs:
       group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr_number || github.run_id }}
       cancel-in-progress: ${{ github.event_name != 'issue_comment' }}
     permissions:
-      contents: read # Read consumer config at the PR base SHA
+      contents: read # Read consumer config at the default branch HEAD
       issues: read # Read PR conversation comments
       pull-requests: write # Read PR diffs; post the advisory review
     uses: $/.github/workflows/codex-pr-review.yml

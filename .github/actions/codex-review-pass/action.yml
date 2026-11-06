@@ -1,0 +1,249 @@
+name: Codex review pass
+description: Run one Codex pass of the PR review (a reviewer or the aggregator) with sudo dropped, check its output for the API key, and upload it. Use exactly once per job.
+
+inputs:
+  kind:
+    description: "`reviewer` or `aggregator`"
+    required: true
+  name:
+    description: Reviewer name (reviewer passes only)
+    required: false
+    default: ""
+  model:
+    description: Codex model
+    required: true
+  effort:
+    description: Reasoning effort (low, medium, high)
+    required: true
+  pr_number:
+    description: Pull request number, used in artifact names
+    required: true
+  responses_api_base:
+    description: Azure Responses-compatible API base URL
+    required: true
+  azure_ai_api_key:
+    description: Azure API key for Codex (mapped only onto openai/codex-action and the Key Leak Check)
+    required: true
+  codex_version:
+    description: Codex CLI version pin
+    required: false
+    default: "0.164.0"
+
+runs:
+  using: composite
+  steps:
+    - name: Check pass inputs
+      env:
+        KIND: ${{ inputs.kind }}
+        NAME: ${{ inputs.name }}
+      run: |
+        set -euo pipefail
+        case "$KIND" in
+          reviewer) [[ "$NAME" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "::error::invalid reviewer name"; exit 1; } ;;
+          aggregator) ;;
+          *) echo "::error::kind must be reviewer or aggregator"; exit 1 ;;
+        esac
+      shell: bash
+
+    - name: Download review input
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        name: codex-review-input-${{ inputs.pr_number }}
+        path: assessment
+
+    - name: Stage reviewer pass
+      if: inputs.kind == 'reviewer'
+      env:
+        NAME: ${{ inputs.name }}
+      run: |
+        set -euo pipefail
+        src="assessment/reviewers/${NAME}"
+        test -s "${src}/task.md"
+        mv "${src}/task.md" assessment/task.md
+        mv "${src}/instructions.md" assessment/reviewer-instructions.md
+        mkdir -p "${src}/role-references"
+        mv "${src}/role-references" assessment/role-references
+        rm -rf assessment/reviewers
+        mkdir -p "review-pass/${NAME}"
+      shell: bash
+
+    - name: Download reviewer outputs
+      if: inputs.kind == 'aggregator'
+      continue-on-error: true
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        pattern: codex-reviewer-output-${{ inputs.pr_number }}-*
+        path: reviewer-downloads
+        merge-multiple: true
+
+    - name: Stage aggregator pass
+      if: inputs.kind == 'aggregator'
+      env:
+        ACTION_LIB: ${{ github.action_path }}/../_lib
+      run: |
+        set -euo pipefail
+        bash "${ACTION_LIB}/run-assess.sh" collect-reviewer-outputs \
+          --expected assessment/expected.json \
+          --reviewers-dir reviewer-downloads \
+          --output-dir assessment/reviewer-outputs \
+          --summary "$GITHUB_STEP_SUMMARY"
+        rm -rf reviewer-downloads assessment/reviewers
+        cp "${ACTION_LIB}/../../../.github/codex/prompts/pr-aggregator.md" assessment/task.md
+        mkdir -p review-pass
+      shell: bash
+
+    - name: Validate Azure Responses endpoint
+      id: endpoint
+      env:
+        ACTION_LIB: ${{ github.action_path }}/../_lib
+        AZURE_AI_API_BASE: ${{ inputs.responses_api_base }}
+      run: >-
+        bash "${ACTION_LIB}/run-assess.sh" endpoint
+        --base-url "$AZURE_AI_API_BASE"
+        --github-output "$GITHUB_OUTPUT"
+      shell: bash
+
+    - name: Set Codex arguments
+      id: args
+      env:
+        ACTION_ROOT: ${{ github.action_path }}/../../..
+        KIND: ${{ inputs.kind }}
+        NAME: ${{ inputs.name }}
+      run: |
+        set -euo pipefail
+        python3 - <<'PY' >> "$GITHUB_OUTPUT"
+        import json
+        import os
+
+        root = os.environ["ACTION_ROOT"]
+        args = [
+            "--ephemeral",
+            "--config",
+            f'model_catalog_json="{root}/.github/codex/azure-model-catalog.json"',
+            "--config",
+            'web_search="disabled"',
+        ]
+        output_file = "review-pass/final-review.md"
+        if os.environ["KIND"] == "reviewer":
+            args = ["--output-schema", f"{root}/.github/codex/schemas/reviewer-output.schema.json", *args]
+            output_file = f"review-pass/{os.environ['NAME']}/output.json"
+        print(f"codex_args={json.dumps(args)}")
+        print(f"output_file={output_file}")
+        PY
+      shell: bash
+
+    - name: Set up Node for Codex sandbox preflight
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version: "26.12.1"
+        package-manager-cache: false
+
+    - name: Preflight Codex sandbox
+      env:
+        CODEX_VERSION: ${{ inputs.codex_version }}
+      run: | # zizmor: ignore[adhoc-packages] -- installs the exact Codex version openai/codex-action installs
+        set -euo pipefail
+        if ! command -v bwrap >/dev/null 2>&1; then
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends bubblewrap
+        fi
+        # Ubuntu 24.04 AppArmor blocks the user namespaces bwrap needs. Only relax it on ephemeral
+        # GitHub-hosted runners; self-hosted runners may be shared, so their operators must allow it.
+        userns_restrict=/proc/sys/kernel/apparmor_restrict_unprivileged_userns
+        if [[ "${RUNNER_ENVIRONMENT:-}" == "github-hosted" && -f "$userns_restrict" && "$(cat "$userns_restrict")" == "1" ]]; then
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+        fi
+        npm install -g "@openai/codex@${CODEX_VERSION}"
+        if ! codex sandbox -- true; then
+          echo "::error title=Codex sandbox unavailable::'codex sandbox -- true' failed on this runner; Codex cannot run its read-only bubblewrap sandbox. Use runner ubuntu-slim or ubuntu-latest, or on a self-hosted runner allow unprivileged user namespaces (kernel.apparmor_restrict_unprivileged_userns=0)."
+          exit 1
+        fi
+      shell: bash
+
+    # drop-sudo removes sudo for the rest of the job, so every step that needs it runs above.
+    - name: Run Codex
+      uses: openai/codex-action@bdf19a4a223ec2549a3e2274a0cf61556bc07675 # v1.13
+      with:
+        openai-api-key: ${{ inputs.azure_ai_api_key }}
+        responses-api-endpoint: ${{ steps.endpoint.outputs.responses_endpoint }}
+        codex-version: ${{ inputs.codex_version }}
+        model: ${{ inputs.model }}
+        effort: ${{ inputs.effort }}
+        prompt-file: assessment/task.md
+        output-file: ${{ steps.args.outputs.output_file }}
+        permission-profile: ":read-only"
+        safety-strategy: drop-sudo
+        allow-bots: true
+        allow-bot-users: "github-actions[bot],cursor[bot],renovate[bot]"
+        codex-args: ${{ steps.args.outputs.codex_args }}
+
+    - name: Check Codex output
+      env:
+        OUTPUT_FILE: ${{ steps.args.outputs.output_file }}
+      run: |
+        if [ ! -s "$OUTPUT_FILE" ]; then
+          echo "::error title=Empty Codex output::Codex finished without writing ${OUTPUT_FILE}."
+          exit 1
+        fi
+      shell: bash
+
+    - name: Stamp reviewer output
+      if: inputs.kind == 'reviewer'
+      env:
+        NAME: ${{ inputs.name }}
+      run: |
+        set -euo pipefail
+        python3 - <<'PY'
+        import json
+        import os
+        from pathlib import Path
+
+        name = os.environ["NAME"]
+        expected = json.loads(Path("assessment/expected.json").read_text(encoding="utf-8"))
+        meta = {"review_id": expected["review_id"], "reviewer": name}
+        Path(f"review-pass/{name}/meta.json").write_text(json.dumps(meta) + "\n", encoding="utf-8")
+        PY
+      shell: bash
+
+    - name: Sanitize final review
+      if: inputs.kind == 'aggregator'
+      env:
+        ACTION_LIB: ${{ github.action_path }}/../_lib
+      run: >-
+        bash "${ACTION_LIB}/run-assess.sh" sanitize-review
+        --input review-pass/final-review.md
+        --output assessment/final-review.md
+        --title "Codex advisory code review"
+      shell: bash
+
+    - name: Key Leak Check
+      env:
+        ACTION_LIB: ${{ github.action_path }}/../_lib
+        AZURE_AI_API_KEY: ${{ inputs.azure_ai_api_key }}
+      run: bash "${ACTION_LIB}/run-assess.sh" check-key-leak --path review-pass --path assessment
+      shell: bash
+
+    - name: Upload reviewer output
+      if: inputs.kind == 'reviewer'
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: codex-reviewer-output-${{ inputs.pr_number }}-${{ inputs.name }}
+        path: review-pass/
+        retention-days: 1
+        overwrite: true
+        if-no-files-found: error
+
+    - name: Upload Codex review
+      if: inputs.kind == 'aggregator'
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: codex-reviewer-outputs-${{ inputs.pr_number }}
+        path: |
+          assessment/review-context.json
+          assessment/reviewers.json
+          assessment/expected.json
+          assessment/reviewer-outputs/
+          assessment/final-review.md
+        retention-days: 7
+        overwrite: true
+        if-no-files-found: error
