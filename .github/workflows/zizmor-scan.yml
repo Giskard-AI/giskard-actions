@@ -1,0 +1,160 @@
+name: zizmor scan
+
+# Enforced on code repositories by an organization ruleset ("Require workflows
+# to pass") and callable as a reusable workflow. Callers must grant at least
+# contents: read. A pull_request_target caller would scan the base branch, not
+# the pull request.
+
+on:
+  pull_request:
+  merge_group:
+  workflow_call:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-zizmor-scan-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  zizmor:
+    name: zizmor
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      # A pull request could disable rules in its own zizmor config, so pull
+      # requests and merge groups use the config of their base commit, and
+      # compare their ignore comments with it.
+      BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.sha }}
+      ZIZMOR_IMAGE: ghcr.io/zizmorcore/zizmor:1.32.0@sha256:3014cc8f68f663935f69b3c3e0e41f5ce102b268d97db13db0f62208747f860d
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: src
+          persist-credentials: false
+
+      - name: Checkout base commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.BASE_SHA }}
+          path: base
+          filter: blob:none
+          sparse-checkout: |
+            *.yml
+            *.yaml
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      # The runner follows symlinks when it loads a local action, but zizmor
+      # audits the link's target under its own name, or skips it when the
+      # target is outside the checkout.
+      - name: Reject symlinked Actions files
+        shell: bash
+        working-directory: src
+        run: |
+          mapfile -t links < <(find . -path ./.git -prune -o -type l \
+            \( -name action.yml -o -name action.yaml -o -name .github -o -path '*/.github/*' \) -print)
+          for link in "${links[@]}"; do
+            echo "::error file=${link#./},title=zizmor::${link#./} is a symlink. Commit the file itself: zizmor cannot audit what a symlinked action, workflow or .github file points to."
+          done
+          if (( ${#links[@]} )); then
+            exit 1
+          fi
+
+      # Inline ignores are honoured, so each one the pull request adds is
+      # surfaced for its reviewers. This step never fails the job.
+      - name: Flag new zizmor ignores
+        shell: bash
+        continue-on-error: true
+        run: |
+          python3 - <<'PY'
+          import os
+          from collections import Counter
+          from pathlib import Path
+
+          MARKER = "zizmor: ignore["
+
+
+          def ignores(root):
+              found = {}
+              for dirpath, dirnames, filenames in os.walk(root):
+                  dirnames[:] = [d for d in dirnames if d != ".git"]
+                  for name in filenames:
+                      path = Path(dirpath, name)
+                      if not name.endswith((".yml", ".yaml")) or path.is_symlink():
+                          continue
+                      text = path.read_text(encoding="utf-8", errors="replace")
+                      for number, line in enumerate(text.splitlines(), 1):
+                          if MARKER in line:
+                              rel = path.relative_to(root).as_posix()
+                              found.setdefault(rel, []).append((number, line.strip()))
+              return found
+
+
+          def escape(value, *, prop=False):
+              value = value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+              return value.replace(":", "%3A").replace(",", "%2C") if prop else value
+
+
+          base = ignores("base")
+          added = []
+          for rel, lines in sorted(ignores("src").items()):
+              unchanged = Counter(text for _, text in base.get(rel, []))
+              for number, text in lines:
+                  if unchanged[text]:
+                      unchanged[text] -= 1
+                  else:
+                      added.append((rel, number, text))
+
+          for rel, number, text in added:
+              print(
+                  f"::warning file={escape(rel, prop=True)},line={number},"
+                  f"title=New zizmor ignore::{escape(text)}"
+              )
+          if added:
+              with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+                  summary.write(
+                      "### New zizmor ignores\n\n"
+                      "This pull request adds these ignore comments. Check that each reason holds.\n\n"
+                      "```text\n"
+                  )
+                  for rel, number, text in added:
+                      summary.write(f"{rel}:{number}: {text}".replace("`", "'") + "\n")
+                  summary.write("```\n")
+          PY
+
+      - name: Run zizmor
+        shell: bash
+        run: |
+          config_dir="${RUNNER_TEMP}/zizmor-config"
+          mkdir -p "${config_dir}"
+          echo "rules: {}" > "${config_dir}/zizmor.yml"
+          # zizmor's own discovery order; the first file found wins.
+          for candidate in .github/zizmor.yml .github/zizmor.yaml zizmor.yml zizmor.yaml; do
+            if [[ -f "base/${candidate}" ]]; then
+              cp "base/${candidate}" "${config_dir}/zizmor.yml"
+              echo "Using ${candidate} from ${BASE_SHA}"
+              break
+            fi
+          done
+
+          status=0
+          docker run --rm --network none --read-only \
+            --volume "${GITHUB_WORKSPACE}/src:/src:ro" \
+            --volume "${config_dir}:/config:ro" \
+            --workdir /src \
+            "${ZIZMOR_IMAGE}" \
+            --persona=pedantic --offline --format=github --collect=all --strict-collection \
+            --config=/config/zizmor.yml . || status=$?
+
+          if [[ "${status}" -eq 3 ]]; then
+            echo "::notice title=zizmor::No workflow, action, Dependabot or pre-commit files to audit."
+            exit 0
+          fi
+          if [[ "${status}" -ne 0 ]]; then
+            echo "::error title=zizmor failed::Fix the findings, or add '# zizmor: ignore[<rule>] -- <reason>' on the flagged line for your reviewers to check. See https://giskard-ai.github.io/giskard-actions/ci-workflows.html#zizmor-failed-on-my-pr"
+          fi
+          exit "${status}"

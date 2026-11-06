@@ -1,0 +1,124 @@
+name: TypeScript CI (reusable)
+
+# Callers own the triggers and concurrency, and must grant at least
+# contents: read.
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        description: Node.js version spec installed by setup-node
+        type: string
+        default: "26"
+      working-directory:
+        description: Directory holding package.json, relative to the repository root
+        type: string
+        default: "."
+      runner:
+        description: Runner label for both jobs
+        type: string
+        default: ubuntu-latest
+      cache:
+        description: Set to npm or yarn to opt in to setup-node's dependency cache; leave empty (off) in workflows that publish or hold secrets
+        type: string
+        default: ""
+      cache-dependency-path:
+        description: Lockfile(s) keying the cache, relative to the repository root. Empty means <working-directory>/package-lock.json.
+        type: string
+        default: ""
+      install-command:
+        description: Shell command that installs dependencies
+        type: string
+        default: "npm ci"
+      lint-command:
+        description: Shell command of the lint step
+        type: string
+        default: "npm run lint"
+      format-command:
+        description: Shell command of the format check step
+        type: string
+        default: "npx --no prettier --check ."
+      test-command:
+        description: Shell command of the test job
+        type: string
+        default: "npm test"
+      timeout-minutes:
+        description: Timeout of each job in minutes
+        type: number
+        default: 30
+
+permissions: {}
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: ${{ inputs.cache }}
+          cache-dependency-path: ${{ inputs.cache-dependency-path || format('{0}/package-lock.json', inputs.working-directory) }}
+          package-manager-cache: false
+
+      - name: Install dependencies
+        env:
+          INSTALL_COMMAND: ${{ inputs.install-command }}
+        run: bash -eo pipefail -c "${INSTALL_COMMAND}"
+
+      - name: Lint
+        env:
+          LINT_COMMAND: ${{ inputs.lint-command }}
+        run: bash -eo pipefail -c "${LINT_COMMAND}"
+
+      - name: Check formatting
+        env:
+          FORMAT_COMMAND: ${{ inputs.format-command }}
+        run: bash -eo pipefail -c "${FORMAT_COMMAND}"
+
+  test:
+    name: test
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: ${{ inputs.cache }}
+          cache-dependency-path: ${{ inputs.cache-dependency-path || format('{0}/package-lock.json', inputs.working-directory) }}
+          package-manager-cache: false
+
+      - name: Install dependencies
+        env:
+          INSTALL_COMMAND: ${{ inputs.install-command }}
+        run: bash -eo pipefail -c "${INSTALL_COMMAND}"
+
+      - name: Run tests
+        env:
+          TEST_COMMAND: ${{ inputs.test-command }}
+        run: bash -eo pipefail -c "${TEST_COMMAND}"
