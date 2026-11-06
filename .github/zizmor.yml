@@ -1,8 +1,1 @@
-# Read from the pull request base commit by zizmor-scan.yml, which ignores
-# inline `# zizmor: ignore` comments. The pedantic zizmor.yml workflow runs
-# with --no-config and keeps the line-scoped inline ignores instead.
-rules:
-  dangerous-triggers:
-    disable: true # codex-pr-assessment.yml: issue_comment gated to OWNER/MEMBER/COLLABORATOR
-  adhoc-packages:
-    disable: true # codex-pr-review action installs the exact Codex version openai/codex-action installs
+rules: {}
