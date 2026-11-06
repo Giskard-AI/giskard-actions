@@ -3,6 +3,7 @@
 import json
 import re
 import subprocess
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -257,7 +258,7 @@ def test_renovate_tracks_zizmor_image(path: Path):
     [
         pytest.param("--collect=all", id="audits-gitignored-files"),
         pytest.param("--strict-collection", id="fails-on-unparsable-files"),
-        pytest.param("--no-ignores", id="drops-pull-request-ignores"),
+        pytest.param("--persona=pedantic", id="runs-the-pedantic-persona"),
         pytest.param("--offline", id="runs-offline"),
         pytest.param("--format=github", id="annotates-findings"),
         pytest.param("--network none", id="container-has-no-network"),
@@ -269,6 +270,10 @@ def test_renovate_tracks_zizmor_image(path: Path):
 )
 def test_zizmor_scan_flags(flag: str):
     assert flag in zizmor_scan_script("docker run")
+
+
+def test_zizmor_scan_honours_inline_ignores():
+    assert "--no-ignores" not in zizmor_scan_script("docker run")
 
 
 def zizmor_scan_script(marker: str) -> str:
@@ -389,4 +394,77 @@ def test_zizmor_job_names(workflow: str, job: str):
 def test_zizmor_scan_checkouts_do_not_overlap():
     steps = checkout_steps((WORKFLOWS_DIR / "zizmor-scan.yml").read_text())
     paths = [re.search(r"^\s+path: (\S+)$", step, re.MULTILINE)[1] for step in steps]
-    assert paths == ["src", "config"]
+    assert paths == ["src", "base"]
+
+
+WORKFLOW = "on: push\njobs: {}\n"
+IGNORE = "on: issue_comment # zizmor: ignore[dangerous-triggers] -- gated\n"
+
+
+@pytest.mark.parametrize(
+    ("base", "head", "warnings"),
+    [
+        pytest.param(
+            {"wf.yml": WORKFLOW},
+            {"wf.yml": IGNORE + WORKFLOW},
+            ["wf.yml:1"],
+            id="added-ignore-is-flagged",
+        ),
+        pytest.param(
+            {"wf.yml": IGNORE + WORKFLOW},
+            {"wf.yml": IGNORE + WORKFLOW},
+            [],
+            id="unchanged-ignore-is-not-flagged",
+        ),
+        pytest.param(
+            {"wf.yml": IGNORE + WORKFLOW},
+            {"wf.yml": WORKFLOW + IGNORE},
+            [],
+            id="moved-ignore-is-not-flagged",
+        ),
+        pytest.param(
+            {"wf.yml": IGNORE},
+            {"wf.yml": IGNORE + IGNORE},
+            ["wf.yml:2"],
+            id="second-copy-of-an-ignore-is-flagged",
+        ),
+        pytest.param(
+            {},
+            {"x/action.yaml": IGNORE},
+            ["x/action.yaml:1"],
+            id="ignore-in-new-action-is-flagged",
+        ),
+        pytest.param(
+            {},
+            {"notes.md": IGNORE},
+            [],
+            id="non-yaml-file-is-skipped",
+        ),
+        pytest.param(
+            {},
+            {"a,b:c.yml": IGNORE},
+            ["a%2Cb%3Ac.yml:1"],
+            id="file-name-is-escaped-in-the-annotation",
+        ),
+    ],
+)
+def test_zizmor_scan_flags_new_ignores(
+    tmp_path: Path, base: dict[str, str], head: dict[str, str], warnings: list[str]
+):
+    for root, files in (("base", base), ("src", head)):
+        (tmp_path / root).mkdir()
+        for name, content in files.items():
+            (tmp_path / root / name).parent.mkdir(parents=True, exist_ok=True)
+            (tmp_path / root / name).write_text(content)
+    summary = tmp_path / "summary.md"
+    result = subprocess.run(
+        ["bash", "-c", textwrap.dedent(zizmor_scan_script("New zizmor ignore"))],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
+        env={"GITHUB_STEP_SUMMARY": str(summary), "PATH": "/usr/bin:/bin"},
+    )
+    found = re.findall(r"^::warning file=([^,]+),line=(\d+),", result.stdout, re.MULTILINE)
+    assert [f"{name}:{line}" for name, line in found] == warnings
+    assert summary.exists() == bool(warnings)

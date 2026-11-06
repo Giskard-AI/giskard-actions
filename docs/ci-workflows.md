@@ -152,18 +152,19 @@ Both CI workflows and the zizmor scan only need `contents: read`. Grant it on th
 {: #zizmor-failed-on-my-pr }
 
 - **Fix the finding.** The annotation names the rule and links its documentation.
-- **For a justified exception**, merge a `.github/zizmor.yml` change in a separate pull request first (see [Exceptions](#exceptions)), then push a commit or click **Update branch** on your pull request. Editing the config in the same pull request has no effect: it is read from the base commit. Inline `# zizmor: ignore` comments are not honoured.
-- **Re-running the failed job does not pick up a newly merged exception.** A re-run reuses the original event, so the same base commit and config.
+- **For a justified exception**, add `# zizmor: ignore[<rule>] -- <reason>` on the flagged line (see [Exceptions](#exceptions)). The scan flags it as a new ignore so your reviewers check the reason.
+- **Editing `.github/zizmor.yml` in your pull request has no effect.** The config is read from the base commit. A repository-wide change goes in its own pull request first; then push a commit or click **Update branch** (re-running the job reuses the old base commit).
 - **A symlinked action, workflow or `.github` file fails the scan.** Commit the file itself.
 
 ### How it runs
 
-`zizmor-scan.yml` runs [zizmor](https://docs.zizmor.sh/) 1.32.0 from its container image, pinned by digest (`ghcr.io/zizmorcore/zizmor:<version>@sha256:...`), with the default persona. Findings appear as annotations on the pull request and fail the `zizmor` job, which times out after 10 minutes.
+`zizmor-scan.yml` runs [zizmor](https://docs.zizmor.sh/) 1.32.0 from its container image, pinned by digest (`ghcr.io/zizmorcore/zizmor:<version>@sha256:...`), with the pedantic persona. Findings appear as annotations on the pull request and fail the `zizmor` job, which times out after 10 minutes.
 
-- **PR content cannot touch the scanner.** The pull request is checked out into `src/` and mounted read-only into the container, which runs without network. The config is checked out into a sibling directory, never inside `src/`.
+- **PR content cannot touch the scanner.** The pull request is checked out into `src/` and mounted read-only into the container, which runs without network. The base commit's YAML files are checked out into a sibling `base/` directory, never inside `src/`.
+- **Pedantic persona.** The scan reports code-smell findings too, the same standard as a repository's own pedantic zizmor check. A repository cannot choose another persona.
 - **No symlinked Actions files.** The runner follows a symlink when it loads a local action, but zizmor audits the target under its own name, or skips it when the target is outside the checkout. The job fails before scanning if `action.yml`, `action.yaml`, a `.github` directory or anything under one is a symlink.
 - **Config from the base commit.** On `pull_request` and `merge_group` runs, the zizmor config is read from the base commit (`github.event.pull_request.base.sha` or `github.event.merge_group.base_sha`), in zizmor's discovery order: `.github/zizmor.yml`, `.github/zizmor.yaml`, `zizmor.yml`, `zizmor.yaml`. With none, an empty config (`rules: {}`) is used. On other events, such as a reusable call from a `push` workflow, the config of the scanned commit is used.
-- **No ignores from the pull request.** zizmor runs with `--no-ignores`: inline `# zizmor: ignore[...]` comments and the config's `ignore:` entries are not honoured. See [Exceptions](#exceptions).
+- **Inline ignores are honoured and flagged.** `# zizmor: ignore[...]` comments and the config's `ignore:` entries apply. Each ignore comment a pull request adds, compared with the base commit, becomes a warning on its line and is listed in the job summary. The warning never fails the job. See [Exceptions](#exceptions).
 - **Every file counts.** `--collect=all` audits workflows, composite actions, Dependabot and pre-commit files even when `.gitignore` lists them, since GitHub runs a force-added workflow regardless. `--strict-collection` fails on a file zizmor cannot parse.
 - **Offline.** Online audits (known vulnerable actions, impostor commits, ref confusion) depend on external advisories and could turn every pull request in the organization red without a code change. They run in the weekly repo-baseline scan instead.
 - **No files is a pass.** A repository with nothing to audit passes with a notice.
@@ -171,15 +172,16 @@ Both CI workflows and the zizmor scan only need `contents: read`. Grant it on th
 
 ### Exceptions
 
-`--no-ignores` drops both inline ignore comments and `rules.<id>.ignore` entries, so the only exceptions are rule-wide, in `.github/zizmor.yml` on the default branch:
+An exception is an inline ignore on the flagged line, with a one-line reason, reviewed in the pull request that adds it:
 
 ```yaml
-rules:
-  dangerous-triggers:
-    disable: true # why this repository needs it
+on: # zizmor: ignore[dangerous-triggers] -- /review gated to OWNER/MEMBER/COLLABORATOR
+  issue_comment:
 ```
 
-Rules with options (`rules.<id>.config`, for example the `unpinned-uses` policies) can be tuned there as well. A disabled rule no longer reports anywhere in the repository, so keep the reason next to it and require code owner review on `.github/**` (a `CODEOWNERS` entry plus "Require review from Code Owners").
+The scan flags every ignore comment the pull request adds, so reviewers see each one. Keep the reason specific enough for a reviewer, or a later auditor, to judge it.
+
+Repository-wide policy (disabling a rule everywhere, or tuning options such as the `unpinned-uses` policies with `rules.<id>.config`) goes in `.github/zizmor.yml`, read from the base commit, so a pull request cannot loosen it for itself. Require code owner review on `.github/**` (a `CODEOWNERS` entry plus "Require review from Code Owners").
 
 Strict collection failures cannot be excepted: a file zizmor cannot parse (test fixtures, Jinja or copier templates, syntax zizmor does not support) fails the scan. The repo-baseline dashboard dry run surfaces them before a repository is gated.
 
@@ -187,7 +189,7 @@ Strict collection failures cannot be excepted: a file zizmor cannot parse (test 
 
 The workflow triggers on `pull_request` and `merge_group`, so an organization ruleset can run it on code repositories without a caller file. The rollout is progressive (rulesets have no Evaluate mode outside GitHub Enterprise):
 
-1. The repo-baseline dashboard reports which repositories would fail the scan, so they can fix findings or merge exceptions first.
+1. The repo-baseline dashboard reports which repositories would fail the scan, and lists their ignore comments, so they can fix findings or add reasoned ignores first.
 2. An organization ruleset with **Require workflows to pass before merging** requires `.github/workflows/zizmor-scan.yml` from `Giskard-AI/giskard-actions` at the full commit SHA of a release, for repositories whose `zizmor-gate` custom property is `true`. Admins set the property repository by repository once each one is green.
 3. Once every code repository is green, the ruleset targets all repositories with `kind=code`.
 
@@ -233,4 +235,4 @@ jobs:
 
 Its `pull_request` and `merge_group` triggers are ignored when called; the caller's triggers apply, and the base commit is still read from the caller's event. Its concurrency group appends `zizmor-scan` to the caller's workflow name, so it does not collide with a workflow-level group on the caller.
 
-This repository's own `zizmor.yml` workflow (job `zizmor-pedantic`, so the `zizmor` check name stays unique) runs the same image with the pedantic persona and online audits. It keeps line-scoped inline ignores (`--no-config`), while `.github/zizmor.yml` holds the rule-wide exceptions the shared scan needs here.
+This repository's own `zizmor.yml` workflow (job `zizmor-pedantic`, so the `zizmor` check name stays unique) runs the same image with the pedantic persona and online audits. The online audits are the only thing it adds to the shared scan.

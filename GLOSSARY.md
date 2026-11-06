@@ -49,7 +49,7 @@ A `workflow_call` workflow (`.github/workflows/python-ci.yml` or `.github/workfl
 _Avoid_: CI template, starter workflow
 
 **Required Scan Workflow**:
-`.github/workflows/zizmor-scan.yml`, run on the pull requests and merge groups of code repositories by an organization ruleset ("Require workflows to pass before merging") that pins its repository, path and commit SHA, and also callable as a reusable workflow. It runs a digest-pinned zizmor image offline on every Actions file of the pull request, ignores inline ignore comments, and reads the zizmor config, the only source of a **zizmor Exception**, from the pull request's base commit. Only that ruleset rule is a trustworthy gate: a required status check matched by the name `zizmor` can be satisfied by a job the pull request adds itself. The ruleset JSON lives in repo-baseline as code, so its SHA moves through a reviewed pull request there, which Renovate can propose.
+`.github/workflows/zizmor-scan.yml`, run on the pull requests and merge groups of code repositories by an organization ruleset ("Require workflows to pass before merging") that pins its repository, path and commit SHA, and also callable as a reusable workflow. It runs a digest-pinned zizmor image offline, with the pedantic persona, on every Actions file of the pull request, honours each **zizmor Exception** and flags the ones the pull request adds, and reads the zizmor config from the pull request's base commit. Only that ruleset rule is a trustworthy gate: a required status check matched by the name `zizmor` can be satisfied by a job the pull request adds itself. The ruleset JSON lives in repo-baseline as code, so its SHA moves through a reviewed pull request there, which Renovate can propose.
 _Avoid_: Org workflow, global zizmor, zizmor shim
 
 **zizmor Gate**:
@@ -57,8 +57,8 @@ The `zizmor-gate` boolean custom property (defined in repo-baseline) that select
 _Avoid_: Evaluate mode, zizmor enforcement flag
 
 **zizmor Exception**:
-A rule disabled (`rules.<id>.disable: true`) or configured in a repository's `.github/zizmor.yml`, merged to the default branch before the pull request that needs it. The **Required Scan Workflow** honours no inline `# zizmor: ignore` comment and no `ignore:` entry, so every exception is rule-wide.
-_Avoid_: Ignore, suppression, waiver
+An inline `# zizmor: ignore[<rule>] -- <reason>` comment on a flagged line, reviewed in the pull request that adds it. The **Required Scan Workflow** annotates each one a pull request adds. Repository-wide policy (a rule disabled or configured in `.github/zizmor.yml`) is not an exception: it is read from the base commit.
+_Avoid_: Suppression, waiver, rule-wide exception
 
 ### Release Notes Pipeline
 
