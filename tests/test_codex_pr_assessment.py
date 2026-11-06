@@ -154,6 +154,21 @@ class TestCodexPrAssessmentWorkflow(unittest.TestCase):
         self.assertLess(probe, review.index("uses: openai/codex-action@"))
         self.assertIn("::error title=Codex sandbox unavailable::", review)
 
+    def test_review_composite_retries_bubblewrap_install_and_stops_without_it(self) -> None:
+        review = (REPO_ROOT / ".github/actions/codex-review-pass/action.yml").read_text(
+            encoding="utf-8"
+        )
+        update = review.index("sudo apt-get update -qq && break")
+        install = review.index(
+            "sudo apt-get install -y -qq --no-install-recommends bubblewrap && break"
+        )
+        stop = review.index("::error title=bubblewrap unavailable::")
+        self.assertEqual(review[:update].count("for attempt in 1 2 3; do"), 1)
+        self.assertEqual(review[:install].count("for attempt in 1 2 3; do"), 2)
+        self.assertLess(update, install)
+        self.assertLess(install, stop)
+        self.assertIn("exit 1", review[stop : review.index("npm install -g")])
+
     def test_reusable_workflow_defaults_to_ubuntu_slim_budget(self) -> None:
         reusable = (REPO_ROOT / ".github/workflows/codex-pr-review.yml").read_text(encoding="utf-8")
         self.assertRegex(reusable, r"runner:\n(?:[ \t]+\w+:.*\n)*?[ \t]+default: ubuntu-slim\n")
