@@ -104,16 +104,23 @@ runs:
         if ! id -u codex >/dev/null 2>&1; then
           sudo useradd --system --user-group --create-home --home-dir /home/codex --shell /bin/bash codex
         fi
+        if [ "$(getent passwd codex | cut -d: -f6)" != /home/codex ]; then
+          echo "::error title=Codex User::The existing codex account's home is not /home/codex."
+          exit 1
+        fi
         # codex-action's proxy runs as the runner and writes its server info under /home/codex/.codex.
+        # A Codex home left by an earlier job on the same host would stop the proxy from starting.
+        sudo rm -rf /home/codex/.codex
         sudo chmod 755 /home/codex
-        # The runner's home is not world-readable; the workspace and the action unpack live under it.
-        sudo usermod -a -G "$(stat -c %G "$HOME")" codex
+        # Traverse only: the workspace and the action unpack live under the runner's home. Never add
+        # codex to the runner's groups: on ubuntu-latest that group is docker, which is root.
+        sudo chmod o+x "$HOME"
         # Codex writes each pass's output-file into assessment/.
         mkdir -p assessment
         sudo chgrp codex assessment
         chmod 775 assessment
-        if sudo -n -u codex -- sudo -n true 2>/dev/null; then
-          echo "::error title=Codex User has sudo::The codex account can use sudo, so it could read the API key proxy's memory."
+        if [ "$(id -Gn codex)" != codex ] || sudo -n -u codex -- sudo -n true 2>/dev/null; then
+          echo "::error title=Codex User is privileged::The codex account must have no sudo and no group but codex, or it could read the API key proxy's memory."
           exit 1
         fi
       shell: bash

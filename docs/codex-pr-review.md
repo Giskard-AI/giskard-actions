@@ -130,7 +130,7 @@ Before posting, the review body is sanitized: secret patterns are redacted, `@me
 Codex reads text the pull request author controls (the diff and the discussion), so a review must assume that text contains a prompt injection aimed at `AZURE_AI_API_KEY`. That holds for every trigger: the `/review` comment, the `codex-review` label and manual runs start the same job. The review job never checks out or runs the pull request's code.
 
 - **The key stays in codex-action's proxy.** `openai/codex-action` starts a local Responses API proxy that receives the key on stdin and keeps it out of its environment. Codex only gets a `127.0.0.1` URL.
-- **Codex runs as the Codex User.** Every reviewer pass and the aggregator use `safety-strategy: unprivileged-user` with `codex-user: codex`, an account the review job creates without `sudo`. The proxy runs under the runner account, so Codex can't read its memory even after escaping its sandbox. With the previous `read-only` strategy, the runner's passwordless `sudo` made that memory readable ([why](https://github.com/openai/codex-action/blob/main/docs/security.md#protecting-your-openai_api_key)).
+- **Codex runs as the Codex User.** Every reviewer pass and the aggregator use `safety-strategy: unprivileged-user` with `codex-user: codex`, an account the review job creates without `sudo`. The job fails if that account can use `sudo` or belongs to any group but its own (on `ubuntu-latest`, the runner's group is `docker`, which is root-equivalent). It only gets traverse access to the runner's home. The proxy runs under the runner account, so Codex can't read its memory even after escaping its sandbox. With the previous `read-only` strategy, the runner's passwordless `sudo` made that memory readable ([why](https://github.com/openai/codex-action/blob/main/docs/security.md#protecting-your-openai_api_key)).
 - **Read-only, no network.** Each pass uses `permission-profile: ":read-only"`: Codex's commands run in a bubblewrap sandbox that can't write files or open network connections.
 - **Key Leak Check.** After the aggregator and before the artifact upload, the job fails if the key's value appears anywhere under `assessment/`. Nothing is then uploaded or posted; the error says to rotate `AZURE_AI_API_KEY` and never prints the value. It only catches the key in plain text: the Codex User is the real protection.
 - **Why not `drop-sudo`.** codex-action's default removes `sudo` from the runner for the rest of the job, so a second Codex run in the same job fails. The review runs up to 13 passes in one job; `drop-sudo` would need one job per pass.
@@ -138,13 +138,13 @@ Codex reads text the pull request author controls (the diff and the discussion),
 
 ## Residual risks
 
-- **Encoded key in output.** The Key Leak Check only matches the key in plain text. Keep using a dedicated Azure key with a spending limit, scoped to this workflow.
+- **Encoded key in output.** The Key Leak Check only matches the key in plain text, and only in the uploaded files: Codex's output in the step logs gets GitHub's plain-text secret masking only. Keep using a dedicated Azure key with a spending limit, scoped to this workflow.
 - **Advisory output.** Model output is sanitized but not verified. Treat findings as suggestions.
 
 ## Known limitations
 
 - All reviewer passes run sequentially in one job.
-- Self-hosted runners need passwordless `sudo` for the runner account (to create the Codex User) and `useradd`.
+- Self-hosted runners need passwordless `sudo` for the runner account (to create the Codex User) and `useradd`. The job changes the host for good: it creates the `codex` account and makes the runner's home traversable by other users (`o+x`). Use ephemeral or dedicated runners, and don't run two reviews at once on one host: they share `/home/codex`.
 
 ## Runner requirements
 

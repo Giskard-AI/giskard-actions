@@ -1,5 +1,6 @@
 """Codex review hardening: the Codex User on every Codex step, and the Key Leak Check."""
 
+import re
 import sys
 from pathlib import Path
 
@@ -9,6 +10,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 REVIEW_ACTION = REPO_ROOT / ".github/actions/codex-pr-review/action.yml"
 KEY = "azure-test-key-0123456789abcdef"
+CODEX_USES_RE = re.compile(r"^\s*(?:-\s+)?uses:\s*openai/codex-action@")
 
 
 def run_check_key_leak(monkeypatch: pytest.MonkeyPatch, root: Path, key: str | None) -> int:
@@ -104,7 +106,7 @@ def codex_action_steps() -> list[tuple[str, dict[str, str]]]:
     for path in yaml_files:
         lines = path.read_text(encoding="utf-8").splitlines()
         for index, line in enumerate(lines):
-            if "uses: openai/codex-action@" not in line:
+            if not CODEX_USES_RE.match(line):
                 continue
             step_indent = indent_of(line)
             name = next(
@@ -160,3 +162,20 @@ def test_codex_user_is_created_before_the_first_codex_pass() -> None:
     assert create < review.index("uses: openai/codex-action@")
     assert "sudo rm -f /home/codex/.codex/config.toml" in review
     assert '"${HOME}/.codex/config.toml"' not in review
+
+
+@pytest.mark.parametrize(
+    ("snippet", "present"),
+    [
+        pytest.param('[ "$(id -Gn codex)" != codex ]', True, id="fails-if-codex-has-other-groups"),
+        pytest.param("sudo -n -u codex -- sudo -n true", True, id="fails-if-codex-has-sudo"),
+        pytest.param("sudo rm -rf /home/codex/.codex", True, id="clears-a-stale-codex-home"),
+        pytest.param("getent passwd codex", True, id="checks-an-existing-codex-home"),
+        pytest.param("usermod", False, id="never-adds-codex-to-runner-groups"),
+    ],
+)
+def test_codex_user_setup_keeps_the_account_unprivileged(snippet: str, present: bool) -> None:
+    review = REVIEW_ACTION.read_text(encoding="utf-8")
+    start = review.index("- name: Create Codex User")
+    step = review[start : review.index("- name:", start + 1)]
+    assert (snippet in step) == present
