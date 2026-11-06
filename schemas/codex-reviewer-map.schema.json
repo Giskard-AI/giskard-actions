@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/Giskard-AI/giskard-actions/main/schemas/codex-reviewer-map.schema.json",
   "title": "Codex reviewer map",
-  "description": "Maps changed paths to Codex reviewer passes. Read from .github/giskard/codex-reviewer-map.json at the pull request base SHA.",
+  "description": "Maps changed paths to Codex reviewer passes. Read from .github/giskard/codex-reviewer-map.json at the HEAD of the repository's default branch.",
   "type": "object",
   "additionalProperties": false,
   "required": ["rules"],
@@ -25,6 +25,15 @@
     "critical_effort": { "$ref": "#/$defs/nonEmptyString" },
     "aggregator_model": { "$ref": "#/$defs/nonEmptyString" },
     "aggregator_effort": { "$ref": "#/$defs/nonEmptyString" },
+    "agents_dir": {
+      "$ref": "#/$defs/configDir",
+      "default": ".cursor/agents",
+      "description": "Directory holding reviewer personas (<name>.md or <name>.agent.md)."
+    },
+    "references_dir": {
+      "$ref": "#/$defs/configDir",
+      "description": "Directory holding role references. Defaults to <agents_dir>/references."
+    },
     "rules": {
       "type": "array",
       "minItems": 1,
@@ -36,6 +45,11 @@
     "nonEmptyString": {
       "type": "string",
       "minLength": 1
+    },
+    "configDir": {
+      "type": "string",
+      "description": "Relative POSIX path. Segments use [A-Za-z0-9._-] and cannot be '.', '..' or '.git'.",
+      "pattern": "^(?!(?:.*/)?\\.{1,2}(?:/|$))(?!(?:.*/)?\\.[Gg][Ii][Tt](?:/|$))[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$"
     },
     "stringList": {
       "type": "array",
@@ -61,7 +75,7 @@
         "name": {
           "type": "string",
           "pattern": "^[a-zA-Z0-9_-]+$",
-          "description": "Reviewer name. The persona is loaded from .cursor/agents/<name>.md at the base SHA, falling back to a bundled generic persona for security-auditor, infra-reviewer and prompt-critic."
+          "description": "Reviewer name. The persona is loaded from <agents_dir>/<name>.md or <agents_dir>/<name>.agent.md at the default branch HEAD, then from the bundled persona for security-auditor, infra-reviewer and prompt-critic, then from a generic prompt."
         },
         "model_kind": {
           "enum": ["normal", "critical"],
@@ -92,13 +106,16 @@
           "$ref": "#/$defs/stringList",
           "description": "Matches paths containing these fragments (case-insensitive)."
         },
+        "path_excludes": {
+          "$ref": "#/$defs/stringList",
+          "description": "Path prefixes this rule never matches, even when another matcher does."
+        },
         "role_references": {
           "type": "array",
-          "description": "Basenames of files under .cursor/agents/references/ staged for this reviewer.",
+          "description": "Markdown basenames under references_dir staged for this reviewer.",
           "items": {
             "type": "string",
-            "pattern": "^[^/\\\\]+$",
-            "not": { "pattern": "\\.\\." }
+            "pattern": "^[A-Za-z0-9_-][A-Za-z0-9._-]*\\.md$"
           }
         }
       }

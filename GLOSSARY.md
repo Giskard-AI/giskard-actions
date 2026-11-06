@@ -19,7 +19,7 @@ An immutable SemVer git tag (`vX.Y.Z`) and GitHub Release published only by `rel
 _Avoid_: Package version, individual action version
 
 **Reusable Review Workflow**:
-The `workflow_call` workflow `.github/workflows/codex-pr-review.yml` that wraps the Codex review and post composites into a read-only review job and a write-only post job. The **Consumer Repository** calls it from one job that owns triggers, the comment gate, concurrency, and the permission ceiling, passes its `environment` name as an input and `AZURE_AI_API_KEY` explicitly.
+The `workflow_call` workflow `.github/workflows/codex-pr-review.yml` that runs a prepare job, one **Reviewer Job** per selected reviewer, an aggregate job and a write-only post job. The **Consumer Repository** calls it from one job that owns triggers, the comment gate, concurrency, and the permission ceiling, passes its `environment` name as an input and `AZURE_AI_API_KEY` explicitly.
 _Avoid_: Codex shim, wrapper workflow
 
 **Self-Repository Reference**:
@@ -38,9 +38,17 @@ _Avoid_: Dotfile config, root config
 A JSON Schema under `schemas/` in `giskard-actions` describing one file of the **Consumer Config Directory**, referenced from that file's `$schema` key and enforced against `examples/` by the test suite.
 _Avoid_: Config spec, config template
 
-**Base-SHA Overlay**:
-Trusted configuration and reviewer persona files (`.github/giskard/codex-reviewer-map.json`, `.cursor/agents/*.md`, and `.cursor/agents/references/*`) fetched strictly from the **Consumer Repository** pull request base commit rather than the untrusted pull request head. When a persona is missing, a generic **Bundled Overlay** from `.github/codex/overlays/` is used if one exists for that reviewer name.
-_Avoid_: PR head config, caller checkout config
+**Trusted Config**:
+The reviewer map (`.github/giskard/codex-reviewer-map.json`) and the reviewer persona and reference files it points to (`agents_dir`, default `.cursor/agents`), read strictly from the **Consumer Repository** default branch HEAD, never from the pull request head or its base commit, which a pull request author can retarget. When a persona is missing, a generic **Bundled Overlay** from `.github/codex/overlays/` is used if one exists for that reviewer name, else a generic reviewer prompt.
+_Avoid_: Base-SHA overlay, PR head config, caller checkout config
+
+**Reviewer Job**:
+One job of the **Reusable Review Workflow** that runs a single Codex reviewer pass with `openai/codex-action`'s `drop-sudo`, which can only run once per job. Reviewer Jobs run as a matrix, at most `max_parallel` at a time; a failed one turns red without blocking the others or the aggregate job.
+_Avoid_: Reviewer slot, reviewer step
+
+**Key Leak Check**:
+The check that fails a Codex job when the API key's value, raw or encoded, appears in any Codex output, before anything is uploaded or posted. It blocks the output rather than editing it.
+_Avoid_: Secret scan, redaction
 
 ### Shared CI
 

@@ -6,7 +6,7 @@ nav_order: 2
 
 # Codex Review as a Reusable Workflow with Self-Repository References
 
-**Status**: accepted. Partially supersedes [ADR 0001](0001-nested-composite-actions-architecture.html).
+**Status**: accepted. Partially supersedes [ADR 0001](0001-nested-composite-actions-architecture.html). The single review job and the base-SHA config source are superseded by [ADR 0004](0004-codex-review-as-parallel-reviewer-jobs.html).
 
 Codex PR review now ships as the **Reusable Review Workflow** `.github/workflows/codex-pr-review.yml` (`on: workflow_call`), which wraps the `codex-pr-review` and `codex-post-review` composite actions through **Self-Repository References** (`uses: $/.github/actions/<name>`). Release notes stays a composite action, moved to `.github/actions/release-notes/action.yml` so every action lives under `.github/actions/<name>/`. The repository keeps one SemVer **Umbrella Release** version, and consumer settings move to the **Consumer Config Directory** `.github/giskard/`, each file described by a published **Config Schema**.
 

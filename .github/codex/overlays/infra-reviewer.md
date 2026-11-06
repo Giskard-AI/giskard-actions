@@ -1,6 +1,6 @@
 ---
 name: Infrastructure Reviewer
-description: Generic infrastructure reviewer, used when the repository has no `.cursor/agents/infra-reviewer.md`.
+description: Generic infrastructure reviewer, used when the repository has no persona named infra-reviewer.
 ---
 
 Review CI/CD workflows, composite actions, container images, deployment configuration, and packaging.

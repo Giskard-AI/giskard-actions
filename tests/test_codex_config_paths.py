@@ -35,26 +35,33 @@ def test_reviewer_map_location(
 
 
 def _stage(tmp_path: Path, name: str) -> tuple[int, Path]:
-    output = tmp_path / "out" / "reviewer-instructions.md"
-    args = argparse.Namespace(
-        name=name,
-        trusted_config=str(tmp_path / "trusted"),
-        output=str(output),
-        references_output=str(tmp_path / "out" / "refs"),
-        role_references="",
+    reviewers = tmp_path / "reviewers.json"
+    codex_pr_assessment.write_json(
+        reviewers, {"reviewers": [{"name": name, "role_references": ""}]}
     )
-    return codex_pr_assessment.main_stage_overlay(args), output
+    args = argparse.Namespace(
+        reviewers=str(reviewers),
+        trusted_config=str(tmp_path / "trusted"),
+        reviewer_map=str(tmp_path / "missing-map.json"),
+        output_dir=str(tmp_path / "out"),
+        head_sha="abc123",
+        pr_number=7,
+        expected_output=str(tmp_path / "expected.json"),
+    )
+    return codex_pr_assessment.main_stage_reviewers(args), tmp_path / "out" / name
 
 
 @pytest.mark.parametrize(
     "name", ["security-auditor", "infra-reviewer", "prompt-critic"], ids=lambda n: f"bundled-{n}"
 )
 def test_bundled_overlay_is_used_without_consumer_persona(tmp_path: Path, name: str) -> None:
-    status, output = _stage(tmp_path, name)
+    status, staged = _stage(tmp_path, name)
 
     assert status == 0
     bundled = codex_pr_assessment.BUNDLED_OVERLAYS_DIR / f"{name}.md"
-    assert output.read_text(encoding="utf-8") == bundled.read_text(encoding="utf-8")
+    assert (staged / "instructions.md").read_text(
+        encoding="utf-8"
+    ) == codex_pr_assessment.strip_frontmatter(bundled.read_text(encoding="utf-8"))
 
 
 def test_consumer_persona_wins_over_bundled_overlay(tmp_path: Path) -> None:
@@ -62,16 +69,20 @@ def test_consumer_persona_wins_over_bundled_overlay(tmp_path: Path) -> None:
     persona.parent.mkdir(parents=True)
     persona.write_text("consumer persona", encoding="utf-8")
 
-    status, output = _stage(tmp_path, "security-auditor")
+    status, staged = _stage(tmp_path, "security-auditor")
 
     assert status == 0
-    assert output.read_text(encoding="utf-8") == "consumer persona"
+    assert (staged / "instructions.md").read_text(encoding="utf-8") == "consumer persona"
 
 
-def test_unknown_reviewer_without_persona_fails(tmp_path: Path) -> None:
-    status, _ = _stage(tmp_path, "clean-arch-guard")
+def test_unknown_reviewer_without_persona_uses_generic_prompt(tmp_path: Path) -> None:
+    status, staged = _stage(tmp_path, "clean-arch-guard")
 
-    assert status == 1
+    assert status == 0
+    generic = codex_pr_assessment.PROMPTS_DIR / "generic-reviewer.md"
+    assert (staged / "instructions.md").read_text(encoding="utf-8") == generic.read_text(
+        encoding="utf-8"
+    )
 
 
 @pytest.mark.parametrize(

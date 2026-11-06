@@ -1,6 +1,6 @@
 ---
 name: Security Auditor
-description: Generic security reviewer, used when the repository has no `.cursor/agents/security-auditor.md`.
+description: Generic security reviewer, used when the repository has no persona named security-auditor.
 ---
 
 Review the patch for secrets handling, authentication and authorization, injection, and CI/CD workflow security.

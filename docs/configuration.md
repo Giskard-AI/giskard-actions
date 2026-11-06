@@ -49,21 +49,28 @@ Examples: [`web-app`](https://github.com/Giskard-AI/giskard-actions/blob/main/ex
 
 ## Codex reviewer map
 
-`.github/giskard/codex-reviewer-map.json`, read from the pull request **base SHA**. Changes to it only take effect after they merge.
+`.github/giskard/codex-reviewer-map.json`, read from the **default branch HEAD**, together with the personas it points to. Changes to it only take effect after they merge.
 
 | Field | Description |
 | --- | --- |
 | `rules` | Required, non-empty. Each rule selects one reviewer |
-| `rules[].name` | Reviewer name (`[a-zA-Z0-9_-]+`); the persona is `.cursor/agents/<name>.md`, or a bundled generic persona for `security-auditor`, `infra-reviewer` and `prompt-critic` |
+| `rules[].name` | Reviewer name (`[a-zA-Z0-9_-]+`); see the persona lookup below |
 | `rules[].model_kind` | `normal` (default) or `critical`; selects the model and effort defaults |
 | `rules[].model`, `rules[].effort` | Per-rule overrides |
 | `rules[].path_prefixes`, `rules[].path_suffixes` | Prefix and suffix matchers; when both are set, both must match |
 | `rules[].path_names` | Exact paths or basenames |
 | `rules[].path_contains` | Case-insensitive substrings |
-| `rules[].role_references` | Basenames of files in `.cursor/agents/references/` given to the reviewer |
+| `rules[].path_excludes` | Path prefixes the rule never matches, e.g. `tests/probes/` in a rule on `tests/` |
+| `rules[].role_references` | File names (`*.md`) in `references_dir` given to the reviewer |
+| `agents_dir` | Directory of reviewer personas; default `.cursor/agents`. For example `.claude/agents` or `.github/agents` |
+| `references_dir` | Directory of `role_references`; default `<agents_dir>/references` |
 | `defaults` | `normal_model`, `normal_effort`, `critical_model`, `critical_effort`, `aggregator_model`, `aggregator_effort` |
 
-A reviewer is selected when any changed file matches its rule. At most 12 reviewers run per pull request. Workflow inputs override `defaults`.
+A reviewer is selected when any changed file matches one of its rules. When several rules select the same reviewer, a `critical` match is never downgraded to `normal`, and their `role_references` are combined. At most 12 reviewers run per pull request. Workflow inputs override `defaults`.
+
+Persona lookup for a reviewer `<name>`: `<agents_dir>/<name>.md`, then `<agents_dir>/<name>.agent.md`, then a persona bundled with the workflow (`security-auditor`, `infra-reviewer`, `prompt-critic`), then a generic reviewer prompt. YAML frontmatter is stripped. `agents_dir` and `references_dir` are relative paths inside the repository whose segments match `[A-Za-z0-9._-]+`, without `..` or `.git`. Persona and reference files must be regular files (no symlinks) of at most 30,000 characters.
+
+Without a reviewer map, only the three bundled reviewers are selected; see [Codex PR review](codex-pr-review.html#reviewer-personas).
 
 Example: [`codex-reviewer-map.json`](https://github.com/Giskard-AI/giskard-actions/blob/main/examples/codex-reviewer-map.json).
 

@@ -1,0 +1,145 @@
+name: Codex review prepare
+description: Resolve the pull request, collect its context, select reviewer passes and stage their instructions for the reviewer jobs. Holds no API key.
+
+inputs:
+  github_token:
+    description: Token for GitHub API reads
+    required: true
+  normal_model:
+    description: Default model for normal reviewer passes (overrides codex-reviewer-map.json defaults if set)
+    required: false
+    default: ""
+  normal_effort:
+    description: Default reasoning effort for normal reviewer passes (low, medium, high)
+    required: false
+    default: ""
+  critical_model:
+    description: Default model for critical reviewer passes (overrides codex-reviewer-map.json defaults if set)
+    required: false
+    default: ""
+  critical_effort:
+    description: Default reasoning effort for critical reviewer passes (low, medium, high)
+    required: false
+    default: ""
+  aggregator_model:
+    description: Model for the aggregator pass (overrides codex-reviewer-map.json defaults if set)
+    required: false
+    default: ""
+  aggregator_effort:
+    description: Reasoning effort for the aggregator pass (low, medium, high)
+    required: false
+    default: ""
+  allow_self_hosted:
+    description: Allow self-hosted runners. drop-sudo changes a persistent runner for good, so only use ephemeral one-job-per-VM runners.
+    required: false
+    default: "false"
+
+outputs:
+  should_run:
+    description: Whether an open same-repository pull request was resolved
+    value: ${{ steps.resolve.outputs.should_run }}
+  pr_number:
+    description: Resolved pull request number
+    value: ${{ steps.resolve.outputs.pr_number }}
+  has_reviewers:
+    description: Whether at least one reviewer pass was selected
+    value: ${{ steps.select.outputs.has_reviewers }}
+  matrix:
+    description: Reviewer matrix as JSON (`{"include":[...]}`)
+    value: ${{ steps.select.outputs.matrix }}
+  aggregator_model:
+    description: Model for the aggregator pass
+    value: ${{ steps.select.outputs.aggregator_model }}
+  aggregator_effort:
+    description: Reasoning effort for the aggregator pass
+    value: ${{ steps.select.outputs.aggregator_effort }}
+
+runs:
+  using: composite
+  steps:
+    - name: Require a GitHub-hosted runner
+      if: inputs.allow_self_hosted != 'true'
+      run: |
+        if [ "${RUNNER_ENVIRONMENT:-}" != "github-hosted" ]; then
+          echo "::error title=Self-hosted runner::The Codex review drops sudo on its runners for good. Use a GitHub-hosted runner, or set allow_self_hosted on ephemeral one-job-per-VM runners."
+          exit 1
+        fi
+      shell: bash
+
+    - name: Resolve pull request
+      id: resolve
+      env:
+        ACTION_LIB: ${{ github.action_path }}/../_lib
+        CODEX_ASSESS_COMMENT_COMMANDS: /review,/codex-assess
+        GH_TOKEN: ${{ inputs.github_token }}
+      run: bash "${ACTION_LIB}/run-assess.sh" resolve --output "$GITHUB_OUTPUT"
+      shell: bash
+
+    - name: Checkout consumer config from the default branch
+      if: steps.resolve.outputs.should_run == 'true'
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        repository: ${{ github.repository }}
+        ref: ${{ steps.resolve.outputs.config_sha }}
+        path: trusted-config
+        persist-credentials: false
+
+    - name: Collect PR review context
+      if: steps.resolve.outputs.should_run == 'true'
+      env:
+        ACTION_LIB: ${{ github.action_path }}/../_lib
+        GH_TOKEN: ${{ inputs.github_token }}
+        PR_NUMBER: ${{ steps.resolve.outputs.pr_number }}
+      run: |
+        set -euo pipefail
+        mkdir -p assessment
+        bash "${ACTION_LIB}/run-assess.sh" collect-review \
+          --pr-number "$PR_NUMBER" \
+          --output assessment/review-context.json
+      shell: bash
+
+    - name: Select reviewer passes
+      id: select
+      if: steps.resolve.outputs.should_run == 'true'
+      env:
+        ACTION_LIB: ${{ github.action_path }}/../_lib
+        CODEX_REVIEWER_MAP: ${{ github.workspace }}/trusted-config/.github/giskard/codex-reviewer-map.json
+        CODEX_NORMAL_MODEL: ${{ inputs.normal_model }}
+        CODEX_NORMAL_EFFORT: ${{ inputs.normal_effort }}
+        CODEX_CRITICAL_MODEL: ${{ inputs.critical_model }}
+        CODEX_CRITICAL_EFFORT: ${{ inputs.critical_effort }}
+        CODEX_AGGREGATOR_MODEL: ${{ inputs.aggregator_model }}
+        CODEX_AGGREGATOR_EFFORT: ${{ inputs.aggregator_effort }}
+      run: >-
+        bash "${ACTION_LIB}/run-assess.sh" select
+        --context assessment/review-context.json
+        --output assessment/reviewers.json
+        --github-output "$GITHUB_OUTPUT"
+      shell: bash
+
+    - name: Stage reviewer instructions
+      if: steps.resolve.outputs.should_run == 'true'
+      env:
+        ACTION_LIB: ${{ github.action_path }}/../_lib
+        HEAD_SHA: ${{ steps.resolve.outputs.head_sha }}
+        PR_NUMBER: ${{ steps.resolve.outputs.pr_number }}
+      run: >-
+        bash "${ACTION_LIB}/run-assess.sh" stage-reviewers
+        --reviewers assessment/reviewers.json
+        --trusted-config trusted-config
+        --reviewer-map trusted-config/.github/giskard/codex-reviewer-map.json
+        --output-dir assessment/reviewers
+        --head-sha "$HEAD_SHA"
+        --pr-number "$PR_NUMBER"
+        --expected-output assessment/expected.json
+      shell: bash
+
+    - name: Upload review input
+      if: steps.resolve.outputs.should_run == 'true'
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: codex-review-input-${{ steps.resolve.outputs.pr_number }}
+        path: assessment/
+        retention-days: 1
+        overwrite: true
+        if-no-files-found: error

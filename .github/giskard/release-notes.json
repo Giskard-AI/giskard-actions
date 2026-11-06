@@ -6,7 +6,8 @@
   "manifest_paths": ["pyproject.toml"],
   "file_diffs": [
     ".github/actions/release-notes/action.yml",
-    ".github/actions/codex-pr-review/action.yml",
+    ".github/actions/codex-review-prepare/action.yml",
+    ".github/actions/codex-review-pass/action.yml",
     ".github/actions/codex-post-review/action.yml",
     ".github/workflows/codex-pr-review.yml"
   ],
@@ -28,7 +29,8 @@
       "description": "Composite action or reusable workflow inputs, secrets, or outputs changed; review the diff section and update caller workflows if needed.",
       "paths": [
         ".github/actions/release-notes/action.yml",
-        ".github/actions/codex-pr-review/action.yml",
+        ".github/actions/codex-review-prepare/action.yml",
+        ".github/actions/codex-review-pass/action.yml",
         ".github/actions/codex-post-review/action.yml",
         ".github/workflows/codex-pr-review.yml"
       ]
