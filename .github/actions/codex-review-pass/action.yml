@@ -144,8 +144,23 @@ runs:
       run: | # zizmor: ignore[adhoc-packages] -- installs the exact Codex version openai/codex-action installs
         set -euo pipefail
         if ! command -v bwrap >/dev/null 2>&1; then
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends bubblewrap
+          # apt-get update fails when any configured source fails, including the runner image's
+          # third-party sources (packages.microsoft.com) that bubblewrap does not come from, so a
+          # last failed update only warns; the install decides whether the step can go on.
+          for attempt in 1 2 3; do
+            sudo apt-get update -qq && break
+            echo "::warning title=apt-get update failed::attempt ${attempt} of 3"
+            [[ "$attempt" == 3 ]] || sleep $((attempt * 10))
+          done
+          for attempt in 1 2 3; do
+            sudo apt-get install -y -qq --no-install-recommends bubblewrap && break
+            echo "::warning title=bubblewrap install failed::attempt ${attempt} of 3"
+            [[ "$attempt" == 3 ]] || sleep $((attempt * 10))
+          done
+          if ! command -v bwrap >/dev/null 2>&1; then
+            echo "::error title=bubblewrap unavailable::Could not install bubblewrap after 3 attempts (see the apt-get errors above); Codex cannot run without its sandbox, so this reviewer pass stops here. Re-run the failed jobs."
+            exit 1
+          fi
         fi
         # Ubuntu 24.04 AppArmor blocks the user namespaces bwrap needs. Only relax it on ephemeral
         # GitHub-hosted runners; self-hosted runners may be shared, so their operators must allow it.
