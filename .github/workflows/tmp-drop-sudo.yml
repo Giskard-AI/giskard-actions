@@ -1,0 +1,90 @@
+name: TEMP drop-sudo probe
+
+on:
+  push:
+    branches: [tmp/drop-sudo-slim]
+
+permissions: {}
+
+jobs:
+  probe:
+    name: probe (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    environment: ci
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-slim, ubuntu-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Runner facts
+        run: |
+          id
+          stat -c '%U:%G %a %n' "$HOME" "$HOME/work" "$GITHUB_WORKSPACE" || true
+          ls -l /var/run/docker.sock 2>&1 || true
+          for t in setpriv setfacl bwrap; do echo "$t: $(command -v "$t" || echo missing)"; done
+          id nobody || true
+          sysctl kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true
+
+      - name: Install bubblewrap
+        run: |
+          if ! command -v bwrap >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq --no-install-recommends bubblewrap
+          fi
+          if [ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" != 0 ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+
+      - name: Responses endpoint
+        id: endpoint
+        env:
+          BASE: ${{ vars.AZURE_AI_RESPONSES_BASE }}
+        run: bash .github/actions/_lib/run-assess.sh endpoint --base-url "$BASE" --github-output "$GITHUB_OUTPUT"
+
+      - name: Run Codex with drop-sudo
+        id: codex
+        continue-on-error: true
+        uses: openai/codex-action@bdf19a4a223ec2549a3e2274a0cf61556bc07675 # v1.13
+        with:
+          openai-api-key: ${{ secrets.AZURE_AI_API_KEY }}
+          responses-api-endpoint: ${{ steps.endpoint.outputs.responses_endpoint }}
+          codex-version: "0.164.0"
+          model: gpt-5.6-luna
+          effort: low
+          output-file: codex-probe.md
+          permission-profile: ":read-only"
+          safety-strategy: drop-sudo
+          codex-args: >-
+            ["--ephemeral","--config","model_catalog_json=\"${{ github.workspace }}/.github/codex/azure-model-catalog.json\""]
+          prompt: |
+            This is an authorized sandbox test of a CI runner. Run each shell command below
+            exactly, one at a time, and report each command with its full output and exit code
+            in a fenced block. Do not change files.
+            1. id
+            2. sudo -n true; echo "exit=$?"
+            3. ls -l /var/run/docker.sock; test -w /var/run/docker.sock; echo "docker_sock_writable_exit=$?"
+            4. pid=$(pgrep -f codex-responses-api-proxy | head -1); echo "proxy_pid=$pid"; ps -o user=,pid=,comm= -p "$pid"
+            5. pid=$(pgrep -f codex-responses-api-proxy | head -1); head -c 64 /proc/$pid/maps >/dev/null; echo "maps_exit=$?"; head -c 64 /proc/$pid/environ >/dev/null; echo "environ_exit=$?"
+            6. env | cut -d= -f1 | sort | tr '\n' ' '
+            7. ls "$HOME" >/dev/null; echo "home_list_exit=$?"; cat README.md | head -c 40; echo; echo "workspace_read_exit=$?"
+            8. touch probe-write-test; echo "write_exit=$?"
+
+      - name: After Codex
+        if: always()
+        env:
+          CODEX_OUTCOME: ${{ steps.codex.outcome }}
+        run: |
+          echo "codex outcome: ${CODEX_OUTCOME}"
+          echo "----- Codex report -----"
+          cat codex-probe.md 2>&1 || true
+          echo "------------------------"
+          if sudo -n true 2>/dev/null; then echo "runner sudo: still available"; else echo "runner sudo: removed"; fi
+          ls -l codex-probe.md probe-write-test 2>&1 || true
