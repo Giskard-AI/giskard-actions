@@ -143,6 +143,41 @@ class TestLoadProjectConfig:
         assert cfg.upgrade_rules[0].paths == ("helm/values.yaml",)
 
     @pytest.mark.parametrize(
+        ("raw", "expected_ids"),
+        [
+            pytest.param(None, frozenset(), id="absent-trusts-nobody-extra"),
+            pytest.param([], frozenset(), id="empty-list-trusts-nobody-extra"),
+            pytest.param(
+                [{"login": "octocat", "id": 583231}, {"login": "hubot", "id": 1}],
+                frozenset({583231, 1}),
+                id="ids-are-collected",
+            ),
+        ],
+    )
+    def test_reads_trusted_github_authors(
+        self, tmp_path, write_release_notes_config, raw, expected_ids
+    ):
+        data = {} if raw is None else {"trusted_github_authors": raw}
+        write_release_notes_config(json.dumps(data))
+        cfg = load_project_config(tmp_path)
+        assert cfg.trusted_github_authors == expected_ids
+
+    @pytest.mark.parametrize(
+        "entry",
+        [
+            pytest.param({"login": "octocat"}, id="missing-id"),
+            pytest.param({"login": "octocat", "id": "583231"}, id="string-id"),
+            pytest.param({"login": "octocat", "id": True}, id="boolean-id"),
+        ],
+    )
+    def test_rejects_trusted_github_author_without_numeric_id(
+        self, tmp_path, write_release_notes_config, entry
+    ):
+        write_release_notes_config(json.dumps({"trusted_github_authors": [entry]}))
+        with pytest.raises(SystemExit):
+            load_project_config(tmp_path)
+
+    @pytest.mark.parametrize(
         "example",
         [
             "web-app.release-notes.json",

@@ -39,6 +39,6 @@ The repository has **one SemVer version** for everything it ships.
 - **Reviewer configuration comes from the default branch HEAD**, never the PR head or its base commit. A pull request cannot change or retarget the reviewer map or personas used to review it.
 - **Least privilege.** Every workflow starts from `permissions: {}`. Only the Codex prepare job reads GitHub, only reviewer and aggregate jobs hold the Azure key, and a separate job with `pull-requests: write` and no Azure credentials posts the review.
 - **Sandboxed model execution.** Each Codex pass runs in its own job with sudo dropped, in a read-only bubblewrap sandbox without web search, and its output is checked for the key before upload. See the [security model](codex-pr-review.html#security-model).
-- **Untrusted input stays data.** Only comments, issues and pull requests authored by owners, members and collaborators reach the models, and model output is sanitized (images, raw HTML, invisible characters and untrusted links removed) before it is published.
+- **Untrusted input stays data.** Only comments, issues and pull requests authored by owners, members and collaborators (or, for release notes, accounts listed by user id in `trusted_github_authors`) reach the models, and model output is sanitized (images, raw HTML, invisible characters and untrusted links removed) before it is published.
 
 Report vulnerabilities privately; see [SECURITY.md](https://github.com/Giskard-AI/giskard-actions/blob/main/SECURITY.md).

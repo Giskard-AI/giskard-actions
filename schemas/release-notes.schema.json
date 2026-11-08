@@ -15,6 +15,27 @@
       "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
       "description": "owner/repo used for compare URLs and GitHub issue enrichment. Defaults to GITHUB_REPOSITORY."
     },
+    "trusted_github_authors": {
+      "type": "array",
+      "description": "Extra authors whose GitHub issues and pull requests are enriched, on top of owners, members and collaborators. Use it for private org members and former members, whom GitHub reports to workflow tokens as CONTRIBUTOR or NONE. Matched on the numeric user id; login is for readers.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["login", "id"],
+        "properties": {
+          "login": {
+            "type": "string",
+            "minLength": 1,
+            "description": "GitHub login, for readers only."
+          },
+          "id": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Numeric GitHub user id (gh api users/<login> --jq .id)."
+          }
+        }
+      }
+    },
     "manifest_paths": {
       "$ref": "#/$defs/pathList",
       "description": "Dependency manifests (pyproject.toml, package.json, pom.xml) diffed for the dependency table."

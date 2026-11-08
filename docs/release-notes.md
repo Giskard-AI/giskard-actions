@@ -72,7 +72,7 @@ With `LINEAR_API_KEY` set, the tool fetches the title and description of every L
 | `AZURE_AI_API_KEY` | For `azure_ai/` models | Azure AI key |
 | `AZURE_AI_API_BASE` / `AZURE_AI_ENDPOINT` | For `azure_ai/` models | Azure AI endpoint (`https://<resource>.services.ai.azure.com/api/projects/<project>`) |
 | `LINEAR_API_KEY` | No | Enables Linear issue enrichment for bracketed keys like `[ABC-123]` in commit messages. Private repositories only; see [Linear enrichment](#linear-enrichment) |
-| `GITHUB_TOKEN` | No | Enables GitHub issue and pull request enrichment (owner, member and collaborator authors only) |
+| `GITHUB_TOKEN` | No | Enables GitHub issue and pull request enrichment (owner, member and collaborator authors, plus any listed in [`trusted_github_authors`](configuration.html#release-notes)) |
 
 ## Inputs
 

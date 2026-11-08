@@ -360,6 +360,7 @@ async def main_async() -> None:
             owner_repo=github_repo,
             token=github_token,
             max_issue_bytes=args.max_github_issue_bytes,
+            trusted_author_ids=config.trusted_github_authors,
         )
 
     linear_issues_by_key, github_issues_by_number = await asyncio.gather(
