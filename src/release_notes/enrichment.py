@@ -109,11 +109,19 @@ def fetch_linear_issues(
 # --- GitHub issue/PR enrichment ---
 
 
-def fetch_github_issue(number: int, *, owner_repo: str, token: str) -> GitHubIssue | None:
+def fetch_github_issue(
+    number: int,
+    *,
+    owner_repo: str,
+    token: str,
+    trusted_author_ids: frozenset[int] = frozenset(),
+) -> GitHubIssue | None:
     """Fetch a single GitHub issue or PR via the REST API.
 
-    Returns None for issues the token cannot read and for issues whose author is not an
-    owner, member or collaborator, so outsiders' text never reaches the LLM.
+    Returns None for issues the token cannot read and for issues whose author is neither an
+    owner, member or collaborator nor listed in ``trusted_author_ids``, so outsiders' text
+    never reaches the LLM. The listing covers private org members and former members, whom
+    GitHub reports to workflow tokens as CONTRIBUTOR or NONE.
     """
     url = f"https://api.github.com/repos/{owner_repo}/issues/{number}"
     req = Request(
@@ -143,7 +151,8 @@ def fetch_github_issue(number: int, *, owner_repo: str, token: str) -> GitHubIss
 
     data = json.loads(body)
     association = str(data.get("author_association") or "")
-    if association not in TRUSTED_AUTHOR_ASSOCIATIONS:
+    author_id = (data.get("user") or {}).get("id")
+    if association not in TRUSTED_AUTHOR_ASSOCIATIONS and author_id not in trusted_author_ids:
         LOG.info(
             "Skipping GitHub #%d in %s: author association %s is not trusted.",
             number,
@@ -171,6 +180,7 @@ def fetch_github_issues(
     owner_repo: str,
     token: str,
     max_issue_bytes: int,
+    trusted_author_ids: frozenset[int] = frozenset(),
 ) -> dict[int, GitHubIssue]:
     """Fetch multiple GitHub issues/PRs, keyed by number."""
     out: dict[int, GitHubIssue] = {}
@@ -180,7 +190,9 @@ def fetch_github_issues(
 
     LOG.info("Fetching GitHub issues: %d from %s", len(nums), owner_repo)
     for n in nums:
-        issue = fetch_github_issue(n, owner_repo=owner_repo, token=token)
+        issue = fetch_github_issue(
+            n, owner_repo=owner_repo, token=token, trusted_author_ids=trusted_author_ids
+        )
         if issue is None:
             continue
         body_t, was_truncated = _truncate(issue.body or "", max_issue_bytes)
@@ -237,6 +249,7 @@ async def fetch_github_issues_async(
     owner_repo: str,
     token: str,
     max_issue_bytes: int,
+    trusted_author_ids: frozenset[int] = frozenset(),
 ) -> dict[int, GitHubIssue]:
     """Async version of fetch_github_issues; fetches all numbers concurrently."""
     nums = sorted({n for n in numbers if n})
@@ -249,7 +262,11 @@ async def fetch_github_issues_async(
     async def _one(n: int) -> tuple[int, GitHubIssue | None]:
         async with sem:
             issue = await asyncio.to_thread(
-                fetch_github_issue, n, owner_repo=owner_repo, token=token
+                fetch_github_issue,
+                n,
+                owner_repo=owner_repo,
+                token=token,
+                trusted_author_ids=trusted_author_ids,
             )
         if issue is None:
             return n, None

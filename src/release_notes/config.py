@@ -133,6 +133,7 @@ class ProjectConfig:
     high_signal_prefixes: tuple[str, ...] = ()
     ignored_basenames: frozenset[str] = frozenset({"uv.lock", "pnpm-lock.yaml"})
     github_repository: str | None = None
+    trusted_github_authors: frozenset[int] = frozenset()
     file_diffs: tuple[str, ...] = ()
     ignored_path_prefixes: tuple[str, ...] = ()
     sections: tuple[SectionConfig, ...] = tuple(SectionConfig(**s) for s in DEFAULT_SECTIONS)
@@ -267,6 +268,19 @@ def _parse_upgrade_rules(raw: list[dict] | None) -> tuple[UpgradeRule, ...]:
     return tuple(rules)
 
 
+def _parse_trusted_github_authors(raw: list[dict] | None) -> frozenset[int]:
+    ids: set[int] = set()
+    for entry in raw or ():
+        author_id = entry.get("id")
+        if not isinstance(author_id, int) or isinstance(author_id, bool):
+            raise SystemExit(
+                "Each trusted_github_authors entry needs a numeric GitHub user id "
+                f"(got {entry!r}); the login alone can be re-registered by someone else."
+            )
+        ids.add(author_id)
+    return frozenset(ids)
+
+
 def load_project_config(repo_root: Path) -> ProjectConfig:
     """Load project config from .github/giskard/release-notes.json, or use defaults."""
     config_path = repo_root / CONFIG_PATH
@@ -285,6 +299,7 @@ def load_project_config(repo_root: Path) -> ProjectConfig:
         high_signal_prefixes=tuple(data.get("high_signal_prefixes", [])),
         ignored_basenames=frozenset(data.get("ignored_basenames", ["uv.lock", "pnpm-lock.yaml"])),
         github_repository=data.get("github_repository"),
+        trusted_github_authors=_parse_trusted_github_authors(data.get("trusted_github_authors")),
         file_diffs=tuple(data.get("file_diffs", [])),
         ignored_path_prefixes=tuple(data.get("ignored_path_prefixes", [])),
         sections=_parse_sections(data.get("sections")),

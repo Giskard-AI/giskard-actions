@@ -100,6 +100,7 @@ def test_release_notes_schema_tracks_config_dataclasses(schema_properties, datac
         ("release-notes.schema.json", {"sections": [{"id": "unknowns"}]}),
         ("release-notes.schema.json", {"sections": [{"id": "ux-frontend"}]}),
         ("release-notes.schema.json", {"upgrade_rules": [{"id": "x", "short_name": "X"}]}),
+        ("release-notes.schema.json", {"trusted_github_authors": [{"login": "octocat"}]}),
         ("codex-reviewer-map.schema.json", {"rules": []}),
         ("codex-reviewer-map.schema.json", {"rules": [{"name": "bad name"}]}),
         (
@@ -115,6 +116,7 @@ def test_release_notes_schema_tracks_config_dataclasses(schema_properties, datac
         "release_notes_reserved_section_id",
         "release_notes_hyphenated_section_id",
         "release_notes_upgrade_rule_missing_description",
+        "release_notes_trusted_author_missing_id",
         "reviewer_map_empty_rules",
         "reviewer_map_invalid_reviewer_name",
         "reviewer_map_role_reference_path_traversal",

@@ -32,6 +32,7 @@ Ready-to-copy samples are in [`examples/`](https://github.com/Giskard-AI/giskard
 | Field | Description |
 | --- | --- |
 | `github_repository` | `owner/repo` for compare URLs and GitHub enrichment (defaults to `GITHUB_REPOSITORY`) |
+| `trusted_github_authors` | Extra authors whose issues and pull requests are enriched, as `{"login", "id"}` entries matched on the numeric `id` (`gh api users/<login> --jq .id`). Owners, members and collaborators are always trusted, but GitHub reports private org members and former members to workflow tokens as `CONTRIBUTOR` or `NONE`; list them here. Do not list dependency bots: their bodies quote third-party changelogs |
 | `manifest_paths` | `pyproject.toml`, `package.json` or `pom.xml` files diffed for the dependency table |
 | `high_signal_prefixes` | Path prefixes whose diffs are prioritized in commit digests |
 | `file_diffs` | Paths whose tag-range diff is embedded in the notes |

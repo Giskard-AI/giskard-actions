@@ -101,3 +101,38 @@ def test_fetch_github_issue_only_enriches_trusted_authors(association, expected_
         issue = fetch_github_issue(5, owner_repo="org/repo", token="tok")
 
     assert (issue is not None) is expected_fetched
+
+
+@pytest.mark.parametrize(
+    ("association", "author_id", "trusted_ids", "expected_fetched"),
+    [
+        pytest.param(
+            "CONTRIBUTOR", 10, frozenset({10}), True, id="private-member-listed-is-enriched"
+        ),
+        pytest.param("NONE", 10, frozenset({10}), True, id="former-member-listed-is-enriched"),
+        pytest.param(
+            "CONTRIBUTOR", 11, frozenset({10}), False, id="unlisted-contributor-is-skipped"
+        ),
+        pytest.param("CONTRIBUTOR", None, frozenset({10}), False, id="missing-author-is-skipped"),
+        pytest.param("MEMBER", 11, frozenset({10}), True, id="member-needs-no-listing"),
+    ],
+)
+def test_fetch_github_issue_enriches_listed_authors(
+    association, author_id, trusted_ids, expected_fetched
+):
+    data = {
+        "number": 6,
+        "title": "Fix it",
+        "html_url": "https://github.com/org/repo/pull/6",
+        "body": "",
+        "state": "closed",
+        "labels": [],
+        "author_association": association,
+        "user": None if author_id is None else {"login": "someone", "id": author_id},
+    }
+    with patch("release_notes.enrichment.urlopen", return_value=_make_response(data)):
+        issue = fetch_github_issue(
+            6, owner_repo="org/repo", token="tok", trusted_author_ids=trusted_ids
+        )
+
+    assert (issue is not None) is expected_fetched
