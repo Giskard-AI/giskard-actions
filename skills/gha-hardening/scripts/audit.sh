@@ -10,13 +10,15 @@
 #
 # Prints, section by section: the Gate scan (the exact scan the org ruleset
 # runs) and the repository's own zizmor job, the checks on the default branch
-# HEAD, the workflows the default branch does not run with their last run,
-# Actions settings, secrets and Environments, pushes and publishing,
-# privileged triggers, registry logins, the rules on the default branch and on
-# tags with their bypass actors, the GitHub Apps installed on every
-# repository, Renovate and Dependabot, and the dependency lock and cooldown of
-# each project directory. It changes nothing. A section the token cannot read
-# says so and moves on.
+# HEAD with the cause of each failed one, the workflows the default branch does
+# not run with their last run, Actions settings, secrets and Environments,
+# pushes and publishing, privileged triggers, registry logins, the rules on the
+# default branch (rulesets and classic branch protection, with their required
+# checks) and on tags with their bypass actors, the GitHub Apps installed on
+# every repository, Renovate and Dependabot, and the dependency lock and
+# cooldown of each project directory with the open vulnerability pull
+# requests. It changes nothing. A section the token cannot read says so and
+# moves on.
 set -uo pipefail
 
 repo="${1:?usage: audit.sh OWNER/REPO CLONE_DIR}"
@@ -75,6 +77,32 @@ setting_in() {
     [[ -f "${tree}/${file}" ]] && grep -m1 -hE "$1" "${tree}/${file}" | sed "s|\$| (${file})|" && return
   done
 }
+# Why a failed Actions job failed: its failed step, the last error line of its log
+# before the post-job cleanup, and the same check on the latest pull request runs.
+check_cause() {
+  local job_id=$1 name=$2 job run_id step line workflow_id pr_runs pr_run pr_job=""
+  if ! job=$(gh api "repos/${repo}/actions/jobs/${job_id}" \
+    --jq '"\(.run_id)\t\([.steps[]? | select(.conclusion | IN("failure", "timed_out")) | .name] | first // "none")"' 2>/dev/null); then
+    echo "    $(unreadable "job ${job_id}")"
+    return
+  fi
+  run_id=${job%%$'\t'*}
+  step=${job#*$'\t'}
+  # The runner's closing "Process completed with exit code" line says nothing about the cause.
+  line=$(gh run view "${run_id}" -R "${repo}" --job "${job_id}" --log-failed 2>/dev/null | cut -f3- \
+    | sed -e '/Post job cleanup\./,$d' -e "s/"$'\x1b'"\[[0-9;]*m//g" -e 's/^[0-9-]*T[0-9:.]*Z //' \
+    | grep -E 'error|Error|timed out|exit code' | grep -v 'Process completed with exit code' | tail -1 | cut -c1-200)
+  echo "    failed step: ${step}; last error line: ${line:-none found}"
+  workflow_id=$(gh api "repos/${repo}/actions/runs/${run_id}" --jq .workflow_id 2>/dev/null)
+  pr_runs=$(gh api "repos/${repo}/actions/workflows/${workflow_id}/runs?event=pull_request&status=completed&per_page=5" \
+    --jq '.workflow_runs[].id' 2>/dev/null)
+  for pr_run in ${pr_runs}; do
+    pr_job=$(gh api "repos/${repo}/actions/runs/${pr_run}/jobs?per_page=100" 2>/dev/null | jq -r --arg name "${name}" \
+      'first(.jobs[] | select(.name == $name) | "\(.conclusion // .status), \((.completed_at // .started_at // "")[:10]), \(.html_url)")')
+    [[ -n "${pr_job}" ]] && break
+  done
+  echo "    latest pull request run of ${name}: ${pr_job:-none in the last 5 pull request runs of its workflow}"
+}
 
 if ! branch=$(gh api "repos/${repo}" --jq .default_branch 2>&1) || [[ -z "${branch}" ]]; then
   echo "Cannot read ${repo} from the GitHub API: ${branch}" >&2
@@ -109,14 +137,19 @@ echo "Own zizmor job on ${branch}:"
 echo "${own_zizmor:-  none}"
 
 section "Checks on ${branch} HEAD"
-checks=$(gh api --paginate "repos/${repo}/commits/${head_sha}/check-runs?per_page=100" \
-  --jq '.check_runs[] | "\(.started_at // "")\t\(.name)\t  \(.name): \(.conclusion // .status), \((.completed_at // .started_at // "")[:10]), \(.html_url)"' 2>/dev/null) \
-  && checks=$(sort -r <<<"${checks}" | awk -F'\t' 'NF == 3 && !seen[$2]++ { print $3 }') \
-  || checks="  $(unreadable "check runs")"
+echo "Check runs (the latest of each name; under a failed Actions job, its cause and the same check on pull requests):"
+if checks=$(gh api --paginate "repos/${repo}/commits/${head_sha}/check-runs?per_page=100" \
+  --jq '.check_runs[] | [.started_at // "-", .name, .conclusion // .status, (.completed_at // .started_at // "-")[:10], .html_url, .id, .app.slug] | @tsv' 2>/dev/null); then
+  while IFS=$'\t' read -r _ name conclusion date url id app; do
+    echo "  ${name}: ${conclusion}, ${date}, ${url}"
+    [[ "${conclusion}" =~ ^(failure|timed_out)$ && "${app}" == github-actions ]] && check_cause "${id}" "${name}"
+  done < <(sort -r <<<"${checks}" | awk -F'\t' 'NF == 7 && !seen[$2]++')
+  [[ -n "${checks}" ]] || echo "  none"
+else
+  echo "  $(unreadable "check runs")"
+fi
 statuses=$(gh api "repos/${repo}/commits/${head_sha}/status" \
   --jq '.statuses[] | "  \(.context): \(.state), \(.updated_at[:10]), \(.target_url // "no link")"' 2>/dev/null)
-echo "Check runs (the latest of each name):"
-echo "${checks:-  none}"
 echo "Commit statuses:"
 echo "${statuses:-  none}"
 
@@ -214,8 +247,21 @@ for id in $(jq -r '[.[].ruleset_id] | unique[]' <<<"${rules}"); do
     echo "  bypass: needs admin:org; see https://github.com/organizations/${owner}/settings/rules/${id}"
   fi
 done
-if gh api "repos/${repo}/branches/${branch}/protection" --silent 2>/dev/null; then
+if ! protection=$(gh api "repos/${repo}/branches/${branch}" --jq .protection 2>/dev/null); then
+  echo "classic branch protection: $(unreadable "branch ${branch}")"
+elif [[ $(jq -r .enabled <<<"${protection}") != true ]]; then
+  echo "classic branch protection: off"
+else
   echo "classic branch protection: on"
+  status_checks=$(jq -c '.required_status_checks // empty' <<<"${protection}")
+  [[ -n "${status_checks}" ]] || status_checks=$(gh api "repos/${repo}/branches/${branch}/protection" \
+    --jq '.required_status_checks // {"contexts": []}' 2>/dev/null)
+  if [[ -z "${status_checks}" ]]; then
+    echo "  required checks: $(unreadable "needs repository admin")"
+  else
+    jq -r 'if .enforcement_level == "off" or (.contexts | length) == 0 then "  required checks: none"
+      else .contexts[] | "  required check: \(.)" end' <<<"${status_checks}"
+  fi
 fi
 
 section "Rules on tags"

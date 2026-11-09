@@ -33,7 +33,7 @@ It scans the default branch whatever the clone has checked out, so its counts ar
 
 Then find what already fails on the default branch, in two audit sections:
 
-- **Checks on <default> HEAD**: each check whose conclusion is not `success`, `neutral` or `skipped`.
+- **Checks on <default> HEAD**: each check whose conclusion is not `success`, `neutral` or `skipped`. Under a failed Actions job the audit prints its failed step, its last error line and the same check's latest pull request run: the cause, and whether it fails everywhere.
 - **Workflows <default> does not run on push or pull request**: each one flagged `CHANGED SINCE ITS LAST RUN` or `NO RUN ON RECORD`, or whose last run failed. Read it for steps that cannot work today (a file it reads is missing or gitignored, a push the rules reject). When you can show why it fails, it is already failing, even though it is not a check.
 
 For each one, when the cause is in a workflow file, fix it in this pull request, in its own commit (`ci: fix <check or workflow>, already failing on <default>`); otherwise open a GitHub issue in the repository (label `ci`, the run linked) and keep its link. A fix that removes a step which cannot succeed today takes no `(needs a decision)`; the pull request says why the step could not succeed. Done when each failing check and each flagged workflow has a fix commit, an issue, or a line saying why it works.
@@ -57,7 +57,7 @@ Done when it exits 0, or every remaining finding is one a fix cannot remove with
 Then apply every item below that the audit shows for this repository; the Gate does not check them.
 
 - **Secrets**: each job that reads a secret declares its Secret Environment; a secret in workflow- or job-level `env:` moves to the steps that use it; an existing Environment off the naming convention is renamed. Collect the `migrate_secrets.py` arguments for step 4 ([§11](reference.md#11-secret-environments)).
-- **Job names**: required checks first. A job whose check the audit lists as "required check" takes that check's current name as `name:` (for a matrix, the name without the matrix values: `name: test` for `test (3.11)`). Every other job takes its key in sentence case (`build-docs` → `Build docs`), and the pull request lists the rename.
+- **Job names**: required checks first. A job whose check the audit lists as "required check" (under a ruleset or classic branch protection) takes that check's current name as `name:` (for a matrix, the name without the matrix values: `name: test` for `test (3.11)`). Every other job takes its key in sentence case (`build-docs` → `Build docs`), and the pull request lists the rename.
 - **Permissions**: every grant carries a comment saying what it reads or writes (`contents: read # checkout`); a grant no step uses is removed.
 - **Renovate**: the config extends `github>Giskard-AI/.github`, drops what that shared preset already sets (the audit lists the overlap) and keeps the repository's own rules ([§14](reference.md#14-renovate)). Without a config, add `renovate.json`: `{"$schema": "https://docs.renovatebot.com/renovate-schema.json", "extends": ["github>Giskard-AI/.github"]}`.
 - **Dependencies**: each project directory of the audit's "Dependencies" section managed by uv, pnpm or npm gets a committed lock, the one-week **Dependency cooldown** and a locked CI install; any other manager is reported, not converted ([§15](reference.md#15-dependency-lock-and-cooldown)).
