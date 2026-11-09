@@ -68,13 +68,13 @@ Then apply every item below that the audit shows for this repository; the Gate d
 ### 3. Verify locally
 
 ```bash
-python3 <skill>/scripts/workflow_contract.py <clone> --base origin/<default>
+uv run <skill>/scripts/workflow_contract.py <clone> --base origin/<default>
 ```
 
-It prints the **Workflow Contract** of each changed workflow before and after (triggers and inputs, secrets, variables, permissions, Environments, outputs, `steps.<id>.outputs` references, actions, publishing commands) and runs `actionlint` on both sides. Done when all hold:
+It prints the **Workflow Contract** of each changed workflow before and after (triggers and inputs, secrets, variables, permissions, Environments, outputs, `steps.<id>.outputs` references, actions, publishing commands), flags references the new version breaks, and runs `actionlint` on both sides. Done when all hold:
 
 - `gate-scan.sh` exits 0 (counting step 4's proposed Exceptions, if any);
-- every contract change is one you made on purpose, and `actionlint` reports nothing the default branch does not already report;
+- `workflow_contract.py` exits 0 (no broken reference, no new `actionlint` error), and every contract change is one you made on purpose;
 - `git diff` changes only `.github/`, `action.yml` files and the Renovate config, plus the files of a commit marked `(needs a decision)`.
 
 ### 4. Open a draft pull request
