@@ -88,7 +88,7 @@ Commits: `ci: pass the zizmor Gate` for the workflows, `chore(renovate): extend 
 5. **Decisions needed**: each `(needs a decision)` commit and each remaining finding, with file:line, why zizmor flags it, the §13 checklist result for privileged triggers, and your recommendation. The pull request stays a draft until each is decided.
 6. **Checks already failing**: each one, with the fixing commit or the issue link.
 7. **Human Steps**, in order, each one a command to run:
-   1. Before merging: `python3 <skill>/scripts/migrate_secrets.py --repo OWNER/REPO --env <name>:<policy>:<SECRET>[,<SECRET>] ...` (plan with `--dry-run`), then rerun the pull request's checks: green proves the migration.
+   1. Before merging: `python3 <skill>/scripts/migrate_secrets.py --repo OWNER/REPO --env <name>:<policy>:<SECRET>[,<SECRET>] ... [--delete <UNUSED_SECRET>]` (plan with `--dry-run`), then rerun the pull request's checks: green proves the migration.
    2. A personal access token, deploy key or App with more access than the job needs: `python3 <skill>/scripts/setup_github_app.py --dry-run ...` filled in (§8).
    3. Ruleset changes: required checks renamed, release tag creation reserved, an App bypass on an organization ruleset (org admin).
    4. Registry-side OIDC trust; Renovate installed on this repository.
