@@ -18,7 +18,7 @@ Usage:
   uv run workflow_contract.py <clone> --base origin/main
 
 Exit status: 0 nothing broken, 1 broken references or new actionlint errors,
-2 the comparison could not run (git, Docker).
+2 the comparison could not run (git, Docker, an error of this script).
 """
 
 import argparse
@@ -29,6 +29,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import traceback
 from collections import Counter
 from pathlib import Path
 
@@ -118,6 +119,10 @@ def contract(doc: dict, raw: str = "") -> dict[str, list[str]]:
     elif isinstance(on, list):
         on = dict.fromkeys(on)
     for event, config in (on or {}).items():
+        # `schedule:` takes a list of crons; other events a mapping, or nothing.
+        if config is not None and not isinstance(config, dict):
+            lines["triggers"].append(f"{event} {_text(config)}")
+            continue
         filters = {
             k: v for k, v in (config or {}).items() if k not in ("inputs", "outputs", "secrets")
         }
@@ -337,9 +342,20 @@ def main(argv: list[str]) -> int:
     return 1 if broken or lint_new else 0
 
 
-if __name__ == "__main__":
+def run(argv: list[str]) -> int:
+    """`main`, with every error of the script itself as status 2, never 1."""
     try:
-        sys.exit(main(sys.argv[1:]))
+        return main(argv)
     except ContractError as error:
         print(f"Stopped: {error}", file=sys.stderr)
-        sys.exit(2)
+    except Exception:
+        traceback.print_exc()
+        print(
+            "Stopped: the comparison could not run; this is not a contract failure.",
+            file=sys.stderr,
+        )
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(run(sys.argv[1:]))

@@ -75,6 +75,27 @@ def test_contract_field(doc, field, expected):
     assert contract(doc)[field] == expected
 
 
+@pytest.mark.parametrize(
+    ("on", "expected"),
+    [
+        pytest.param("push", ["push"], id="on-string"),
+        pytest.param(["push", "workflow_dispatch"], ["push", "workflow_dispatch"], id="on-list"),
+        pytest.param(None, [], id="on-null"),
+        pytest.param({"workflow_dispatch": None}, ["workflow_dispatch"], id="config-null"),
+        pytest.param({"push": {"branches": ["main"]}}, ['push {"branches": ["main"]}'],
+                     id="config-mapping"),
+        pytest.param({"schedule": [{"cron": "0 6 * * 1"}]}, ['schedule [{"cron": "0 6 * * 1"}]'],
+                     id="config-list-schedule"),
+        pytest.param({"push": "main"}, ['push "main"'], id="config-string"),
+        pytest.param({"schedule": [{"cron": "0 6 * * 1"}], "workflow_dispatch": None},
+                     ['schedule [{"cron": "0 6 * * 1"}]', "workflow_dispatch"],
+                     id="schedule-and-dispatch"),
+    ],
+)  # fmt: skip
+def test_every_trigger_shape(on, expected):
+    assert contract({"on": on, "jobs": {"t": job()}})["triggers"] == expected
+
+
 def test_pinned_action_shows_its_version_comment():
     doc = {"jobs": {"t": job(steps=[{"uses": f"actions/checkout@{SHA}"}])}}
     raw = f"      - uses: actions/checkout@{SHA} # v6.0.2\n"
@@ -157,6 +178,29 @@ def test_new_lint_errors_ignore_moved_lines():
     moved = {**old, "line": 9}
     new = {**old, "message": "other", "line": 1}
     assert contract_script.new_lint_errors([old], [moved, new]) == [new]
+
+
+def _raise(error):
+    def main(argv):
+        raise error
+
+    return main
+
+
+@pytest.mark.parametrize(
+    ("main", "status"),
+    [
+        pytest.param(lambda argv: 0, 0, id="contract-kept"),
+        pytest.param(lambda argv: 1, 1, id="contract-differences"),
+        pytest.param(_raise(contract_script.ContractError("git diff failed")), 2,
+                     id="git-or-docker-error"),
+        pytest.param(_raise(AttributeError("'list' object has no attribute 'items'")), 2,
+                     id="script-bug-is-not-a-contract-failure"),
+    ],
+)  # fmt: skip
+def test_exit_status(monkeypatch, main, status):
+    monkeypatch.setattr(contract_script, "main", main)
+    assert contract_script.run([]) == status
 
 
 def test_only_workflows_and_actions_are_compared():
