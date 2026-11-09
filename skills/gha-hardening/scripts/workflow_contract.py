@@ -6,7 +6,8 @@
 
 For every workflow or action file that differs between --base and the working
 tree, it prints a markdown table of the Workflow Contract lines that changed:
-triggers, inputs, outputs, secrets and variables read, permissions,
+triggers, inputs, outputs, secrets and variables read (each job reads those
+of the workflow-level `env:`, marked so a move into a step shows), permissions,
 Environments, check names, actions used, step output references and
 publishing commands. It also flags references the new version breaks
 (`steps.<id>.outputs` of a step that no longer exists, `needs.<job>.outputs`
@@ -136,11 +137,21 @@ def contract(doc: dict, raw: str = "") -> dict[str, list[str]]:
     jobs = dict(doc.get("jobs") or {})
     if "runs" in doc:
         jobs["(action)"] = {"steps": (doc["runs"] or {}).get("steps") or []}
+    workflow_env = _text(doc.get("env"))
     for key, job in jobs.items():
         job = job or {}
         text = _text(job)
-        lines["secrets"] += [f"{key}: {s}" for s in sorted(set(SECRET.findall(text)))]
-        lines["variables"] += [f"{key}: {v}" for v in sorted(set(VARIABLE.findall(text)))]
+        # Every job reads the workflow-level `env:`; the suffix shows a move into a step.
+        scopes = {
+            "": _text({k: v for k, v in job.items() if k != "env"}),
+            " (job env)": _text(job.get("env")),
+            " (workflow env)": workflow_env,
+        }
+        for suffix, scoped in scopes.items():
+            lines["secrets"] += [f"{key}: {s}{suffix}" for s in sorted(set(SECRET.findall(scoped)))]
+            lines["variables"] += [
+                f"{key}: {v}{suffix}" for v in sorted(set(VARIABLE.findall(scoped)))
+            ]
         lines["permissions"] += _permissions(key, job.get("permissions"))
         lines["outputs"] += [
             f"{key}.{n} = {_text(v)}" for n, v in (job.get("outputs") or {}).items()
@@ -214,6 +225,28 @@ def render(path: str, before: dict | None, after: dict | None) -> str:
     if not rows:
         return f"{title}\n\nContract unchanged.\n"
     return "\n".join([title, "", "| Contract | Before | After |", "|---|---|---|", *rows, ""])
+
+
+def report(sections: list[str], broken: list[str], lint_new: list[dict]) -> str:
+    lines = ["### Workflow Contract", ""]
+    if sections:
+        lines += [
+            "Only the contract lines that changed are listed: a secret, permission or action "
+            "the branch keeps as it was does not appear. `(workflow env)` and `(job env)` mark "
+            "a secret or variable read in that `env:`, not in a step.",
+            "",
+            "\n".join(sections),
+        ]
+    else:
+        lines += ["No workflow or action file changed.", ""]
+    lines += ["### Checks", ""]
+    lines += [f"- Broken reference: {problem}" for problem in broken]
+    lines += [
+        f"- New actionlint error: {e['filepath']}:{e['line']}: {e['message']}" for e in lint_new
+    ]
+    if not broken and not lint_new:
+        lines.append("- No broken reference; actionlint reports nothing the base does not.")
+    return "\n".join(lines) + "\n"
 
 
 def new_lint_errors(before: list[dict], after: list[dict]) -> list[dict]:
@@ -300,15 +333,7 @@ def main(argv: list[str]) -> int:
             subprocess.run(["tar", "-x", "-C", tmp], input=archive.stdout, check=True)
         lint_new = new_lint_errors(actionlint(Path(tmp)), actionlint(clone))
 
-    print("### Workflow Contract\n")
-    print("\n".join(sections) if sections else "No workflow or action file changed.\n")
-    print("### Checks\n")
-    for problem in broken:
-        print(f"- Broken reference: {problem}")
-    for error in lint_new:
-        print(f"- New actionlint error: {error['filepath']}:{error['line']}: {error['message']}")
-    if not broken and not lint_new:
-        print("- No broken reference; actionlint reports nothing the base does not.")
+    print(report(sections, broken, lint_new), end="")
     return 1 if broken or lint_new else 0
 
 

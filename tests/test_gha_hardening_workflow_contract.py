@@ -48,8 +48,15 @@ def job(**fields):
         pytest.param({"jobs": {"t": job(steps=[{"env": {"K": "${{ secrets.OPENAI_API_KEY }}"},
                                                 "run": "echo ${{ vars.MODEL }}"}])}},
                      "secrets", ["t: OPENAI_API_KEY"], id="secret-read"),
+        pytest.param({"env": {"K": "${{ secrets.KEY }}"}, "jobs": {"a": job(), "b": job()}},
+                     "secrets", ["a: KEY (workflow env)", "b: KEY (workflow env)"],
+                     id="workflow-env-secret-read-by-every-job"),
+        pytest.param({"jobs": {"t": job(env={"K": "${{ secrets.OPENAI_API_KEY }}"})}},
+                     "secrets", ["t: OPENAI_API_KEY (job env)"], id="job-env-secret"),
         pytest.param({"jobs": {"t": job(steps=[{"run": "echo ${{ vars.MODEL }}"}])}},
                      "variables", ["t: MODEL"], id="variable-read"),
+        pytest.param({"env": {"M": "${{ vars.MODEL }}"}, "jobs": {"t": job()}},
+                     "variables", ["t: MODEL (workflow env)"], id="workflow-env-variable"),
         pytest.param({"jobs": {"test": job(strategy={"matrix": {"py": ["3.12"]}})}}, "checks",
                      ["test: test (+ matrix values)"], id="matrix-check-name"),
         pytest.param({"jobs": {"build-docs": job(name="Build docs")}}, "checks",
@@ -119,11 +126,30 @@ def test_broken_references(doc, expected):
             "| permissions | `workflow: contents=write` | `workflow: none` |\n",
             id="changed-row",
         ),
+        pytest.param(
+            {"env": {"K": "${{ secrets.KEY }}"}, "jobs": {"t": job()}},
+            {"jobs": {"t": job(steps=[{"env": {"K": "${{ secrets.KEY }}"}, "run": "x"}])}},
+            "#### `w.yml`\n\n| Contract | Before | After |\n|---|---|---|\n"
+            "| secrets | `t: KEY (workflow env)` | `t: KEY` |\n",
+            id="secret-moved-from-workflow-env-to-a-step",
+        ),
     ],
 )  # fmt: skip
 def test_render(before, after, expected):
     to_contract = lambda doc: None if doc is None else contract(doc)  # noqa: E731
     assert contract_script.render("w.yml", to_contract(before), to_contract(after)) == expected
+
+
+@pytest.mark.parametrize(
+    ("sections", "says_only_changed_lines"),
+    [
+        pytest.param(["#### `w.yml`\n\nContract unchanged.\n"], True, id="with-a-changed-file"),
+        pytest.param([], False, id="no-changed-file"),
+    ],
+)
+def test_report_says_the_table_lists_only_changed_lines(sections, says_only_changed_lines):
+    text = contract_script.report(sections, [], [])
+    assert ("Only the contract lines that changed are listed" in text) is says_only_changed_lines
 
 
 def test_new_lint_errors_ignore_moved_lines():
