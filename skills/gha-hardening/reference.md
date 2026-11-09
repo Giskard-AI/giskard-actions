@@ -8,7 +8,7 @@ The Gate runs zizmor with the auditor persona, offline. Each finding links its r
 
 | Finding | Fix |
 |---|---|
-| `unpinned-uses` | `scripts/pin-action.sh <action>@<ref>` with the action's current major; keep the `# vX.Y.Z` comment it prints (`ref-version-mismatch` checks it). Major upgrades are Renovate's pull requests. Local actions (`./...`) stay as they are. |
+| `unpinned-uses` | `scripts/pin-action.sh <action>@<ref>` with the ref as written: a full version (`v0.6.0`) stays that version, a major tag (`v4`) resolves to its latest release; keep the `# vX.Y.Z` comment it prints (`ref-version-mismatch` checks it). Major upgrades are Renovate's pull requests. Local actions (`./...`) stay as they are. |
 | `excessive-permissions`, `undocumented-permissions` | Top-level `permissions: {}` (a comment on it moves to the job it explained); each job grants what its steps use, each grant with a comment saying what it reads or writes (`contents: read # checkout`, `issues: write # create and pin the dashboard issue`). |
 | `secrets-outside-env` | The job declares its Secret Environment (§11). zizmor only checks the declaration; the secret moves through `migrate_secrets.py`, a Human Step. |
 | `superfluous-actions` | Replace the action with the equivalent command (`gh release create`, `git`) when the result is the same ([release actions](#release-actions-to-gh-release-create)), and list the replacement in the Workflow Contract section of the pull request. |
@@ -719,7 +719,7 @@ In the repository's config:
 - **Remove** what the preset already sets: `config:recommended` and `helpers:pinGitHubActionDigests` in `extends`, `schedule`, `timezone`, `labels`, `minimumReleaseAge`, `prHourlyLimit`, `lockFileMaintenance`, the rule disabling `python`, and the rules grouping by manager. The audit prints each setting the config shares with the preset (a repository rule beside the preset rule it duplicates), then the rest as "Kept (own rules)".
 - **Keep** the repository's own rules: `:pinOnlyDevDependencies`, `rangeStrategy: widen` for a library, `allowedVersions` blocks, groups that feed a lock refresh workflow. The pull request lists each kept key that overrides the preset (its own schedule, `minimumReleaseAge: "0 days"` for an internal action), with its reason.
 
-Renovate reports config errors in its Dependency Dashboard issue. To check a config before pushing (optional, up to 30 s): `npx --yes --package renovate@latest -- renovate-config-validator renovate.json 2>&1 | grep -v 'npm warn'`. It passes on `Config validated successfully`; the `Validating renovate.json as global config` line and an RE2 warning are expected.
+Renovate reports config errors in its Dependency Dashboard issue. To check a config before pushing (optional, up to 30 s): `npx --yes --package renovate@latest -- renovate-config-validator renovate.json 2>&1 | grep -v 'npm warn'`. It passes on `Config validated successfully`; the `Validating renovate.json as global config` line and a `WARN: RE2 not usable` followed by a multi-line `Cannot find module 're2'` stack are expected.
 
 ---
 
