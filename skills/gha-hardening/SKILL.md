@@ -44,32 +44,32 @@ Rerun after each batch:
 bash <skill>/scripts/gate-scan.sh OWNER/REPO <clone>
 ```
 
-Done when it exits 0, or every remaining finding is one a fix cannot remove without changing what the workflow does.
+Done when it exits 0, or every remaining finding is one a fix cannot remove without changing what the workflow does. Existing ignore comments stay as they are.
 
 Check the changes the Gate does not see:
 
-- **Job names**: a new `name:` renames the status check. Every required check listed under "Rules" in the audit must keep its exact name, or the pull request lists the ruleset edit as a human step.
-- **The repository's own zizmor job**: keep it while the audit shows "Gate ruleset: not active yet"; once the Gate is active, delete it (the Gate replaces it).
-- **Renovate**: the config extends `github>Giskard-AI/.github`, without the presets it already includes (`config:recommended`, `helpers:pinGitHubActionDigests`).
+- **Job names**: a new `name:` renames the status check. A job whose check is listed as "required check" in the audit takes its current check name as `name:`; other jobs get a short name a reviewer reads in the checks list.
+- **The repository's own zizmor job**: keep it while the audit shows "Gate ruleset: not active yet" (it must pass too, in step 4); once the Gate is active, delete it (the Gate replaces it).
+- **Renovate**: the config extends `github>Giskard-AI/.github`, without the presets it already includes (`config:recommended`, `helpers:pinGitHubActionDigests`). Without a config, add `renovate.json` with only that `extends`.
 
-### 3. Verify
+### 3. Verify locally
 
-Done when all hold:
+Done when both hold:
 
-- `gate-scan.sh` exits 0 (with step 4's proposed ignores, if any).
-- The repository's own CI passes on the pushed branch: `gh pr checks <pr> --watch`.
+- `gate-scan.sh` exits 0 (counting step 4's proposed ignores, if any).
 - `git diff` changes only `.github/`, `action.yml` files and the Renovate config, and drops no comment.
 
 ### 4. Open a draft pull request
 
-Title: `ci: pass the zizmor Gate`. Body sections:
+Branch `ci/zizmor-gate`, title `ci: pass the zizmor Gate`. Body sections, each omitted when empty:
 
-1. **Fixed**: findings by rule, counts before → after.
+1. **Fixed**: findings by rule, counts before → after, and the last line of `gate-scan.sh` with the giskard-actions ref it printed (while the Gate is not active, that output is the evidence).
 2. **Decisions needed**: each remaining finding with file:line, why zizmor flags it, and your recommendation. Without a human in the conversation, add the recommended ignores in one last commit, `ci: propose zizmor ignores (needs a decision)`, so the reviewer accepts or rejects each one; the pull request stays a draft until then.
 3. **Human steps**, from the audit, each one a command or link to run:
    - Repository secrets (target: none): move each to an Environment deployable from the branch that uses it.
    - A personal access token, or an App with more access than the job needs: a dedicated App, created with `python3 <skill>/scripts/setup_github_app.py --dry-run ...` filled in (the wizard prints its plan; drop `--dry-run` to apply).
-   - Apps with write access to every repository, and ruleset bypass actors in `always` mode: list them for an org admin.
+   - `SENSITIVE` Apps and `always` bypass actors from the audit: list them for an org admin, with the link the audit printed.
+   - A Renovate config added while the `renovate` App is installed on selected repositories: add this repository to it.
    - Required checks renamed by this pull request.
 
-Done when the pull request is open as a draft and its checks have run.
+Done when the draft pull request is open and its checks pass: `gh pr checks <pr> --watch` exits 0.

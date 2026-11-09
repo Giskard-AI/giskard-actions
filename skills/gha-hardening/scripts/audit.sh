@@ -24,7 +24,7 @@ rules=$(gh api "repos/${repo}/rules/branches/${branch}?per_page=100" 2>/dev/null
 
 section "Gate scan"
 bash "$(dirname "$0")/gate-scan.sh" "${repo}" "${clone}" 2>&1 | grep -v ' INFO '
-echo "Gate scan exit status: ${PIPESTATUS[0]}"
+echo "Gate scan exit status: ${PIPESTATUS[0]} (0 pass, 10-14 findings by highest severity, 1 or 2 scan error)"
 
 section "Actions settings"
 gh api "repos/${repo}/actions/permissions" --jq '"enabled: \(.enabled), allowed actions: \(.allowed_actions // "n/a")"' 2>/dev/null \
@@ -54,21 +54,30 @@ echo "Secrets referenced by workflows and actions:"
 (cd "${clone}" && grep -rhoE 'secrets\.[A-Za-z0-9_]+' .github action.y*ml 2>/dev/null | sort -u | sed 's/^/  /')
 
 section "Rules on ${branch}"
-jq -r 'group_by(.ruleset_id)[] | "ruleset \(.[0].ruleset_id) (\(.[0].ruleset_source)): \([.[].type] | join(", "))"' <<<"${rules}"
-jq -r '.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[] | "  required check: \(.context)"' <<<"${rules}"
-for id in $(jq -r '[.[] | select(.ruleset_source_type == "Repository") | .ruleset_id] | unique[]' <<<"${rules}"); do
-  gh api "repos/${repo}/rulesets/${id}" \
-    --jq '"ruleset \(.id) bypass: \([.bypass_actors[] | "\(.actor_type)\(if .actor_id then " \(.actor_id)" else "" end) (\(.bypass_mode))"] | join("; ") | if . == "" then "none" else . end)"' 2>/dev/null
+for id in $(jq -r '[.[].ruleset_id] | unique[]' <<<"${rules}"); do
+  jq -r --argjson id "${id}" '[.[] | select(.ruleset_id == $id)]
+    | "ruleset \($id) (\(.[0].ruleset_source_type) \(.[0].ruleset_source)): \([.[].type] | join(", "))",
+      (.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[]
+        | "  required check: \(.context)")' <<<"${rules}"
+  if [[ $(jq -r --argjson id "${id}" 'first(.[] | select(.ruleset_id == $id)) | .ruleset_source_type' <<<"${rules}") == Repository ]]; then
+    gh api "repos/${repo}/rulesets/${id}" \
+      --jq '"  bypass: \([.bypass_actors[] | "\(.actor_type)\(if .actor_id then " \(.actor_id)" else "" end) (\(.bypass_mode))"] | join("; ") | if . == "" then "none" else . end)"' 2>/dev/null
+  else
+    echo "  bypass: needs admin:org; see https://github.com/organizations/${owner}/settings/rules/${id}"
+  fi
 done
-echo "(Organization ruleset bypass actors need admin:org; see the repo-baseline dashboard.)"
 
 section "GitHub Apps that can reach this repository"
+# Sensitive: write access that can change code, workflows, settings or secrets.
 if installs=$(gh api "orgs/${owner}/installations?per_page=100" 2>/dev/null); then
   jq -r '.installations[] | select(.suspended_at == null)
-    | "\(.app_slug): \(.repository_selection) repositories; " +
-      ([.permissions | to_entries[] | select(.key | IN("contents", "workflows", "actions", "administration", "secrets", "pull_requests"))
-        | "\(.key)=\(.value)"] | join(", "))' <<<"${installs}"
-  echo "(\"selected\" apps may not include this repository; check each one in the org settings.)"
+    | [.permissions | to_entries[]
+        | select(.key | IN("contents", "workflows", "actions", "administration", "secrets", "environments"))
+        | select(.value != "read") | "\(.key)=\(.value)"] as $sensitive
+    | "\(if ($sensitive | length) > 0 and .repository_selection == "all" then "SENSITIVE " else "" end)"
+      + "\(.app_slug): \(.repository_selection) repositories"
+      + "\(if ($sensitive | length) > 0 then "; " + ($sensitive | join(", ")) else "; no write on code, workflows, settings or secrets" end)"' <<<"${installs}"
+  echo "(SENSITIVE: write on code, workflows, settings or secrets of every repository. \"selected\" apps may not cover this repository: https://github.com/organizations/${owner}/settings/installations)"
 else
   unreadable "listing app installations needs admin:org; see the Apps section of the repo-baseline dashboard"
 fi

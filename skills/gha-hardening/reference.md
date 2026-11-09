@@ -9,7 +9,7 @@ The Gate runs zizmor with the pedantic persona, offline. Each finding links its 
 | Finding | Fix |
 |---|---|
 | `unpinned-uses` | `scripts/pin-action.sh <action>@<ref>`; keep the `# vX.Y.Z` comment it prints (`ref-version-mismatch` checks it). Local actions (`./...`) stay as they are. |
-| `excessive-permissions`, `undocumented-permissions` | Top-level `permissions: {}`; each job grants what it uses, one comment per grant saying why. |
+| `excessive-permissions`, `undocumented-permissions` | Top-level `permissions: {}`; each job grants what it uses. Each `write` grant gets a comment saying what it writes (`issues: write # create and pin the dashboard issue`); `read` grants may stay bare. |
 | `artipacked` | `persist-credentials: false` on every `actions/checkout`. A job that pushes passes its token to that one step (§8). |
 | `template-injection` | Move each `${{ }}` out of `run:` (and out of `script:` for `actions/github-script`) into step `env:`, then use `"$VAR"` (§2). |
 | `concurrency-limits` | Workflow-level `concurrency:`, group on `${{ github.workflow }}-${{ github.event.pull_request.number \|\| github.ref }}`; `cancel-in-progress: true` except on release and deploy workflows. |
@@ -468,7 +468,7 @@ Repository rulesets support a single `bypass_actors` list that skips **all** rul
    gh api apps/<app-slug> --jq '.id'
    ```
 
-4. **Create the ruleset** with the app as bypass actor. See Step 4c in SKILL.md for the full API call.
+4. **Create the ruleset**, then add the app as bypass actor: `scripts/setup_github_app.py --bypass-ruleset <id>` does it for a new App (§8).
 
 5. **Verify the ruleset** is active and correct:
 
