@@ -62,7 +62,7 @@ Then apply every item below that the audit shows for this repository; the Gate d
 - **Renovate**: the config extends `github>Giskard-AI/.github`, without the presets it already includes (`config:recommended`, `helpers:pinGitHubActionDigests`); other settings stay. Without a config, add `renovate.json`: `{"$schema": "https://docs.renovatebot.com/renovate-schema.json", "extends": ["github>Giskard-AI/.github"]}`.
 - **Dependabot version updates** (`.github/dependabot.yml`): remove them when the audit shows the `renovate` App covering this repository; otherwise keep them and add the Human Step "install Renovate, then remove `dependabot.yml`".
 - **The repository's own zizmor job** (the audit's "Own zizmor job on <default>" line): keep it while the audit shows "Gate ruleset: not active yet" (it must pass too); once the Gate is active, delete it.
-- **Push to a protected branch with `github.token`** (the audit lists it): the push fails today. Recommend reading the version from the tag when the only push is the version commit, a GitHub App with bypass otherwise ([§12](reference.md#12-releases-that-push-to-a-protected-branch)).
+- **Push to a protected branch with `github.token`** (the audit lists it): the push fails today. Run the consumers check, then recommend **Tag version** when the version commit is the only push, **Release App** otherwise ([§12](reference.md#12-releases-that-push-to-a-protected-branch)).
 - **Registry login with a static secret**: switch to OIDC ([§9](reference.md#9-oidc-federation-for-container-registries)); the registry-side trust is a Human Step.
 - **Privileged triggers** (`pull_request_target`, `workflow_run`, `issue_comment`): run the checklist of [§13](reference.md#13-privileged-triggers-checklist) on each such workflow before proposing any `dangerous-triggers` Exception.
 - **Release tags**: a workflow that publishes on a pushed `v*` tag needs tag creation reserved by a ruleset; a Human Step unless the audit shows it.
@@ -81,13 +81,13 @@ It prints the **Workflow Contract** of each changed workflow before and after (t
 
 ### 4. Open a draft pull request
 
-Commits: `ci: pass the zizmor Gate` for the workflows, `chore(renovate): extend the shared preset` for Renovate and Dependabot, each `ci: fix <check> ...` from step 1. Proposals that change behaviour come last, one commit each, marked `(needs a decision)`: the recommended Exceptions (`ci: propose zizmor exceptions (needs a decision)`) and a version read from the tag (`build: read the version from the release tag (needs a decision)`). Title `ci: pass the zizmor Gate`. Body sections, each omitted when empty:
+Commits: `ci: pass the zizmor Gate` for the workflows, `chore(renovate): extend the shared preset` for Renovate and Dependabot, each `ci: fix <check> ...` from step 1. Proposals that change behaviour come last, one commit each, marked `(needs a decision)`: the recommended Exceptions (`ci: propose zizmor exceptions (needs a decision)`) and Tag version (`build: read the version from the release tag (needs a decision)`). Title `ci: pass the zizmor Gate`. Body sections, each omitted when empty:
 
 1. **Fixed**: findings by rule, counts before → after, and the scan's first line (the giskard-actions ref) and summary line.
 2. **Workflow Contract**: the script's table for each changed workflow, with one line of why per change: renamed checks, removed grants, replaced actions, comments that went with their line.
-3. **Not run by CI**: each changed workflow the pull request's checks do not run (release, dispatch, schedule), and what to run after the merge to prove it still works.
+3. **Not run by CI**: each changed workflow the pull request's checks do not run (release, dispatch, schedule), and what to run after the merge to prove it still works; for a release change, the consumers and the version range each accepts.
 4. **Renovate**: what the shared preset changes for this repository: schedule (Monday 00:00-06:00 Paris), 7-day wait before a new version (security fixes excepted), one pull request per package manager, lock file maintenance, Python never bumped.
-5. **Decisions needed**: each `(needs a decision)` commit and each remaining finding, with file:line, why zizmor flags it, the §13 checklist result for privileged triggers, and your recommendation. The pull request stays a draft until each is decided.
+5. **Decisions needed**: each `(needs a decision)` commit (a release change named Tag version or Release App) and each remaining finding, with file:line, why zizmor flags it, the §13 checklist result for privileged triggers, and your recommendation. The pull request stays a draft until each is decided.
 6. **Checks already failing**: each failing check and each workflow shown failing in step 1 (saying it is not a check), with the fixing commit or the issue link.
 7. **Human Steps**, in order, each one a command to run:
    1. Before merging: `python3 <skill>/scripts/migrate_secrets.py --repo OWNER/REPO --env <name>:<policy>:<SECRET>[,<SECRET>] ... [--delete <UNUSED_SECRET>]` (plan with `--dry-run`), then rerun the pull request's checks: green proves the migration.

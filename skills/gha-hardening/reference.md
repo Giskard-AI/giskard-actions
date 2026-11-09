@@ -550,9 +550,24 @@ jobs:
 
 ## 12. Releases that push to a protected branch
 
-A release job that pushes its version commit to the default branch with `github.token` fails as soon as a ruleset requires pull requests or checks there: the job token cannot bypass rules. The audit lists such pushes. Both ways out go under "Decisions needed".
+A release job that pushes its version commit to the default branch with `github.token` fails as soon as a ruleset requires pull requests or checks there: the job token cannot bypass rules. The audit lists such pushes. There are two ways out, **Tag version** and **Release App**; the pull request names the one it proposes under "Decisions needed", after the consumers check.
 
-**Option B, the version comes from the tag** (recommended when the version commit is the only push). The release creates the tag (`gh release create vX.Y.Z --target <sha>`), and the build reads the version from it; nothing is pushed to the branch. For a hatchling project, in its own commit `build: read the version from the release tag (needs a decision)`:
+### Consumers check
+
+Before changing how a package is released, list who consumes it. Search the org's manifests (the search needs network access and covers default branches only):
+
+```bash
+for manifest in pyproject.toml uv.lock requirements.txt package.json pnpm-lock.yaml package-lock.json; do
+  gh search code --owner Giskard-AI --filename "${manifest}" "<package>" \
+    --json repository,path --jq '.[] | "\(.repository.nameWithOwner) \(.path)"'
+done
+```
+
+Read each hit for the version range it accepts (a lock file hit is a transitive or vendored consumer). List the consumers and their ranges under "Not run by CI", so the next version stays in the range they accept.
+
+### Tag version
+
+Recommended when the version commit is the only push. The build reads the version from a tag created on the runner, and `gh release create` pushes that tag with the release; nothing is pushed to the branch. For a hatchling project, in its own commit `build: read the version from the release tag (needs a decision)`:
 
 ```toml
 [build-system]
@@ -566,9 +581,76 @@ dynamic = ["version"] # was: version = "1.4.0"
 source = "vcs"
 ```
 
-The build checks out with `fetch-depth: 0` so the tag is there; the version bump step and its push go away.
+The release job, after relais' `create-release.yml`: validate, check out every tag, fail if the tag exists, tag locally, build, publish, then create the release on the commit that was built. A failed publish leaves no tag and no release.
 
-**Option A, a GitHub App with bypass** (when the release pushes more than the version: changelog, generated files). One App per repository, created with `setup_github_app.py --bypass-ruleset <id>` (§8), its private key in an Environment restricted to the default branch. Bypassing an organization ruleset needs an org admin.
+```yaml
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, X.Y.Z"
+        required: true
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the GitHub release and its tag
+      id-token: write # PyPI trusted publishing
+    steps:
+      - name: Validate the version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Use X.Y.Z"; exit 1; }
+          echo "TAG=v$VERSION" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@<sha> # vX.Y.Z
+        with:
+          fetch-depth: 0 # every tag, for hatch-vcs and the check below
+          persist-credentials: false
+
+      - name: Fail if the tag exists
+        run: |
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "$TAG already exists"; exit 1
+          fi
+
+      - uses: astral-sh/setup-uv@<sha> # vX.Y.Z
+        with:
+          enable-cache: false
+
+      # hatch-vcs reads the version from this tag; gh release create pushes it
+      - name: Tag the release locally
+        run: git tag "$TAG"
+
+      - name: Build
+        run: uv build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@<sha> # vX.Y.Z
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$TAG" --target "$(git rev-parse HEAD)" --generate-notes dist/*.tar.gz dist/*.whl
+```
+
+The steps that go: the version edit tool (`toml-cli`, `sed` on `pyproject.toml`), the git author config, the version commit and its push, and the release action `gh release create` replaces.
+
+Every other CI checkout is shallow and has no tags, so its builds get `0.1.devN+g<sha>`. Check that nothing reads `__version__` or `importlib.metadata.version()` expecting the release version (tests, a `--version` output, a user agent), and build once from a shallow clone to see it succeed.
+
+### Release App
+
+When the release pushes more than the version (changelog, generated files). One App per repository, created with `setup_github_app.py --bypass-ruleset <id>` (§8), its private key in the `github-release` Environment restricted to the default branch. Bypassing an organization ruleset needs an org admin.
 
 ---
 
