@@ -8,7 +8,7 @@ The Gate runs zizmor with the pedantic persona, offline. Each finding links its 
 
 | Finding | Fix |
 |---|---|
-| `unpinned-uses` | `scripts/pin-action.sh <action>@<ref>`; keep the `# vX.Y.Z` comment it prints (`ref-version-mismatch` checks it). Local actions (`./...`) stay as they are. |
+| `unpinned-uses` | `scripts/pin-action.sh <action>@<ref>` with the action's current major; keep the `# vX.Y.Z` comment it prints (`ref-version-mismatch` checks it). Major upgrades are Renovate's pull requests. Local actions (`./...`) stay as they are. |
 | `excessive-permissions`, `undocumented-permissions` | Top-level `permissions: {}`; each job grants what it uses. Each `write` grant gets a comment saying what it writes (`issues: write # create and pin the dashboard issue`); `read` grants may stay bare. |
 | `artipacked` | `persist-credentials: false` on every `actions/checkout`. A job that pushes passes its token to that one step (§8). |
 | `template-injection` | Move each `${{ }}` out of `run:` (and out of `script:` for `actions/github-script`) into step `env:`, then use `"$VAR"` (§2). |
@@ -20,6 +20,8 @@ The Gate runs zizmor with the pedantic persona, offline. Each finding links its 
 | `use-trusted-publishing` | PyPI / npm publish through OIDC trusted publishing, then delete the token secret (human step). |
 | `github-env` | Write to `$GITHUB_ENV` / `$GITHUB_PATH` only values the workflow builds itself. |
 | `bot-conditions`, `unredacted-secrets`, `obfuscation`, `stale-action-refs`, other | Follow the rule's documentation; when the fix would change behaviour, it is a decision for the pull request. |
+| (not flagged) a secret in workflow- or job-level `env:` | Move it to the `env:` of the steps that use it, so third-party actions in other steps never see it (§7). |
+| (not flagged) `.github/dependabot.yml` with version updates next to Renovate | List it under "Decisions needed": both open update pull requests. Dependabot security alerts are unaffected. |
 
 A strict-collection failure (a file zizmor cannot parse: Jinja or copier templates, test fixtures) cannot be ignored. Move the file out of `.github/` or `action.yml` names (e.g. `action.yml.jinja`), or rename the fixture directory.
 
@@ -205,7 +207,7 @@ Tags like `@v4` can be moved to point to a different commit at any time. If an a
 Add a comment with the version for human readability:
 
 ```yaml
-- uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+- uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 ```
 
 ---
@@ -351,6 +353,8 @@ jobs:
 ```
 
 The token lives one hour and only in the `env:` of the step that pushes.
+
+A job that clones another private repository (with a deploy key or a personal access token today) gets an App installed on that repository instead: `--install-repo Giskard-AI/<other> --permission contents=read`, credentials still in the Environment of the repository that runs the job, and `repositories: <other>` on `create-github-app-token`.
 
 ---
 

@@ -101,6 +101,26 @@ def test_with_bypass(existing, expected):
     assert "id" not in body
 
 
+@pytest.mark.parametrize(
+    ("extra", "expected"),
+    [
+        pytest.param([], "Install svc-release on Giskard-AI/svc only", id="installed-where-used"),
+        pytest.param(
+            ["--install-repo", "Giskard-AI/lib"],
+            "Install svc-release on Giskard-AI/lib only",
+            id="installed-on-the-cloned-repo",
+        ),
+    ],
+)
+def test_install_target(extra, expected):
+    assert expected in "\n".join(wizard.plan(args(*extra)))
+
+
+def test_install_repo_outside_org_is_rejected():
+    with pytest.raises(wizard.WizardError, match="not in Giskard-AI"):
+        wizard.validate(args("--install-repo", "Other/lib"))
+
+
 def test_plan_names_every_change():
     steps = "\n".join(wizard.plan(args("--bypass-ruleset", "42")))
     for text in ("release", "svc-release", "RELEASE_APP_PRIVATE_KEY", "Giskard-AI/svc only", "42"):

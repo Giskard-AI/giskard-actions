@@ -19,7 +19,11 @@ owner="${repo%%/*}"
 section() { printf '\n## %s\n\n' "$1"; }
 unreadable() { echo "(not readable with this token: $1)"; }
 
-branch=$(gh api "repos/${repo}" --jq .default_branch)
+if ! branch=$(gh api "repos/${repo}" --jq .default_branch 2>&1) || [[ -z "${branch}" ]]; then
+  echo "Cannot read ${repo} from the GitHub API: ${branch}" >&2
+  echo "Fix gh authentication or network access, then run the audit again." >&2
+  exit 2
+fi
 rules=$(gh api "repos/${repo}/rules/branches/${branch}?per_page=100" 2>/dev/null || echo "[]")
 
 section "Gate scan"

@@ -58,8 +58,9 @@ def validate(args: argparse.Namespace) -> None:
     for value in (args.client_id_variable, args.private_key_secret):
         if not VARIABLE.match(value):
             raise WizardError(f"{value}: use UPPER_SNAKE_CASE.")
-    if args.repo.split("/")[0] != args.org:
-        raise WizardError(f"{args.repo} is not in {args.org}.")
+    for repo in (args.repo, *args.install_repo):
+        if repo.split("/")[0] != args.org:
+            raise WizardError(f"{repo} is not in {args.org}.")
 
 
 def build_manifest(args: argparse.Namespace, redirect_url: str) -> dict:
@@ -96,6 +97,11 @@ def callback_code(query: dict[str, list[str]], state: str) -> str:
     return code
 
 
+def installed(args: argparse.Namespace) -> list[str]:
+    """--install-repo when given (e.g. another repository the job clones), else --repo."""
+    return args.install_repo or [args.repo]
+
+
 def plan(args: argparse.Namespace) -> list[str]:
     permissions = ", ".join(f"{k}: {v}" for k, v in parse_permissions(args.permission).items())
     steps = [
@@ -105,7 +111,8 @@ def plan(args: argparse.Namespace) -> list[str]:
         f"Store its client ID as variable {args.client_id_variable} and its private key as "
         f"secret {args.private_key_secret} in Environment {args.environment}. "
         "The key never touches disk.",
-        f"Install {args.name} on {args.repo} only (you pick it on the install page).",
+        f"Install {args.name} on {', '.join(installed(args))} only (you pick them on the install "
+        "page).",
     ]
     if args.bypass_ruleset:
         steps.append(
@@ -165,7 +172,7 @@ def run(args: argparse.Namespace) -> None:
     print(f"  ✓ {args.client_id_variable} and {args.private_key_secret} set.")
 
     _title(f"Install {args.name}")
-    print(f"  Pick 'Only select repositories', select {args.repo}, click Install.")
+    print(f"  Pick 'Only select repositories', select {', '.join(installed(args))}, click Install.")
     _open(f"{app['html_url']}/installations/new")
     input("  Press Enter once the App is installed.")
 
@@ -265,7 +272,14 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--org")
     parser.add_argument("--name", help="App name, unique on GitHub, e.g. <repo>-release")
-    parser.add_argument("--repo", help="OWNER/REPO the App is installed on")
+    parser.add_argument("--repo", help="OWNER/REPO whose workflow uses the App")
+    parser.add_argument(
+        "--install-repo",
+        action="append",
+        default=[],
+        help="OWNER/REPO the App is installed on, repeatable (default: --repo); "
+        "e.g. the private repository a job clones, replacing a deploy key",
+    )
     parser.add_argument(
         "--permission",
         action="append",
