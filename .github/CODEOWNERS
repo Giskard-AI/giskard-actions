@@ -7,3 +7,5 @@
 /.github/CODEOWNERS @Hartorn @pierlj
 # The Gate runs these scripts on every code repository.
 /scripts/zizmor/ @Hartorn @pierlj
+# Agents run these scripts with the user's GitHub credentials.
+/skills/ @Hartorn @pierlj

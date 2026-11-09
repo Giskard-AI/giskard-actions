@@ -12,7 +12,7 @@ on:
   workflow_call:
     inputs:
       environment:
-        description: Caller-repository environment holding the AZURE_AI_API_KEY secret and AZURE_AI_RESPONSES_BASE variable (for example `ci`)
+        description: Caller-repository environment holding the AZURE_AI_API_KEY secret and AZURE_AI_RESPONSES_BASE variable (for example `azure-codex-review`)
         type: string
         required: true
       runner:

@@ -68,6 +68,24 @@ _Avoid_: Evaluate mode, zizmor enforcement flag, `zizmor-gate` property
 An inline `# zizmor: ignore[<rule>] -- <reason>` comment on a flagged line, reviewed in the pull request that adds it. The **Required Scan Workflow** annotates each one a pull request adds. Repository-wide policy (a rule disabled or configured in `.github/zizmor.yml`) is not an exception: it is read from the base commit.
 _Avoid_: Ignore, suppression, waiver, rule-wide exception
 
+### Hardening
+
+**Secret Environment**:
+A GitHub Environment that holds the secrets of one kind of job, named `<service>-<usage>` (`openai-tests`, `pypi-release`), or `<usage>` when the job calls several services. Its deployment branches match the ref its jobs run on: every branch for pull request jobs, the default branch or release tags for release jobs. No secret of a code repository lives outside one.
+_Avoid_: CI environment, deploy environment, repository secret
+
+**Human Step**:
+A change outside the pull request that a `gha-hardening` pull request lists for a person to apply: a settings change as one command or wizard run (a **Secret Environment**, a ruleset, a GitHub App), or the fix of a check already failing for a cause outside the workflows (a retired model, a dead key). The agent never applies it.
+_Avoid_: Manual step, follow-up, TODO
+
+**Workflow Contract**:
+What a workflow takes and gives: its triggers and inputs, the secrets, variables, permissions and Environments it uses, its outputs and what it publishes. A `gha-hardening` pull request shows each changed workflow's contract before and after.
+_Avoid_: Workflow interface, workflow signature
+
+**Dependency cooldown**:
+The age a release must reach before the package manager locks it: 7 days, the `minimumReleaseAge` of the shared Renovate preset, set as `exclude-newer` for uv, `minimumReleaseAge` for pnpm and `min-release-age` for npm. A security fix younger than that is exempted in the pull request that locks it.
+_Avoid_: Release age gate, quarantine, freeze window
+
 ### Release Notes Pipeline
 
 **Project Config**:

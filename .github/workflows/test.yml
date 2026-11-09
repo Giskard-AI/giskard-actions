@@ -61,3 +61,24 @@ jobs:
         run: |
           uv run ruff format --check .
           uv run ruff check .
+
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read # checkout
+    env:
+      SHELLCHECK_IMAGE: docker.io/koalaman/shellcheck:v0.11.0@sha256:61862eba1fcf09a484ebcc6feea46f1782532571a34ed51fedf90dd25f925a8d
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # SC2001: the scripts indent multi-line output with sed on purpose.
+      - name: Lint shell scripts
+        run: |
+          git ls-files -z '*.sh' | xargs -0 docker run --rm --network=none --read-only \
+            --volume "${GITHUB_WORKSPACE}:/src:ro" --workdir /src \
+            "${SHELLCHECK_IMAGE}" --exclude=SC2001

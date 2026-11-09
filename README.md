@@ -9,6 +9,7 @@ Reusable GitHub Actions automation from [Giskard](https://github.com/Giskard-AI)
 | **Python CI**: `lint` (ruff format check and lint) and `test` (pytest) jobs for uv projects, every command overridable | Reusable workflow | `Giskard-AI/giskard-actions/.github/workflows/python-ci.yml` |
 | **TypeScript CI**: `lint` (lint and prettier check) and `test` jobs for npm projects, every command overridable | Reusable workflow | `Giskard-AI/giskard-actions/.github/workflows/ts-ci.yml` |
 | **zizmor scan**: [zizmor](https://docs.zizmor.sh/) audit of every GitHub Actions file, offline, auditor persona, from a digest-pinned image; exceptions are inline ignores with a reason, and the ones a pull request adds are flagged for review; the config comes from the pull request's base commit; passes when there are no such files | Reusable workflow, and required workflow for organization rulesets | `Giskard-AI/giskard-actions/.github/workflows/zizmor-scan.yml` |
+| **gha-hardening**: agent skill that brings one repository to a passing zizmor Gate in a draft pull request, audits its secrets, rulesets and GitHub Apps, and creates dedicated Apps with a wizard | Agent skill (Cursor, Claude Code) | [`skills/gha-hardening/`](skills/gha-hardening/SKILL.md) |
 
 Full documentation: <https://giskard-ai.github.io/giskard-actions/>
 
@@ -85,7 +86,7 @@ jobs:
       pull-requests: write
     uses: Giskard-AI/giskard-actions/.github/workflows/codex-pr-review.yml@<full-commit-sha> # vX.Y.Z
     with:
-      environment: ci # environment holding AZURE_AI_API_KEY and AZURE_AI_RESPONSES_BASE
+      environment: azure-codex-review # environment holding AZURE_AI_API_KEY and AZURE_AI_RESPONSES_BASE
     secrets:
       AZURE_AI_API_KEY: ${{ secrets.AZURE_AI_API_KEY }}
 ```
@@ -111,7 +112,7 @@ permissions: {}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   python:
@@ -132,7 +133,18 @@ jobs:
       working-directory: frontend # optional, defaults to the repository root
 ```
 
-Every command is an input (`lint-command`, `test-command`, ...). Never add `secrets: inherit`; the workflows take no secret. `zizmor-scan.yml` is rolled out repository by repository through an organization ruleset ("Require workflows to pass before merging", pinned to this repository, path and SHA); it can also be called the same way. See the [shared CI workflows docs](https://giskard-ai.github.io/giskard-actions/ci-workflows.html) for prerequisites, inputs and the zizmor exception workflow.
+Every command is an input (`lint-command`, `test-command`, ...). Never add `secrets: inherit`; the workflows take no secret. `zizmor-scan.yml` is required on every code repository by an organization ruleset ("Require workflows to pass before merging", pinned to this repository, path and SHA); it can also be called the same way. See the [shared CI workflows docs](https://giskard-ai.github.io/giskard-actions/ci-workflows.html) for prerequisites, inputs and the zizmor exception workflow.
+
+## Agent skill: gha-hardening
+
+Install it from a release, so its scripts are the reviewed ones:
+
+```bash
+git clone --depth 1 --branch vX.Y.Z https://github.com/Giskard-AI/giskard-actions /tmp/giskard-actions
+cp -r /tmp/giskard-actions/skills/gha-hardening ~/.cursor/skills/   # or ~/.claude/skills/
+```
+
+Then ask the agent: `/gha-hardening Giskard-AI/<repo>` from a clone of the repository. It needs `gh` (logged in), `jq`, and Docker; without Docker, `uv` runs the scan and the audit leaves its `uv.lock` checks undone.
 
 ## Pinning and versioning
 

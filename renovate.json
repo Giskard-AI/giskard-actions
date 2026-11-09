@@ -63,6 +63,15 @@
         "ZIZMOR_IMAGE(?:: |=\")(?<depName>ghcr\\.io/zizmorcore/zizmor):(?<currentValue>\\d+\\.\\d+\\.\\d+)@(?<currentDigest>sha256:[a-f0-9]{64})"
       ],
       "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "shellcheck image (version and digest) of the test workflow.",
+      "managerFilePatterns": ["/^\\.github/workflows/test\\.yml$/"],
+      "matchStrings": [
+        "SHELLCHECK_IMAGE: (?<depName>docker\\.io/koalaman/shellcheck):(?<currentValue>v\\d+\\.\\d+\\.\\d+)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker"
     }
   ]
 }

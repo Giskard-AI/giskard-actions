@@ -54,7 +54,7 @@ jobs:
       pull-requests: write
     uses: Giskard-AI/giskard-actions/.github/workflows/codex-pr-review.yml@<full-commit-sha> # vX.Y.Z
     with:
-      environment: ci
+      environment: azure-codex-review
     secrets:
       AZURE_AI_API_KEY: ${{ secrets.AZURE_AI_API_KEY }}
 ```
@@ -73,7 +73,7 @@ What the caller owns:
 
 | Input | Type | Default | Description |
 | --- | --- | --- | --- |
-| `environment` | string | (required) | Environment in **your** repository holding `AZURE_AI_API_KEY` and `AZURE_AI_RESPONSES_BASE`, e.g. `ci` |
+| `environment` | string | (required) | Environment in **your** repository holding `AZURE_AI_API_KEY` and `AZURE_AI_RESPONSES_BASE`, e.g. `azure-codex-review` |
 | `runner` | string | `ubuntu-slim` | Runner label for the prepare, reviewer and aggregate jobs |
 | `timeout_minutes` | number | `15` | Timeout of each reviewer job and of the aggregate job |
 | `max_parallel` | number | `4` | Reviewer jobs running at once in one review |
