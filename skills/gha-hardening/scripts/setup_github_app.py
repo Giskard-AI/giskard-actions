@@ -11,7 +11,7 @@ plan, and --dry-run only prints it.
 Example:
   python3 setup_github_app.py --org Giskard-AI --name myrepo-release \\
     --repo Giskard-AI/myrepo --permission contents=write \\
-    --environment release --branch main \\
+    --environment github-release --branch main \\
     --client-id-variable RELEASE_APP_CLIENT_ID --private-key-secret RELEASE_APP_PRIVATE_KEY \\
     --bypass-ruleset 123456 --dry-run
 

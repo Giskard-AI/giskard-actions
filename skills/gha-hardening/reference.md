@@ -335,7 +335,7 @@ One App per job that needs more than `github.token`: minimum permissions, instal
 ```bash
 python3 scripts/setup_github_app.py --org Giskard-AI --name <repo>-release \
   --repo Giskard-AI/<repo> --permission contents=write \
-  --environment release --branch main \
+  --environment github-release --branch main \
   --client-id-variable RELEASE_APP_CLIENT_ID --private-key-secret RELEASE_APP_PRIVATE_KEY \
   --bypass-ruleset <ruleset-id> --dry-run
 ```
@@ -343,7 +343,7 @@ python3 scripts/setup_github_app.py --org Giskard-AI --name <repo>-release \
 ```yaml
 jobs:
   release:
-    environment: release
+    environment: github-release
     permissions:
       contents: read # checkout; the App token pushes
     steps:
@@ -524,8 +524,9 @@ An organization ruleset blocks updating and deleting `v*` tags in every code rep
 
 Every secret of a code repository lives in a **Secret Environment** (repo-baseline ADR 0002); zizmor's `secrets-outside-env` checks that each job reading a secret declares one.
 
-- **Name**: `<service>-<usage>` when the job calls one service (`openai-tests`, `azure-codex-review`, `pypi-release`), `<usage>` when it calls several (`e2e-tests`). An existing Environment off this convention is renamed when its repository is reworked: `migrate_secrets.py` creates the new one and asks for the values again (GitHub never returns them); deleting the old one is a Human Step once the pull request's run is green.
+- **Name**: `<service>-<usage>` when the job calls one service (`openai-tests`, `azure-codex-review`, `pypi-release`, `github-release` for a release App key), `<usage>` when it calls several (`e2e-tests`). An existing Environment off this convention is renamed when its repository is reworked: `migrate_secrets.py` creates the new one and asks for the values again (GitHub never returns them); deleting the old one is a Human Step once the pull request's run is green.
 - **Deployment branches follow the trigger** (`migrate_secrets.py` policy in brackets): pull request jobs, every branch (`all`); push, dispatch or schedule on the default branch, that branch (`branch=main`); a pushed release tag, the tags (`tag=v*`). An Environment that holds a release or App key and is deployable from every branch is restricted to its ref; when pull request jobs use it too, it splits in two.
+- **A job that publishes through OIDC trusted publishing and reads no secret declares no Environment**, unless the trusted publisher config (PyPI, npm) already names one: the job must then keep that name.
 - **A secret two Environments need is copied into both**: the wizard asks for its value once and writes it to each. `--rotate NAME` rewrites every copy.
 - **Pull request jobs declare `deployment: false`**, so they read the secrets without recording a deployment on the pull request:
 
