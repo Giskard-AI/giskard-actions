@@ -58,7 +58,7 @@ Sections in this order, each omitted when empty except Human Steps. Commands mea
 2. **Workflow Contract**: the script's table for each changed workflow, with one line of why per change: renamed checks, removed grants, replaced actions, comments that went with their line.
 3. **Not run by CI**: each changed workflow the pull request's checks do not run (release, dispatch, schedule), and what to run after the merge to prove it still works; for a release change, the consumers and the version range each accepts (§12).
 4. **Renovate**: what actually changes for this repository: the rows of the §14 table that change from its effective value, the keys removed because the preset sets them, and each kept key that overrides the preset, with its reason.
-5. **Dependencies**: per project directory, the lock and cooldown rules applied, the CI install command, the security-fix procedure with the open vulnerability pull requests the audit flags, and for a library that its consumers are unaffected; for any other manager, which one, whether it has a lock and a cooldown, and its native setting (§15).
+5. **Dependencies**: per project directory, the manager (and the one a converted project left), the lock and cooldown rules applied, the CI install command, the security-fix procedure with the open vulnerability pull requests the audit flags, and for a library that its consumers are unaffected; for each relock or conversion, what `compare_locks.py` shows moved, and for a conversion its checks; each install outside the lock with the source that would lock it; for any other manager (a Python one: why it stayed), which one, whether it has a lock and a cooldown, and its native setting (§15).
 6. **Decisions needed**: each `(needs a decision)` commit (a release change named Tag version or Release App) and each remaining finding, with file:line, why zizmor flags it, the §13 checklist result for privileged triggers, and your recommendation.
 7. **Checks already failing**: each failing check and each workflow shown failing in step 1 (saying it is not a check), with its cause, the run that shows it, and the fixing commit or the Human Step that fixes it.
 8. **Human Steps**, in order, each one a command to run or a change to make; when none applies, one line saying nothing changes in settings before merging:
@@ -738,6 +738,9 @@ A **Dependency cooldown** keeps a release out of the lock until it is 7 days old
 - **uv** stores the window in the lock (`exclude-newer-span = "P1W"`), so `--locked` stays valid as time passes; the cutoff moves only on a new resolution (`uv lock --upgrade`, lock file maintenance). A repository that already commits `uv.lock` gets the cooldown and `--locked` too.
 - **pnpm** 10 also reads `minimum-release-age=10080` from `.npmrc`; pnpm 11 reads only auth, registry and proxy settings there, and its default window is 1440 minutes. A `.npmrc` setting moves to `pnpm-workspace.yaml`.
 - **npm**: Renovate passes `--before` to `npm install` unless `.npmrc` sets `min-release-age`, so the `.npmrc` setting is the one that applies.
+- **A lock out of date** (the audit runs `uv lock --check`): the cooldown relock also brings it up to date, and rewrites the whole file. Show what moved: `git show origin/<default>:<dir>/uv.lock > /tmp/old.lock`, then `python3 <skill>/scripts/compare_locks.py /tmp/old.lock <dir>/uv.lock`. "Same package set and versions" means only the format changed; otherwise the pull request lists the packages it prints.
+- **A relock that forces upgrades** (a git source commit that no longer exists, a yanked version): that directory leaves the dependency commit for its own, `build: relock <dir> (needs a decision)`, cooldown included. `uv lock --upgrade-package <package>` moves only the package that cannot stay; the commit message and the pull request list every package `compare_locks.py` shows moved.
+- **Installs outside the lock** (the audit lists them per workflow): a CI step that installs a package itself (`uv pip install git+...@<branch>`, `pip install <pkg>`) escapes the lock and the cooldown. Report it in the Dependencies section, and recommend declaring it in `pyproject.toml` with a source under `[tool.uv.sources]` (git with `rev` or `tag`), so `uv.lock` pins it.
 
 **Security fixes.** Renovate opens vulnerability pull requests without waiting, but the package manager still applies its cooldown, so a fix uploaded less than 7 days ago cannot be locked ([renovatebot/renovate#45113](https://github.com/renovatebot/renovate/discussions/45113)). In that pull request, exempt the fix, and remove the exemption at the next lock file maintenance. The audit lists the open vulnerability pull requests and flags each version `YOUNGER THAN 7 DAYS`: the Dependencies section names each flagged one with the exemption it needs once the cooldown merges.
 
@@ -745,11 +748,26 @@ A **Dependency cooldown** keeps a release out of the lock until it is 7 days old
 - pnpm: `minimumReleaseAgeExclude: [<package>@<version>]` in `pnpm-workspace.yaml` (a version needs pnpm >= 10.19). Renovate writes it for a pnpm security update when `pnpm-workspace.yaml` sets `minimumReleaseAge`; check it is there.
 - npm: `min-release-age-exclude[]=<package>` in `.npmrc`, npm >= 12. It exempts every version of the package. npm 11 has no exemption: the fix waits, or the pull request lowers `min-release-age` until the next lock file maintenance.
 
-**Any other manager** (pip requirements, Poetry, Yarn, Bun, Go, Cargo) is not converted. The pull request's Dependencies section says which manager the repository uses instead of uv, pnpm or npm, whether it has a lock and a cooldown, and its native setting:
+### Convert a Python project to uv
+
+Each Python project the audit marks `convert to uv` (Poetry, Rye, PDM, Pipenv, pip-tools, requirements files) moves to uv in the commit `build: move <dirs> to uv`, cooldown included, after the dependency commit.
+
+1. **Go/no-go.** Search the repository for every reader of the old manager's files outside the local environment: Dockerfiles (`COPY requirements*.txt`, `pip install -r`, `poetry install`), Modal or other image definitions (`pip_install_from_requirements`, `from_dockerfile`), Makefiles, Procfiles, CI, deploy scripts, docs. Convert when each reader can switch to uv (`uv sync --locked`, or `uv export --frozen --no-hashes -o requirements.txt` for one that needs a requirements file) or none exists. Otherwise the project keeps its manager, and the Dependencies section says which reader kept it.
+2. **Migrate.**
+   - Poetry, Pipenv, pip-tools, pip: `uvx migrate-to-uv@0.12.0 --keep-current-build-backend --dependency-groups-strategy set-default-groups <dir>` (0.12.0 is the latest release on 2026-11-09: check PyPI for a newer one). It locks with the old versions; without an old lock, add `--skip-lock`. Then add the cooldown and run `uv lock`. A kept `poetry-core` backend needs `requires = ["poetry-core>=2.0,<3"]` to read `[project]`.
+   - Rye, PDM (migrate-to-uv supports neither), by hand: `[tool.rye]` or `[tool.pdm]` becomes `[tool.uv]` with the cooldown, dev dependencies move to `[dependency-groups] dev`; lock once with the old lock's pins as temporary `constraint-dependencies` under `[tool.uv]`, remove them, lock again.
+
+   Delete the old lock and requirements files once nothing reads them.
+3. **Keep the versions.** `compare_locks.py <old lock> <dir>/uv.lock` shows the same versions; a platform-only addition (`colorama` on Windows) is expected, since `uv.lock` covers every platform. When a newer interpreter cannot install the old versions (no wheels, a failed source build), pin `.python-version` to the Python the old lock was made for, the `requires-python` floor. A project with no old lock gets a first resolution: the pull request lists its top-level versions.
+4. **Docs and scripts** of the converted project: `poetry install`, `rye sync` and the like become `uv sync`, `poetry run` becomes `uv run`, and a bare `python` that assumed an activated environment becomes `uv run python`. A doc elsewhere that is already wrong for other reasons is reported, not rewritten.
+5. **Verify**: `uv lock --check`, `uv sync --locked` in a fresh environment, and the command or import the README shows, run locally and offline (never one that calls a model or deploys). When a deploy cannot run here (credentials, GPUs), check what you can (the client version unchanged, the package still importable) and the pull request names the command not run: the next deploy is the real check.
+
+**Any other manager** (Yarn, Bun, Go, Cargo, a Python project the go/no-go keeps) is not converted. The pull request's Dependencies section says which manager the repository uses instead of uv, pnpm or npm, whether it has a lock and a cooldown, and its native setting:
 
 | Manager | Native cooldown | Exemption |
 |---|---|---|
 | Poetry | `poetry config --local solver.min-release-age 7` (days, writes `poetry.toml`), Poetry >= 2.4 | `solver.min-release-age-exclude` |
+| Rye | none | |
 | Yarn | `npmMinimalAgeGate: 7d` in `.yarnrc.yml`, Yarn >= 4.10 | `npmPreapprovedPackages` |
 | Bun | `minimumReleaseAge = 604800` (seconds) under `[install]` in `bunfig.toml` | `minimumReleaseAgeExcludes` |
 | pip | `--uploaded-prior-to P7D`, pip >= 26.1 (26.0 takes a date only) | none |
