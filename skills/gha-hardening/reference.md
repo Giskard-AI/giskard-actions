@@ -11,10 +11,10 @@ The Gate runs zizmor with the auditor persona, offline. Each finding links its r
 | `unpinned-uses` | `scripts/pin-action.sh <action>@<ref>` with the action's current major; keep the `# vX.Y.Z` comment it prints (`ref-version-mismatch` checks it). Major upgrades are Renovate's pull requests. Local actions (`./...`) stay as they are. |
 | `excessive-permissions`, `undocumented-permissions` | Top-level `permissions: {}` (a comment on it moves to the job it explained); each job grants what its steps use, each grant with a comment saying what it reads or writes (`contents: read # checkout`, `issues: write # create and pin the dashboard issue`). |
 | `secrets-outside-env` | The job declares its Secret Environment (§11). zizmor only checks the declaration; the secret moves through `migrate_secrets.py`, a Human Step. |
-| `superfluous-actions` | Replace the action with the equivalent command (`gh release create`, `git`) when the result is the same, and list the replacement in the Workflow Contract section of the pull request. |
+| `superfluous-actions` | Replace the action with the equivalent command (`gh release create`, `git`) when the result is the same ([release actions](#release-actions-to-gh-release-create)), and list the replacement in the Workflow Contract section of the pull request. |
 | `artipacked` | `persist-credentials: false` on every `actions/checkout`. A job that pushes passes its token to that one step (§8). |
-| `template-injection` | Move each `${{ }}` out of `run:` (and out of `script:` for `actions/github-script`) into step `env:`, then use `"$VAR"` (§2). |
-| `concurrency-limits` | Workflow-level `concurrency:`, group on `${{ github.workflow }}-${{ github.event.pull_request.number \|\| github.ref }}`; `cancel-in-progress: true` except on release and deploy workflows. |
+| `template-injection` | Move each `${{ }}` out of `run:` (and out of `script:` for `actions/github-script`) into step `env:`, then use `"$VAR"` (§2). `${{ env.X }}` is already an environment variable: it becomes `"$X"`, with no step `env:`. zizmor can report a repeated expression at the position of an earlier one in the same block (relais: the third `${{ env.VERSION_NAME }}` of a `run:` block, at line 101, reported at 99:27), so fix every `${{ }}` of a flagged block; per-rule counts follow zizmor's summary, repeats included. |
+| `concurrency-limits` | Workflow-level `concurrency:`, group on `${{ github.workflow }}-${{ github.event.pull_request.number \|\| github.ref }}` for a workflow triggered by `pull_request`, `${{ github.workflow }}-${{ github.ref }}` otherwise; `cancel-in-progress: true` except on release and deploy workflows. |
 | `anonymous-definition` | `name:` on the workflow and each job. A job `name:` renames its status check. |
 | `dangerous-triggers` | Replace `pull_request_target` / `workflow_run` with `pull_request` when no secret is needed; otherwise run the §13 checklist, fix what fails, and propose a zizmor Exception whose reason is the guard. |
 | `secrets-inherit`, `overprovisioned-secrets` | Pass each secret by name; `toJSON(secrets)` never. |
@@ -24,6 +24,22 @@ The Gate runs zizmor with the auditor persona, offline. Each finding links its r
 | `bot-conditions`, `unredacted-secrets`, `obfuscation`, `stale-action-refs`, other | Follow the rule's documentation; when the fix would change behaviour, it is a decision for the pull request. |
 
 A strict-collection failure (a file zizmor cannot parse: Jinja or copier templates, test fixtures) cannot be excepted. Move the file out of `.github/` or `action.yml` names (e.g. `action.yml.jinja`), or rename the fixture directory.
+
+### Release actions to `gh release create`
+
+`gh release create <tag> [<files>...]` with `GH_TOKEN: ${{ github.token }}` in the step `env:` and `contents: write` on the job. Inputs of `softprops/action-gh-release`, `ncipollo/release-action` and `actions/create-release`:
+
+| Result | softprops | ncipollo | create-release | `gh release create` |
+|---|---|---|---|---|
+| Tag | `tag_name` (default: the pushed tag) | `tag` (default: the pushed tag) | `tag_name` | first argument (`"$GITHUB_REF_NAME"` on a tag push) |
+| Title | `name` (default: the tag) | `name` (default: the tag) | `release_name` | `--title` (default: the tag, or the generated title with `--generate-notes`) |
+| Notes | `body`, `body_path`, `generate_release_notes` | `body`, `bodyFile`, `generateReleaseNotes` | `body`, `body_path` | `--notes`, `--notes-file`, `--generate-notes` |
+| Files | `files` (globs, one per line) | `artifacts` (comma-separated) | none | paths after the tag (the shell expands globs) |
+| Draft, prerelease | `draft`, `prerelease` | `draft`, `prerelease` | `draft`, `prerelease` | `--draft`, `--prerelease` |
+| Missing file | ignored unless `fail_on_unmatched_files` | ignored unless `artifactErrorsFailBuild` | n/a | fails |
+| Target of a new tag | `target_commitish` (default: the default branch) | `commit` (default: the default branch) | `commitish` (default: the current commit) | `--target` (default: the default branch); pass `"$GITHUB_SHA"` or `"$(git rev-parse HEAD)"` to tag the commit that was built |
+
+An existing release for the tag: softprops updates it and ncipollo fails unless `allowUpdates`; `gh release create` fails. A workflow that relies on updating one keeps the action.
 
 ## Pitfalls
 

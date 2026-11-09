@@ -52,7 +52,7 @@ Rerun after each batch:
 bash <skill>/scripts/gate-scan.sh OWNER/REPO <clone>
 ```
 
-Done when it exits 0, or every remaining finding is one a fix cannot remove without changing what the workflow does. Existing zizmor Exceptions and existing pins the scan does not flag stay as they are.
+Done when it exits 0, or every remaining finding is one a fix cannot remove without changing what the workflow does. Existing zizmor Exceptions, pins and `concurrency:` blocks the scan does not flag stay as they are.
 
 Then apply every item below that the audit shows for this repository; the Gate does not check them.
 
