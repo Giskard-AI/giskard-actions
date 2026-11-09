@@ -4,33 +4,33 @@ Detailed reference for the [gha-hardening](SKILL.md) skill. Threat models follow
 
 ## Fix table
 
-The Gate runs zizmor with the pedantic persona, offline. Each finding links its rule's documentation; these are the fixes that keep the workflow's behaviour.
+The Gate runs zizmor with the auditor persona, offline. Each finding links its rule's documentation; these are the fixes that keep the workflow's behaviour.
 
 | Finding | Fix |
 |---|---|
 | `unpinned-uses` | `scripts/pin-action.sh <action>@<ref>` with the action's current major; keep the `# vX.Y.Z` comment it prints (`ref-version-mismatch` checks it). Major upgrades are Renovate's pull requests. Local actions (`./...`) stay as they are. |
-| `excessive-permissions`, `undocumented-permissions` | Top-level `permissions: {}`; each job grants what it uses. Each `write` grant gets a comment saying what it writes (`issues: write # create and pin the dashboard issue`); `read` grants may stay bare. |
+| `excessive-permissions`, `undocumented-permissions` | Top-level `permissions: {}` (a comment on it moves to the job it explained); each job grants what its steps use, each grant with a comment saying what it reads or writes (`contents: read # checkout`, `issues: write # create and pin the dashboard issue`). |
+| `secrets-outside-env` | The job declares its Secret Environment (§11). zizmor only checks the declaration; the secret moves through `migrate_secrets.py`, a Human Step. |
+| `superfluous-actions` | Replace the action with the equivalent command (`gh release create`, `git`) when the result is the same, and list the replacement in the Workflow Contract section of the pull request. |
 | `artipacked` | `persist-credentials: false` on every `actions/checkout`. A job that pushes passes its token to that one step (§8). |
 | `template-injection` | Move each `${{ }}` out of `run:` (and out of `script:` for `actions/github-script`) into step `env:`, then use `"$VAR"` (§2). |
 | `concurrency-limits` | Workflow-level `concurrency:`, group on `${{ github.workflow }}-${{ github.event.pull_request.number \|\| github.ref }}`; `cancel-in-progress: true` except on release and deploy workflows. |
 | `anonymous-definition` | `name:` on the workflow and each job. A job `name:` renames its status check. |
-| `dangerous-triggers` | Replace `pull_request_target` / `workflow_run` with `pull_request` when no secret is needed; otherwise follow §1 or §4 and propose an ignore with the guard as reason. |
+| `dangerous-triggers` | Replace `pull_request_target` / `workflow_run` with `pull_request` when no secret is needed; otherwise run the §13 checklist, fix what fails, and propose a zizmor Exception whose reason is the guard. |
 | `secrets-inherit`, `overprovisioned-secrets` | Pass each secret by name; `toJSON(secrets)` never. |
 | `cache-poisoning` | No cache restore in release or publish jobs (`enable-cache: false`, no `cache:` input) (§6). |
-| `use-trusted-publishing` | PyPI / npm publish through OIDC trusted publishing, then delete the token secret (human step). |
+| `use-trusted-publishing` | PyPI / npm publish through OIDC trusted publishing, then delete the token secret (Human Step). |
 | `github-env` | Write to `$GITHUB_ENV` / `$GITHUB_PATH` only values the workflow builds itself. |
 | `bot-conditions`, `unredacted-secrets`, `obfuscation`, `stale-action-refs`, other | Follow the rule's documentation; when the fix would change behaviour, it is a decision for the pull request. |
-| (not flagged) a secret in workflow- or job-level `env:` | Move it to the `env:` of the steps that use it, so third-party actions in other steps never see it (§7). |
-| (not flagged) `.github/dependabot.yml` with version updates next to Renovate | List it under "Decisions needed": both open update pull requests. Dependabot security alerts are unaffected. |
 
-A strict-collection failure (a file zizmor cannot parse: Jinja or copier templates, test fixtures) cannot be ignored. Move the file out of `.github/` or `action.yml` names (e.g. `action.yml.jinja`), or rename the fixture directory.
+A strict-collection failure (a file zizmor cannot parse: Jinja or copier templates, test fixtures) cannot be excepted. Move the file out of `.github/` or `action.yml` names (e.g. `action.yml.jinja`), or rename the fixture directory.
 
 ## Pitfalls
 
-1. **A job `name:` renames its status check.** Required checks are matched by name; check the "Rules" section of the audit and list the ruleset edit as a human step.
+1. **A job `name:` renames its status check.** Required checks are matched by name. GitHub appends matrix values to a `name:` that has none (`name: test` gives `test (3.11)`), and an expression in `name:` replaces them.
 2. **`with:` and template injection.** zizmor flags `with:` inputs that execute code (`actions/github-script`'s `script:`, `azure/cli`'s `inlineScript:`). Move the expression into step `env:` and read it from the script (`process.env.X`). Other inputs (`actions/checkout`'s `repository:`) are safe.
 3. **Adding `environment:` to a job** scopes its secrets, and also applies the Environment's required reviewers: every run waits for approval. Check `gh api repos/<owner>/<repo>/environments/<env>` first.
-4. **`github.token` cannot bypass rules.** A workflow that pushes to a protected branch needs a GitHub App granted bypass (§8, §10), never a personal access token.
+4. **`github.token` cannot bypass rules.** A workflow that pushes to a protected branch fails; §12 has the two ways out, neither of them a personal access token.
 5. **Ruleset bypass actor IDs are the App's ID** (`gh api apps/<slug> --jq .id`), not its installation ID.
 6. **OIDC subject claims** contain `ref:`, which differs between branches and tags; some registries (Quay) need the claim customized (§9).
 
@@ -347,12 +347,10 @@ jobs:
         env:
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
           REPO: ${{ github.repository }}
-        run: |
-          git remote set-url origin "https://x-access-token:${APP_TOKEN}@github.com/${REPO}.git"
-          git push origin main
+        run: git push "https://x-access-token:${APP_TOKEN}@github.com/${REPO}.git" HEAD:main
 ```
 
-The token lives one hour and only in the `env:` of the step that pushes.
+The token lives one hour and only in the `env:` of the step that pushes. It goes in the push URL, never into `.git/config` (`git remote set-url`, a persisted checkout token): every later step of the job, third-party actions included, can read that file.
 
 A job that clones another private repository (with a deploy key or a personal access token today) gets an App installed on that repository instead: `--install-repo Giskard-AI/<other> --permission contents=read`, credentials still in the Environment of the repository that runs the job, and `repositories: <other>` on `create-github-app-token`.
 
@@ -363,6 +361,8 @@ A job that clones another private repository (with a deploy key or a personal ac
 The principle is the same for all registries: exchange a short-lived GitHub OIDC token for a registry-scoped credential. No static secrets stored.
 
 All approaches require `id-token: write` permission on the job.
+
+A login with a static password (`docker/login-action` with `password: ${{ secrets.* }}`) moves to the exchange for its registry, as `llm-hub` does for Quay. The registry-side trust (a federated robot account, an IAM role) is a Human Step; the static secret is deleted after the first green run.
 
 ### AWS ECR
 
@@ -497,6 +497,75 @@ Repository rulesets support a single `bypass_actors` list that skips **all** rul
 - Some `pull_request` rule parameters may not be supported in rulesets (e.g., `automatic_copilot_code_review_enabled`). If the API returns a validation error, remove the unsupported parameter and retry.
 - Classic protection and rulesets can coexist — both are enforced. Delete classic protection only after confirming the ruleset covers everything, to avoid a window with no protection.
 - After deleting classic protection, `gh api repos/<owner>/<repo>/branches/main/protection` returns 404 — this is expected. The ruleset is the active protection.
+
+### Release tags
+
+An organization ruleset blocks updating and deleting `v*` tags in every code repository. A repository whose workflows publish on a pushed `v*` tag also needs tag creation reserved: anyone who can push could otherwise publish a release. The Human Step: a repository ruleset on `refs/tags/v*` with the `creation` rule, bypassed only by the release App or the maintainers who tag.
+
+---
+
+## 11. Secret Environments
+
+Every secret of a code repository lives in a **Secret Environment** (repo-baseline ADR 0002); zizmor's `secrets-outside-env` checks that each job reading a secret declares one.
+
+- **Name**: `<service>-<usage>` when the job calls one service (`openai-tests`, `azure-codex-review`, `pypi-release`), `<usage>` when it calls several (`e2e-tests`). An existing Environment off this convention is renamed when its repository is reworked: `migrate_secrets.py` creates the new one and asks for the values again (GitHub never returns them); deleting the old one is a Human Step once the pull request's run is green.
+- **Deployment branches follow the trigger** (`migrate_secrets.py` policy in brackets): pull request jobs, every branch (`all`); push, dispatch or schedule on the default branch, that branch (`branch=main`); a pushed release tag, the tags (`tag=v*`). An Environment that holds a release or App key and is deployable from every branch is restricted to its ref; when pull request jobs use it too, it splits in two.
+- **A secret two Environments need is copied into both**: the wizard asks for its value once and writes it to each. `--rotate NAME` rewrites every copy.
+- **Pull request jobs declare `deployment: false`**, so they read the secrets without recording a deployment on the pull request:
+
+```yaml
+jobs:
+  test:
+    name: Test
+    environment:
+      name: openai-tests
+      deployment: false
+    steps:
+      - name: Run integration tests
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: uv run pytest -m integration
+```
+
+- **Reusable workflows**: a job that calls one cannot declare `environment:`; the called job must. When the reusable workflow takes an `environment` input (`codex-pr-review.yml` does: pass `azure-codex-review`), pass it; the secret it still lists under `secrets:` arrives empty from the caller and the called job reads it from the Environment. Otherwise list it under "Decisions needed": adding the input changes its Workflow Contract.
+
+---
+
+## 12. Releases that push to a protected branch
+
+A release job that pushes its version commit to the default branch with `github.token` fails as soon as a ruleset requires pull requests or checks there: the job token cannot bypass rules. The audit lists such pushes. Both ways out go under "Decisions needed".
+
+**Option B, the version comes from the tag** (recommended when the version commit is the only push). The release creates the tag (`gh release create vX.Y.Z --target <sha>`), and the build reads the version from it; nothing is pushed to the branch. For a hatchling project, in its own commit `build: read the version from the release tag (needs a decision)`:
+
+```toml
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[project]
+dynamic = ["version"] # was: version = "1.4.0"
+
+[tool.hatch.version]
+source = "vcs"
+```
+
+The build checks out with `fetch-depth: 0` so the tag is there; the version bump step and its push go away.
+
+**Option A, a GitHub App with bypass** (when the release pushes more than the version: changelog, generated files). One App per repository, created with `setup_github_app.py --bypass-ruleset <id>` (§8), its private key in an Environment restricted to the default branch. Bypassing an organization ruleset needs an org admin.
+
+---
+
+## 13. Privileged triggers checklist
+
+Run it on each workflow triggered by `pull_request_target`, `workflow_run` or `issue_comment`, before proposing any `dangerous-triggers` Exception, and report each item with the line that answers it in "Decisions needed":
+
+1. **Code**: does any job check out, build or run code from the pull request (`head.sha`, `head.ref`, the merge ref) or execute a downloaded artifact? (§1, §4)
+2. **Privileges**: which secrets and `write` grants do those jobs hold? A job that touches pull request code holds neither.
+3. **Input**: is every attacker-controlled field (title, body, branch name, comment, artifact content) read through step `env:`, never `${{ }}` in `run:` or `script:`? (§2)
+4. **Who**: can a fork or any commenter trigger it? Name the guard: same-repository check (`github.event.pull_request.head.repo.full_name == github.repository`), `author_association`, a label gate.
+5. **Time of check**: does it check out the immutable SHA it approved, not a branch? (§1, §5)
+6. **`workflow_run`**: are `branches:` restricted, and are artifacts unpacked outside the workspace and treated as data? (§4)
+7. **Cache**: does it restore a cache an unprivileged workflow can write? (§6)
 
 ---
 
