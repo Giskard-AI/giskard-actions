@@ -92,6 +92,23 @@ setting_in() {
     [[ -f "${tree}/${file}" ]] && grep -m1 -hE "$1" "${tree}/${file}" | sed "s|\$| (${file})|" && return
   done
 }
+# Whether a cooldown setting line ("<key> = <value> (<file>)") of a manager keeps the
+# 7-day window, whatever its spelling: "7 days", "1 week", P7D, 10080 minutes.
+cooldown_verdict() {
+  local value
+  value=$(sed -E 's/ \([^)]*\)$//; s/^--uploaded-prior-to//; s/^[^=:]*[=:]//; s/[[:space:]"'"'"']//g' <<<"$2" | tr '[:upper:]' '[:lower:]')
+  awk -v v="${value}" -v m="$1" 'BEGIN {
+    sub(/^p/, "", v)
+    if (v ~ /^[0-9][0-9][0-9][0-9]-/) { print "a fixed date, not a window"; exit }
+    if (!match(v, /^[0-9]+/)) { print "window not read: check by hand"; exit }
+    n = substr(v, 1, RLENGTH); unit = substr(v, RLENGTH + 1)
+    if (unit == "") unit = m == "pnpm" ? "minutes" : m == "bun" ? "seconds" : m ~ /^(npm|poetry)$/ ? "days" : "?"
+    if (unit ~ /^w/) d = n * 7; else if (unit ~ /^d/) d = n; else if (unit ~ /^h/) d = n / 24
+    else if (unit ~ /^m/) d = n / 1440; else if (unit ~ /^s/) d = n / 86400
+    else { print "window not read: check by hand"; exit }
+    print (d >= 7 ? "7 days or more: keep its spelling" : "SHORTER THAN 7 DAYS")
+  }'
+}
 # Why a failed Actions job failed: its failed step and the last error line of its
 # log before the post-job cleanup.
 job_cause() {
@@ -577,6 +594,7 @@ while read -r eco dir; do
     rye | poetry | pdm | pipenv | pip-tools | pip) convert="; convert to uv (reference.md section 15)" ;;
     *) convert="" ;;
   esac
+  [[ -n "${cooldown}" ]] && cooldown+=", $(cooldown_verdict "${manager%% *}" "${cooldown}")"
   echo "  ${dir}: ${manager}; ${lock_state}; cooldown: ${cooldown:-none}${convert}"
 done <<<"${projects}"
 [[ -n "${projects}" ]] || echo "  none"

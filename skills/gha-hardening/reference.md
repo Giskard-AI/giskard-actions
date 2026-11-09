@@ -751,6 +751,7 @@ A **Dependency cooldown** keeps a release out of the lock until it is 7 days old
 | pnpm | `pnpm-lock.yaml` | `minimumReleaseAge: 10080` (minutes) in `pnpm-workspace.yaml`, pnpm >= 10.16 | `pnpm install --frozen-lockfile` |
 | npm | `package-lock.json` | `min-release-age=7` (days) in `.npmrc`, npm >= 11.10.0 | `npm ci` |
 
+- **An existing cooldown** of 7 days or more stays as written, whatever its spelling (`"7 days"`, `P7D`; the audit says `keep its spelling`): rewriting it changes the lock's options for no change in the window. A shorter window or a fixed date is replaced by the table's setting.
 - **Versions**: compare the minimum with the version CI pins (setup-uv `version:`, `packageManager`, `engines`), and run the lock check with that version: `uvx uv@<pinned> lock --check`.
 - **CI install** is the command the workflow step runs. When the step calls a Makefile or script target shared with developers (`make setup` running `uv sync`), the step runs the locked command instead and the target stays as is; the pull request says so.
 - **uv** stores the window in the lock (`exclude-newer-span = "P1W"`), so `--locked` stays valid as time passes; the cutoff moves only on a new resolution (`uv lock --upgrade`, lock file maintenance). A repository that already commits `uv.lock` gets the cooldown and `--locked` too.
@@ -763,7 +764,7 @@ A **Dependency cooldown** keeps a release out of the lock until it is 7 days old
 
 **Security fixes.** Renovate opens vulnerability pull requests without waiting, but the package manager still applies its cooldown, so a fix uploaded less than 7 days ago cannot be locked ([renovatebot/renovate#45113](https://github.com/renovatebot/renovate/discussions/45113)). In that pull request, exempt the fix, and remove the exemption at the next lock file maintenance. The audit lists the open vulnerability pull requests and flags each version `YOUNGER THAN 7 DAYS`: the Dependencies section names each flagged one with the exemption it needs once the cooldown merges.
 
-- uv: `exclude-newer-package = { <package> = "<a timestamp just after the fix's upload>" }` under `[tool.uv]`.
+- uv: `exclude-newer-package = { <package> = "<a timestamp just after the fix's upload>" }` under `[tool.uv]`. `{ <package> = false }` also works and exempts every version of the package; a repository that already documents that form keeps it.
 - pnpm: `minimumReleaseAgeExclude: [<package>@<version>]` in `pnpm-workspace.yaml` (a version needs pnpm >= 10.19). Renovate writes it for a pnpm security update when `pnpm-workspace.yaml` sets `minimumReleaseAge`; check it is there.
 - npm: `min-release-age-exclude[]=<package>` in `.npmrc`, npm >= 12. It exempts every version of the package. npm 11 has no exemption: the fix waits, or the pull request lowers `min-release-age` until the next lock file maintenance.
 
