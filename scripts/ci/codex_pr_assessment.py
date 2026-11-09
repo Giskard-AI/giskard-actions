@@ -649,6 +649,8 @@ def trim_text(text: str, limit: int) -> str:
 
 
 def pr_metadata(pr_number: int, pr: dict[str, Any], repo: GitHubRepo) -> dict[str, Any]:
+    association = str(pr.get("author_association") or "")
+    body = str(pr.get("body") or "") if association in TRUSTED_ASSOCIATIONS else ""
     return {
         "repository": repo.full_name,
         "pr": {
@@ -662,6 +664,8 @@ def pr_metadata(pr_number: int, pr: dict[str, Any], repo: GitHubRepo) -> dict[st
             "head_sha": pr["head"]["sha"],
             "url": pr.get("html_url"),
             "author": (pr.get("user") or {}).get("login"),
+            "author_association": association,
+            "body": trim_text(redact_secret_references(body), 20_000),
         },
     }
 
