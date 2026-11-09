@@ -265,7 +265,6 @@ def test_renovate_tracks_zizmor_image(path: Path):
     [
         pytest.param("--collect=all", id="audits-gitignored-files"),
         pytest.param("--strict-collection", id="fails-on-unparsable-files"),
-        pytest.param("--persona=pedantic", id="runs-the-pedantic-persona"),
         pytest.param("--offline", id="runs-offline"),
         pytest.param("--network none", id="container-has-no-network"),
         pytest.param('--volume "${src}:/src:ro"', id="pull-request-mounted-read-only"),
@@ -274,6 +273,28 @@ def test_renovate_tracks_zizmor_image(path: Path):
 )
 def test_zizmor_scan_flags(flag: str):
     assert flag in SCAN_SH.read_text()
+
+
+@pytest.mark.parametrize(
+    ("env", "status", "persona"),
+    [
+        pytest.param({}, 0, "--persona=pedantic", id="gate-runs-pedantic"),
+        pytest.param(
+            {"ZIZMOR_PERSONA": "auditor"}, 0, "--persona=auditor", id="skill-asks-auditor"
+        ),
+        pytest.param({"ZIZMOR_PERSONA": "regular"}, 2, None, id="other-personas-rejected"),
+    ],
+)
+def test_zizmor_scan_persona(tmp_path: Path, env: dict[str, str], status: int, persona):
+    (tmp_path / "src").mkdir()
+    result = run_scan(tmp_path, "src", **env)
+    assert result.returncode == status, result.stderr
+    if persona:
+        assert persona in (tmp_path / "args").read_text()
+
+
+def test_gate_keeps_the_default_persona():
+    assert "ZIZMOR_PERSONA" not in gate_text()
 
 
 def test_zizmor_scan_honours_inline_ignores():
