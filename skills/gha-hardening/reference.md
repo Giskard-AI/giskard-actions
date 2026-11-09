@@ -14,12 +14,12 @@ The Gate runs zizmor with the auditor persona, offline. Each finding links its r
 | `superfluous-actions` | Replace the action with the equivalent command (`gh release create`, `git`) when the result is the same ([release actions](#release-actions-to-gh-release-create)), and list the replacement in the Workflow Contract section of the pull request. |
 | `artipacked` | `persist-credentials: false` on every `actions/checkout`. A job that pushes passes its token to that one step (§8). |
 | `template-injection` | Move each `${{ }}` out of `run:` (and out of `script:` for `actions/github-script`) into step `env:`, then use `"$VAR"` (§2). `${{ env.X }}` is already an environment variable: it becomes `"$X"`, with no step `env:`. zizmor can report a repeated expression at the position of an earlier one in the same block (relais: the third `${{ env.VERSION_NAME }}` of a `run:` block, at line 101, reported at 99:27), so fix every `${{ }}` of a flagged block; per-rule counts follow zizmor's summary, repeats included. |
-| `concurrency-limits` | Workflow-level `concurrency:`, group on `${{ github.workflow }}-${{ github.event.pull_request.number \|\| github.ref }}` for a workflow triggered by `pull_request`, `${{ github.workflow }}-${{ github.ref }}` otherwise. `cancel-in-progress: ${{ github.event_name == 'pull_request' }}` for a workflow triggered by `pull_request`, `false` otherwise and on release and deploy workflows: a cancelled run on <default> leaves that commit a failing check. A workflow required by a ruleset takes no `cancel-in-progress` at all (GitHub rejects it there): its runs queue. zizmor checks only that `concurrency:` is set. |
+| `concurrency-limits` | Workflow-level `concurrency:`, group on `${{ github.workflow }}-${{ github.event.pull_request.number \|\| github.ref }}` for a workflow triggered by `pull_request`, `${{ github.workflow }}-${{ github.ref }}` otherwise, `${{ github.workflow }}` alone for a release or deploy workflow (one at a time, whatever the ref). `cancel-in-progress: ${{ github.event_name == 'pull_request' }}` for a workflow triggered by `pull_request`, `false` otherwise and on release and deploy workflows: a cancelled run on <default> leaves that commit a failing check. Without cancelling, a group holds one run in progress and one pending, and a newer run cancels the pending one (`queue: single`, the default). `queue: max` keeps up to 100 pending runs in order (never with `cancel-in-progress: true`), which a release or deploy where every run matters wants, but actionlint does not accept it yet (§12 Tag version). A workflow required by a ruleset takes no `cancel-in-progress` at all (GitHub rejects it there). zizmor checks only that `concurrency:` is set. |
 | `anonymous-definition` | `name:` on the workflow and each job. A job `name:` renames its status check. |
 | `dangerous-triggers` | Replace `pull_request_target` / `workflow_run` with `pull_request` when no secret is needed; otherwise run the §13 checklist, fix what fails, and propose a zizmor Exception whose reason is the guard. |
 | `secrets-inherit`, `overprovisioned-secrets` | Pass each secret by name; `toJSON(secrets)` never. |
 | `cache-poisoning` | No cache restore in release or publish jobs (`enable-cache: false`, no `cache:` input) (§6). |
-| `use-trusted-publishing` | PyPI / npm publish through OIDC trusted publishing, then delete the token secret (Human Step). |
+| `use-trusted-publishing` | PyPI / npm publish through OIDC trusted publishing from a job in its release Environment (§11), then delete the token secret (Human Step). |
 | `github-env` | Write to `$GITHUB_ENV` / `$GITHUB_PATH` only values the workflow builds itself. |
 | `bot-conditions`, `unredacted-secrets`, `obfuscation`, `stale-action-refs`, other | Follow the rule's documentation; when the fix would change behaviour, it is a decision for the pull request. |
 
@@ -70,7 +70,7 @@ Sections in this order, each omitted when empty except Human Steps. Commands mea
    2. A personal access token, a deploy key with write access or reaching several repositories, or an App with more access than the job needs: `python3 <scripts>/setup_github_app.py --dry-run ...` filled in (§8; the release App's Environment is `github-release`). A read-only deploy key that clones one repository moves with the migration (item 1).
    3. Ruleset changes: required checks renamed, release tag creation reserved, an App bypass on an organization ruleset (org admin).
    4. Squash merge allowed but not set to the pull request title and body (the audit's `Squash merge` line): the §10 command, which needs admin. It does not block the merge; ideally set before merging, so this pull request's own squash commit keeps its body.
-   5. Registry-side OIDC trust; Renovate installed on this repository.
+   5. Registry-side OIDC trust; for a trusted publishing job, its release Environment and the publisher's Environment name (§12 Tag version); Renovate installed on this repository.
    6. Dependabot security updates off when Renovate covers the repository (§14); otherwise, for a job that reads secrets on Dependabot pull requests, the secrets added as Dependabot secrets (§11).
    7. Each check already failing for a cause outside the workflows, with its fix: the retired model to replace in `<config file>`, the new key to put into the Environment (item 1), the credits to add.
 
@@ -564,7 +564,7 @@ Every secret of a code repository lives in a **Secret Environment** (repo-baseli
 
 - **Name**: `<service>-<usage>` when the job calls one service (`openai-tests`, `azure-codex-review`, `pypi-release`, `github-release` for a release App key), `<usage>` when it calls several (`e2e-tests`; a job that uses an API key and a clone key: `benchmark-tests` in safety-bench). An existing Environment off this convention is renamed when its repository is reworked ([Rename an Environment](#rename-an-environment)).
 - **Deployment branches follow the trigger** (`migrate_secrets.py` policy in brackets): pull request jobs (any job that runs on `pull_request`, whatever else triggers it), every branch (`all`); push, dispatch or schedule on the default branch, that branch (`branch=main`); a pushed release tag, the tags (`tag=v*`). An Environment that holds a release or App key is restricted to its ref: when pull request jobs use it for other secrets, it splits in two, and a pull request job that needs the key itself is a decision. A read-only deploy key that clones one repository is not such a key: it stays in the pull request job's Environment, deployable from every branch (§8).
-- **A job that publishes through OIDC trusted publishing and reads no secret declares no Environment**, unless the trusted publisher config (PyPI, npm) already names one: the job must then keep that name.
+- **A job that publishes through OIDC trusted publishing declares its release Environment** (`pypi-release`, `npm-release`), restricted to the ref it publishes from, even though it reads no secret, and the trusted publisher config (PyPI, npm) names that Environment: a trusted publisher checks the repository and the workflow file, not the branch, so the Environment is what keeps other branches from publishing (§12 Tag version). When the config already names an Environment, the job keeps that name.
 - **A secret two Environments need is copied into both**: the wizard asks for its value once and writes it to each. `--rotate NAME` rewrites every copy.
 - **Pull request jobs declare `deployment: false`**, so they read the secrets without recording a deployment on the pull request:
 
@@ -629,7 +629,15 @@ dynamic = ["version"] # was: version = "1.4.0"
 source = "vcs"
 ```
 
-The release job, after relais' `create-release.yml`: validate, check out every tag, fail if the tag exists, tag locally, build, publish, then create the release on the commit that was built. A failed publish leaves no tag and no release.
+The release workflow, after relais' `create-release.yml`, splits into three jobs, each holding only what it uses:
+
+- **build** (`contents: read`): validate the version, check out every tag, fail if the tag exists, tag locally, `uv build`, upload `dist/`. The build backend and its unlocked build requirements run here, where no token can publish.
+- **publish** (`id-token: write`, Environment `pypi-release`): download `dist/` and publish through trusted publishing.
+- **release** (`contents: write`): download `dist/` and create the release, which pushes the tag, on the commit that was built. A failed publish leaves no tag and no release.
+
+**Default branch only.** `workflow_dispatch` runs on whatever branch the dispatcher picks, workflow file included, and a trusted publisher matches the repository and the workflow file, not the branch. The control is the Environment: `pypi-release` deploys from the default branch only and the trusted publisher names it, so GitHub refuses the publish job on any other ref and PyPI refuses a token minted outside `pypi-release`, even when a branch edits the workflow. On top of it, every job carries the guard `if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)`, so a dispatch from another branch skips every job rather than building and failing at the Environment.
+
+**One release at a time.** The concurrency group is the workflow alone, whatever the ref, without `cancel-in-progress`. GitHub keeps one run in progress and one pending in a group; a newer dispatch cancels the pending one (`queue: single`, the default). `queue: max` would keep up to 100 pending runs in order, but actionlint 1.7.12, the latest release and the one `workflow_contract.py` runs, rejects the key ([rhysd/actionlint#654](https://github.com/rhysd/actionlint/issues/654)): leave it out until a release accepts it. Not run by CI then says that a dispatch while another release is pending replaces it.
 
 ```yaml
 on:
@@ -641,56 +649,103 @@ on:
         type: string
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}
   cancel-in-progress: false
 
 permissions: {}
 
 jobs:
-  release:
-    name: Release
+  build:
+    name: Build
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
     permissions:
-      contents: write # create the GitHub release and its tag
-      id-token: write # PyPI trusted publishing
+      contents: read # checkout
     steps:
       - name: Validate the version
         env:
           VERSION: ${{ inputs.version }}
-        run: |
-          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Use X.Y.Z"; exit 1; }
-          echo "TAG=v$VERSION" >> "$GITHUB_ENV"
+        run: '[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Use X.Y.Z"; exit 1; }'
 
       - uses: actions/checkout@<sha> # vX.Y.Z
         with:
           fetch-depth: 0 # every tag, for hatch-vcs and the check below
           persist-credentials: false
 
-      - name: Fail if the tag exists
+      # hatch-vcs reads the version from this tag; the release job pushes it
+      - name: Tag the release locally
+        env:
+          TAG: v${{ inputs.version }}
         run: |
           if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
             echo "$TAG already exists"; exit 1
           fi
+          git tag "$TAG"
 
       - uses: astral-sh/setup-uv@<sha> # vX.Y.Z
         with:
           enable-cache: false
 
-      # hatch-vcs reads the version from this tag; gh release create pushes it
-      - name: Tag the release locally
-        run: git tag "$TAG"
-
       - name: Build
         run: uv build
+
+      - uses: actions/upload-artifact@<sha> # vX.Y.Z
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    name: Publish
+    needs: build
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    environment: pypi-release
+    permissions:
+      id-token: write # PyPI trusted publishing
+    steps:
+      - uses: actions/download-artifact@<sha> # vX.Y.Z
+        with:
+          name: dist
+          path: dist/
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@<sha> # vX.Y.Z
 
+  release:
+    name: Release
+    needs: publish
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the GitHub release and its tag
+    steps:
+      - uses: actions/download-artifact@<sha> # vX.Y.Z
+        with:
+          name: dist
+          path: dist/
+
       - name: Create the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$TAG" --target "$(git rev-parse HEAD)" --generate-notes dist/*.tar.gz dist/*.whl
+          GH_REPO: ${{ github.repository }}
+          TAG: v${{ inputs.version }}
+        run: gh release create "$TAG" --target "$GITHUB_SHA" --generate-notes dist/*.tar.gz dist/*.whl
 ```
+
+Human Steps (item 5 of the pull request body):
+
+1. Before merging, create `pypi-release`, deployable from the default branch only:
+
+   ```bash
+   gh api -X PUT repos/OWNER/REPO/environments/pypi-release \
+     -F 'deployment_branch_policy[protected_branches]=false' -F 'deployment_branch_policy[custom_branch_policies]=true'
+   gh api -X POST repos/OWNER/REPO/environments/pypi-release/deployment-branch-policies -f name=<default> -f type=branch
+   gh api repos/OWNER/REPO/environments/pypi-release/deployment-branch-policies --jq '.branch_policies[] | "\(.type)=\(.name)"'
+   ```
+
+   The last command prints `branch=<default>` alone; delete any other policy (`gh api -X DELETE .../deployment-branch-policies/<id>`).
+2. After merging, before the next release, a PyPI project owner (Manage, Publishing) adds a GitHub publisher with the same owner, repository and workflow file and the Environment `pypi-release`, then removes the publisher without an Environment: until then, a dispatch from any branch can still publish. For npm, the job declares `npm-release` and the package's trusted publisher on npmjs.com takes that Environment name.
 
 The steps that go: the version edit tool (`toml-cli`, `sed` on `pyproject.toml`), the git author config, the version commit and its push, and the release action `gh release create` replaces.
 
@@ -698,7 +753,7 @@ Every other CI checkout is shallow and has no tags, so its builds get `0.1.devN+
 
 ### Release App
 
-When the release pushes more than the version (changelog, generated files). One App per repository, created with `setup_github_app.py --bypass-ruleset <id>` (§8), its private key in the `github-release` Environment restricted to the default branch. Bypassing an organization ruleset needs an org admin.
+When the release pushes more than the version (changelog, generated files). One App per repository, created with `setup_github_app.py --bypass-ruleset <id>` (§8), its private key in the `github-release` Environment restricted to the default branch. Bypassing an organization ruleset needs an org admin. The jobs keep Tag version's layout, guard and concurrency: a first job in `github-release` pushes the release commit with the App token and outputs its SHA, `build` checks out that SHA, and `publish` (in `pypi-release`) and `release` follow, with `--target` set to that SHA.
 
 ---
 
