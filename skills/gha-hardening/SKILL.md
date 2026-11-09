@@ -78,11 +78,14 @@ It prints the **Workflow Contract** of each changed workflow before and after (t
 
 - `gate-scan.sh` exits 0 (counting step 4's proposed Exceptions, if any);
 - `workflow_contract.py` exits 0 (no broken reference, no new `actionlint` error), and every contract change is one you made on purpose;
-- `git diff` changes only `.github/`, `action.yml` files, the Renovate config, and the lock files, `.gitignore`, cooldown settings and CI install commands of the dependency commit, plus the files of a commit marked `(needs a decision)`.
+- `git diff` changes only `.github/`, `action.yml` files, the Renovate config, and the lock files, `.gitignore`, cooldown settings and CI install commands of the dependency commit, plus the files of a commit marked `(needs a decision)`;
+- for each commit that changes files outside `.github/` (the dependency commit, a decision commit), the commands of the CI jobs the pull request triggers pass locally; the pull request reports them in that commit's section.
 
 ### 4. Open a draft pull request
 
-Commits: `ci: pass the zizmor Gate` for the workflows, `chore(renovate): extend the shared preset` for Renovate and Dependabot, `build: lock dependencies with a one-week cooldown`, each `ci: fix <check> ...` from step 1. Proposals that change behaviour come last, one commit each, marked `(needs a decision)`: the recommended Exceptions (`ci: propose zizmor exceptions (needs a decision)`) and Tag version (`build: read the version from the release tag (needs a decision)`). Title `ci: pass the zizmor Gate`. Body sections, each omitted when empty:
+Commits, in this order: each `ci: fix ...` from step 1; `ci: pass the zizmor Gate` for the workflows; `chore(renovate): extend the shared preset` for Renovate and Dependabot; `build: lock dependencies with a one-week cooldown`; then the proposals that change behaviour, one commit each, marked `(needs a decision)`: the recommended Exceptions (`ci: propose zizmor exceptions (needs a decision)`) and Tag version (`build: read the version from the release tag (needs a decision)`). The Gate commit keeps the current behaviour, including code a later decision commit removes: the Gate passes at every commit.
+
+Title `ci: pass the zizmor Gate`. Commands meant for a human run from a giskard-actions checkout: write `<scripts>` below as `giskard-actions/skills/gha-hardening/scripts`. Body sections, each omitted when empty:
 
 1. **Fixed**: findings by rule, counts before → after, and the scan's first line (the giskard-actions ref) and summary line.
 2. **Workflow Contract**: the script's table for each changed workflow, with one line of why per change: renamed checks, removed grants, replaced actions, comments that went with their line.
@@ -91,9 +94,9 @@ Commits: `ci: pass the zizmor Gate` for the workflows, `chore(renovate): extend 
 5. **Dependencies**: per project directory, the lock and cooldown rules applied, the security-fix procedure, and for a library that its consumers are unaffected; for any other manager, which one, whether it has a lock and a cooldown, and its native setting ([§15](reference.md#15-dependency-lock-and-cooldown)).
 6. **Decisions needed**: each `(needs a decision)` commit (a release change named Tag version or Release App) and each remaining finding, with file:line, why zizmor flags it, the §13 checklist result for privileged triggers, and your recommendation. The pull request stays a draft until each is decided.
 7. **Checks already failing**: each failing check and each workflow shown failing in step 1 (saying it is not a check), with the fixing commit or the issue link.
-8. **Human Steps**, in order, each one a command to run:
-   1. Before merging: `python3 <skill>/scripts/migrate_secrets.py --repo OWNER/REPO --env <name>:<policy>:<SECRET>[,<SECRET>] ... [--delete <UNUSED_SECRET>]` (plan with `--dry-run`), then rerun the pull request's checks: green proves the migration.
-   2. A personal access token, deploy key or App with more access than the job needs: `python3 <skill>/scripts/setup_github_app.py --dry-run ...` filled in (§8).
+8. **Human Steps**, in order, each one a command to run; when none applies, one line saying nothing changes in settings before merging:
+   1. Before merging: `python3 <scripts>/migrate_secrets.py --repo OWNER/REPO --env <name>:<policy>:<SECRET>[,<SECRET>] ... [--delete <UNUSED_SECRET>]` (plan with `--dry-run`), then rerun the pull request's checks: green proves the migration.
+   2. A personal access token, deploy key or App with more access than the job needs: `python3 <scripts>/setup_github_app.py --dry-run ...` filled in (§8; the release App's Environment is `github-release`).
    3. Ruleset changes: required checks renamed, release tag creation reserved, an App bypass on an organization ruleset (org admin).
    4. Registry-side OIDC trust; Renovate installed on this repository.
 
