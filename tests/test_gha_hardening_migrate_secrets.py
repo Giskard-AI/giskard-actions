@@ -1,4 +1,5 @@
 import importlib.util
+import io
 from pathlib import Path
 
 import pytest
@@ -158,6 +159,128 @@ def test_empty_value_stops(monkeypatch):
         wizard.ask_values({"KEY": ["env"]})
 
 
-def test_rotate_takes_no_env():
+@pytest.mark.parametrize(
+    "extra",
+    [
+        pytest.param(["--env", "a:all:KEY"], id="env"),
+        pytest.param(["--variables", "a:repo:VAR"], id="variables"),
+    ],
+)
+def test_rotate_takes_no_env(extra):
     with pytest.raises(SystemExit):
-        wizard.parse_args(["--rotate", "KEY", "--repo", "G/r", "--env", "a:all:KEY"])
+        wizard.parse_args(["--rotate", "KEY", "--repo", "G/r", *extra])
+
+
+def test_rotate_takes_a_file():
+    args = wizard.parse_args(["--rotate", "KEY", "--repo", "G/r", "--from-file", "KEY=k.pem"])
+    assert args.from_file == ["KEY=k.pem"]
+
+
+DASHBOARD = wizard.EnvSpec(
+    "github-dashboard", wizard.Policy("branch", "main"), ("BASELINE_APP_PRIVATE_KEY",)
+)
+CLIENT_ID = wizard.VariableCopy("github-dashboard", "dashboard", ("BASELINE_APP_CLIENT_ID",))
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        pytest.param("github-dashboard:env=dashboard:BASELINE_APP_CLIENT_ID", CLIENT_ID,
+                     id="from-environment"),
+        pytest.param("openai-tests:repo:MODEL,REGION",
+                     wizard.VariableCopy("openai-tests", "", ("MODEL", "REGION")),
+                     id="from-repository-two-variables"),
+    ],
+)  # fmt: skip
+def test_parse_variables(text, expected):
+    assert wizard.parse_variables(text) == expected
+
+
+@pytest.mark.parametrize(
+    ("text", "message"),
+    [
+        pytest.param("github-dashboard:env=dashboard", "ENV:repo:VAR", id="no-variable"),
+        pytest.param("github-dashboard:dashboard:ID", "ENV:repo:VAR", id="bare-source"),
+        pytest.param("github-dashboard:env=:ID", "ENV:repo:VAR", id="empty-source"),
+        pytest.param("github-dashboard:repo:client_id", "UPPER_SNAKE_CASE",
+                     id="lowercase-variable"),
+    ],
+)  # fmt: skip
+def test_bad_variables_are_rejected(text, message):
+    with pytest.raises(wizard.WizardError, match=message):
+        wizard.parse_variables(text)
+
+
+@pytest.mark.parametrize(
+    ("copy", "message"),
+    [
+        pytest.param(wizard.VariableCopy("other", "", ("ID",)), "with --env",
+                     id="target-not-an-env"),
+        pytest.param(wizard.VariableCopy("github-dashboard", "github-dashboard", ("ID",)),
+                     "into itself", id="copy-into-itself"),
+    ],
+)  # fmt: skip
+def test_variable_copy_validation(copy, message):
+    with pytest.raises(wizard.WizardError, match=message):
+        wizard.validate(["G/r"], [DASHBOARD], [], (copy,))
+
+
+PEM = "-----BEGIN RSA PRIVATE KEY-----\nMIIE\nabcd\n-----END RSA PRIVATE KEY-----\n"
+
+
+@pytest.mark.parametrize(
+    "source",
+    [pytest.param("file", id="from-a-file"), pytest.param("stdin", id="from-stdin")],
+)
+def test_read_files_keeps_a_multi_line_value(tmp_path, monkeypatch, source):
+    key = tmp_path / "key.pem"
+    key.write_text(PEM)
+    monkeypatch.setattr(wizard.sys, "stdin", io.StringIO(PEM))
+    path = str(key) if source == "file" else "-"
+    values = wizard.read_files([f"KEY={path}"], {"KEY"})
+    expected_source = str(key) if source == "file" else "stdin"
+    assert values == {"KEY": (PEM, f"{expected_source}, 4 lines")}
+
+
+@pytest.mark.parametrize(
+    ("spec", "content", "message"),
+    [
+        pytest.param("KEY", None, "NAME=PATH", id="no-path"),
+        pytest.param("key={path}", PEM, "NAME=PATH", id="lowercase-name"),
+        pytest.param("OTHER={path}", PEM, "no --env or --rotate", id="secret-not-migrated"),
+        pytest.param("KEY={path}", "\n", "Empty value", id="empty-file"),
+        pytest.param("KEY={path}.missing", None, "No such file", id="missing-file"),
+    ],
+)
+def test_bad_files_are_rejected(tmp_path, spec, content, message):
+    key = tmp_path / "key.pem"
+    if content is not None:
+        key.write_text(content)
+    with pytest.raises(wizard.WizardError, match=message):
+        wizard.read_files([spec.format(path=key)], {"KEY"})
+
+
+@pytest.mark.parametrize(
+    ("variables", "expected"),
+    [
+        pytest.param(
+            {"dashboard": {"BASELINE_APP_CLIENT_ID"}},
+            "Copy variable BASELINE_APP_CLIENT_ID from Environment dashboard to github-dashboard.",
+            id="variable-copied",
+        ),
+        pytest.param(
+            {"dashboard": set()},
+            "Skip variable BASELINE_APP_CLIENT_ID: not in Environment dashboard of G/r.",
+            id="variable-missing",
+        ),
+    ],
+)
+def test_environment_rename_plan(variables, expected):
+    state = wizard.RepoState(set(), {"dashboard": {"BASELINE_APP_PRIVATE_KEY"}}, set(), variables)
+    files = {"BASELINE_APP_PRIVATE_KEY": (PEM, "key.pem, 4 lines")}
+    assert wizard.migration_plan("G/r", state, [DASHBOARD], [], (CLIENT_ID,), files) == [
+        "Create Environment github-dashboard on G/r, deployable from branch main only.",
+        "Write BASELINE_APP_PRIVATE_KEY to github-dashboard (not a repository secret today) "
+        "from key.pem, 4 lines, then check it is there.",
+        expected,
+    ]
