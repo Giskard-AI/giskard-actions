@@ -1,4 +1,5 @@
 import importlib.util
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -201,6 +202,61 @@ def _raise(error):
 def test_exit_status(monkeypatch, main, status):
     monkeypatch.setattr(contract_script, "main", main)
     assert contract_script.run([]) == status
+
+
+def _repo(tmp_path, upstream: dict[str, str], branch: dict[str, str]):
+    """A clone on `feature`, left `main` at a first commit; each side then writes its files."""
+
+    def git(*argv):
+        subprocess.run(["git", "-C", str(tmp_path), *argv], check=True, capture_output=True)
+
+    def commit(files, message):
+        for name, text in files.items():
+            (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+            (tmp_path / name).write_text(text)
+        git("add", "-A")
+        git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", message)
+
+    git("init", "-q", "-b", "main")
+    commit({".github/workflows/a.yml": "on: push\n", ".github/workflows/b.yml": "on: push\n"}, "0")
+    git("checkout", "-qb", "feature")
+    if branch:
+        commit(branch, "branch")
+    git("checkout", "-q", "main")
+    if upstream:
+        commit(upstream, "upstream")
+    git("checkout", "-q", "feature")
+    return tmp_path
+
+
+@pytest.mark.parametrize(
+    ("upstream", "branch", "expected"),
+    [
+        pytest.param({".github/workflows/b.yml": "on: pull_request\n"}, {}, [],
+                     id="upstream-change-is-not-the-branchs"),
+        pytest.param({}, {".github/workflows/a.yml": "on: pull_request\n"},
+                     [".github/workflows/a.yml"], id="branch-change-is-compared"),
+        pytest.param({".github/workflows/b.yml": "on: pull_request\n"},
+                     {".github/workflows/a.yml": "on: pull_request\n"},
+                     [".github/workflows/a.yml"], id="only-the-branchs-change-when-both-moved"),
+    ],
+)  # fmt: skip
+def test_changed_files_start_at_the_merge_base(tmp_path, upstream, branch, expected):
+    clone = _repo(tmp_path, upstream, branch)
+    base = contract_script.merge_base(clone, "main")
+    assert contract_script.changed_files(clone, base) == expected
+
+
+def test_before_side_is_the_merge_base(tmp_path):
+    clone = _repo(
+        tmp_path,
+        {".github/workflows/a.yml": "on: schedule\n"},
+        {".github/workflows/a.yml": "on: pull_request\n"},
+    )
+    base = contract_script.merge_base(clone, "main")
+    assert contract_script.versions(clone, base) == [
+        (".github/workflows/a.yml", "on: push\n", "on: pull_request\n")
+    ]
 
 
 def test_only_workflows_and_actions_are_compared():

@@ -4,10 +4,11 @@
 # ///
 """Show what each changed workflow takes and gives, before and after, and lint both sides.
 
-For every workflow or action file that differs between --base and the working
-tree, it prints a markdown table of the Workflow Contract lines that changed:
-triggers, inputs, outputs, secrets and variables read (each job reads those
-of the workflow-level `env:`, marked so a move into a step shows), permissions,
+For every workflow or action file that differs between the merge base of --base
+and HEAD (where the branch left --base) and the working tree, it prints a
+markdown table of the Workflow Contract lines that changed: triggers, inputs,
+outputs, secrets and variables read (each job reads those of the
+workflow-level `env:`, marked so a move into a step shows), permissions,
 Environments, check names, actions used, step output references and
 publishing commands. It also flags references the new version breaks
 (`steps.<id>.outputs` of a step that no longer exists, `needs.<job>.outputs`
@@ -277,10 +278,28 @@ def _git(clone: Path, *args: str) -> str:
     return result.stdout
 
 
+def merge_base(clone: Path, base: str) -> str:
+    """The commit the branch left `base` at: changes `base` got since then are not the branch's."""
+    return _git(clone, "merge-base", base, "HEAD").strip()
+
+
 def changed_files(clone: Path, base: str) -> list[str]:
     tracked = _git(clone, "diff", "--name-only", base, "--").split()
     untracked = _git(clone, "ls-files", "--others", "--exclude-standard").split()
     return sorted(p for p in set(tracked + untracked) if WORKFLOW.match(p))
+
+
+def versions(clone: Path, base: str) -> list[tuple[str, str | None, str | None]]:
+    """Each changed workflow or action file, with its text at `base` and in the working tree."""
+    found = []
+    for path in changed_files(clone, base):
+        try:
+            old = _git(clone, "show", f"{base}:{path}")
+        except ContractError:
+            old = None
+        file = clone / path
+        found.append((path, old, file.read_text() if file.exists() else None))
+    return found
 
 
 def actionlint(directory: Path) -> list[dict]:
@@ -311,18 +330,13 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--base", required=True, help="git ref of the default branch")
     args = parser.parse_args(argv)
     clone = args.clone.resolve()
+    base = merge_base(clone, args.base)
 
     def load(raw: str | None) -> dict | None:
         return None if raw is None else (yaml.safe_load(raw) or {})
 
     broken, sections = [], []
-    for path in changed_files(clone, args.base):
-        try:
-            old = _git(clone, "show", f"{args.base}:{path}")
-        except ContractError:
-            old = None
-        file = clone / path
-        new = file.read_text() if file.exists() else None
+    for path, old, new in versions(clone, base):
         before, after = load(old), load(new)
         sections.append(
             render(path, before and contract(before, old), after and contract(after, new))
@@ -332,7 +346,7 @@ def main(argv: list[str]) -> int:
 
     with tempfile.TemporaryDirectory() as tmp:
         archive = subprocess.run(
-            ["git", "-C", str(clone), "archive", args.base, ".github"], capture_output=True
+            ["git", "-C", str(clone), "archive", base, ".github"], capture_output=True
         )
         if archive.returncode == 0:
             subprocess.run(["tar", "-x", "-C", tmp], input=archive.stdout, check=True)
