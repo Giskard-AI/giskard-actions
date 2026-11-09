@@ -15,8 +15,8 @@
 # their last run, Actions settings, secrets and Environments with the deploy
 # keys of the repositories cloned over SSH, pushes and publishing, privileged
 # triggers, registry logins, the rules on the default branch (rulesets and
-# classic branch protection, with their required checks) and on tags with
-# their bypass actors, the GitHub Apps installed on every repository, Renovate
+# classic branch protection, with their required checks, and the squash merge
+# message) and on tags with their bypass actors, the GitHub Apps installed on every repository, Renovate
 # and Dependabot, and the manager, lock and cooldown of each project directory
 # with the installs outside the lock and the open vulnerability pull requests.
 # It changes nothing. A list with nothing in it prints "none"; one the token
@@ -391,6 +391,17 @@ else
     jq -r 'if .enforcement_level == "off" or (.contexts | length) == 0 then "  required checks: none"
       else .contexts[] | "  required check: \(.)" end' <<<"${status_checks}"
   fi
+fi
+# The merge settings come back null to a token without push access.
+IFS=$'\t' read -r allowed title message < <(gh api "repos/${repo}" \
+  --jq '[.allow_squash_merge, .squash_merge_commit_title, .squash_merge_commit_message] | @tsv' 2>/dev/null)
+if [[ -z "${allowed}" ]]; then
+  echo "Squash merge: $(unreadable "needs push access")"
+else
+  hint=""
+  [[ "${allowed}" == true && "${title}/${message}" != PR_TITLE/PR_BODY ]] \
+    && hint="; set PR_TITLE / PR_BODY (Human Step, reference.md section 10)"
+  echo "Squash merge: allowed=${allowed}, title=${title}, message=${message}${hint}"
 fi
 
 section "Rules on tags"

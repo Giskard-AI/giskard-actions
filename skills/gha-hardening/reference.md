@@ -68,9 +68,10 @@ Sections in this order, each omitted when empty except Human Steps. Commands mea
       - The team replaces a dead secret with another (flare's OpenAI key, replaced by Azure AI keys): the job declares the Environment and nothing is migrated in this pull request. The step, for when the replacement lands: create the new Environment with the new secrets, then delete the old repository secret and the Environment GitHub created for this pull request.
    2. A personal access token, a deploy key with write access or reaching several repositories, or an App with more access than the job needs: `python3 <scripts>/setup_github_app.py --dry-run ...` filled in (§8; the release App's Environment is `github-release`). A read-only deploy key that clones one repository moves with the migration (item 1).
    3. Ruleset changes: required checks renamed, release tag creation reserved, an App bypass on an organization ruleset (org admin).
-   4. Registry-side OIDC trust; Renovate installed on this repository.
-   5. A job that reads secrets and runs on Dependabot pull requests: Dependabot security updates off, or the secrets added as Dependabot secrets (§11).
-   6. Each check already failing for a cause outside the workflows, with its fix: the retired model to replace in `<config file>`, the new key to put into the Environment (item 1), the credits to add.
+   4. Squash merge allowed but not set to the pull request title and body (the audit's `Squash merge` line): the §10 command, which needs admin. It does not block the merge; ideally set before merging, so this pull request's own squash commit keeps its body.
+   5. Registry-side OIDC trust; Renovate installed on this repository.
+   6. A job that reads secrets and runs on Dependabot pull requests: Dependabot security updates off, or the secrets added as Dependabot secrets (§11).
+   7. Each check already failing for a cause outside the workflows, with its fix: the retired model to replace in `<config file>`, the new key to put into the Environment (item 1), the credits to add.
 
    Org-wide audit findings (`SENSITIVE` Apps, organization ruleset bypass) belong to the repo-baseline dashboard; leave them out.
 
@@ -543,6 +544,14 @@ Repository rulesets support a single `bypass_actors` list that skips **all** rul
 ### Release tags
 
 An organization ruleset blocks updating and deleting `v*` tags in every code repository. A repository whose workflows publish on a pushed `v*` tag also needs tag creation reserved: anyone who can push could otherwise publish a release. The Human Step: a repository ruleset on `refs/tags/v*` with the `creation` rule, bypassed only by the release App or the maintainers who tag.
+
+### Squash merge message
+
+Every hardened repository squash-merges with the pull request title and body, so the commit on the default branch keeps the reviewed description (this skill's long body included) and `git log` explains the change. GitHub has no organization-level setting: it is set per repository, by an admin; the repo-baseline dashboard reports it as the informational rule `squash-uses-pr-body`. When the audit's `Squash merge` line says `set PR_TITLE / PR_BODY`, the Human Step is (the two values go together):
+
+```bash
+gh api -X PATCH repos/<owner>/<repo> -f squash_merge_commit_title=PR_TITLE -f squash_merge_commit_message=PR_BODY
+```
 
 ---
 

@@ -67,6 +67,7 @@ Then apply every item below that the audit shows for this repository; the Gate d
 - **Registry login with a static secret**: switch to OIDC ([§9](reference.md#9-oidc-federation-for-container-registries)); the registry-side trust is a Human Step.
 - **Privileged triggers** (`pull_request_target`, `workflow_run`, `issue_comment`): run the checklist of [§13](reference.md#13-privileged-triggers-checklist) on each such workflow before proposing any `dangerous-triggers` Exception.
 - **Release tags**: a workflow that publishes on a pushed `v*` tag needs tag creation reserved by a ruleset; a Human Step unless the audit shows it.
+- **Squash merge message**: a Human Step when the audit's `Squash merge` line says `set PR_TITLE / PR_BODY` ([§10](reference.md#squash-merge-message)).
 
 ### 3. Verify locally
 
