@@ -18,7 +18,8 @@
 # classic branch protection, with their required checks, and the squash merge
 # message) and on tags with their bypass actors, the GitHub Apps installed on every repository, Renovate
 # and Dependabot, and the manager, lock and cooldown of each project directory
-# with the installs outside the lock and the open vulnerability pull requests.
+# with the installs outside the lock and the open vulnerability pull requests,
+# and the open pull requests that change files the hardening may change.
 # It changes nothing. A list with nothing in it prints "none"; one the token
 # cannot read says so.
 set -uo pipefail
@@ -601,6 +602,25 @@ if vulnerable=$(gh pr list -R "${repo}" --state open --limit 100 --json number,t
     echo "  #${number} ${datasource} ${dependency} ${version}: ${age}"
   done < <(sed '/^$/d' <<<"${vulnerable}")
   [[ -n "${vulnerable}" ]] || echo "  none"
+else
+  echo "  $(unreadable "pull requests")"
+fi
+
+section "Open pull requests"
+echo "Each one that changes files this hardening may change (workflows, actions, Renovate and Dependabot config,"
+echo "manifests and locks), with those files: check its conflicts before opening the pull request (SKILL.md step 4):"
+hardened='^\.github/|(^|/)(action\.ya?ml|renovate\.json5?|\.renovaterc(\.json)?|pyproject\.toml|uv\.toml|uv\.lock|poetry\.lock|Pipfile(\.lock)?|requirements[^/]*\.(txt|in)|package\.json|package-lock\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|\.npmrc|\.python-version|\.gitignore)$'
+if open_prs=$(gh pr list -R "${repo}" --state open --limit 100 \
+  --json number,title,author,isDraft,headRefName --jq '.[] | [.number, .author.login, (if .isDraft then "draft" else "ready" end), .headRefName, .title] | @tsv' 2>/dev/null); then
+  touching=""
+  while IFS=$'\t' read -r number author state head title; do
+    [[ -n "${number}" ]] || continue
+    files=$(gh pr diff "${number}" -R "${repo}" --name-only 2>/dev/null | grep -E "${hardened}")
+    [[ -n "${files}" ]] || continue
+    touching=1
+    echo "  #${number} ${title} (${author}, ${state}, branch ${head}): $(paste -sd, - <<<"${files}" | sed 's/,/, /g')"
+  done <<<"${open_prs}"
+  [[ -n "${touching}" ]] || echo "  none"
 else
   echo "  $(unreadable "pull requests")"
 fi
