@@ -31,6 +31,9 @@ Your job:
   - depends on code or configuration not shown in the patch;
   - concerns `[redacted]` or `...[truncated]` markers, which this tool inserts;
   - repeats a prior Codex finding that a human disputed, with no new evidence.
+- Downgrade to Informational (do not reject) any Must fix about:
+  - a risk the patch itself documents as accepted (ADR consequences, accepted risks, known limitations), unless the patch contradicts its own documentation;
+  - a concern the PR body explicitly handles with a manual or migration step (for example a "Human Steps" section); mention that step.
 - When in doubt, downgrade: a wrong Must fix costs reviewers more than a missed Informational.
 - Use prior Codex advisory reviews to avoid repeating already-known findings unless the current diff still requires action.
 - Write one code-review-only GitHub review body in Markdown.
@@ -48,7 +51,7 @@ Rules:
   - Must fix
   - No action
   - Informational
-- Include file and line references when available.
+- Include file and line references when available, as repository-relative inline code (`path/to/file:12`). Never link to local or runner paths such as `/home/runner/work/...`.
 - Include assessed head SHA and reviewer passes executed when present in context.
 - Keep the output concise enough to be usable as a PR review: use concise wording, but do not drop valid findings for brevity.
 

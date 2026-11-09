@@ -229,6 +229,7 @@ runs:
         --input review-pass/final-review.md
         --output assessment/final-review.md
         --title "Codex advisory code review"
+        --context assessment/review-context.json
       shell: bash
 
     - name: Key Leak Check

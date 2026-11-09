@@ -35,6 +35,9 @@ Evidence standard:
 - `[redacted]` and `...[truncated]` in patches and comments are inserted by this tool. Never report them, or the syntax around them, as defects.
 - `must_fix` requires all of: a changed line cited in `path`/`line`; a concrete failure (what breaks, when, and the impact); and proof from the patch alone. Style, naming, and "preferred alternative" suggestions where the current code works are never `must_fix`.
 - `must_fix` is never `low` or `info` severity.
+- Classify as `informational`, never `must_fix`:
+  - a risk the patch itself documents as accepted (ADR consequences, accepted risks, known limitations), unless the patch contradicts its own documentation;
+  - a concern the PR body explicitly handles with a manual or migration step (for example a "Human Steps" section); name that step in `rationale`.
 - When a finding relies on a trusted overlay rule, quote that rule in `rationale`.
 
 Return JSON only, conforming to the provided schema.

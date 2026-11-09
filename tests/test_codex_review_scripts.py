@@ -771,3 +771,25 @@ def test_resolve_emits_default_branch_config_sha(
         "base_sha": "base1",
         "config_sha": "cfg123",
     }
+
+
+@pytest.mark.parametrize(
+    ("prompt", "clause"),
+    [
+        pytest.param("pr-reviewer.md", "documents as accepted", id="reviewer-accepted-trade-off"),
+        pytest.param("pr-reviewer.md", "manual or migration step", id="reviewer-human-step"),
+        pytest.param(
+            "pr-aggregator.md", "documents as accepted", id="aggregator-accepted-trade-off"
+        ),
+        pytest.param("pr-aggregator.md", "manual or migration step", id="aggregator-human-step"),
+        pytest.param(
+            "pr-aggregator.md",
+            "Never link to local or runner paths",
+            id="aggregator-no-local-links",
+        ),
+    ],
+)
+def test_review_prompts_keep_severity_and_path_rules(prompt: str, clause: str) -> None:
+    text = (codex_pr_assessment.PROMPTS_DIR / prompt).read_text(encoding="utf-8")
+
+    assert clause in text
