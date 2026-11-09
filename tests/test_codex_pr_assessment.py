@@ -1445,8 +1445,8 @@ class TestReviewSanitizer(unittest.TestCase):
             "No findings.", "Codex advisory code review"
         )
 
-        self.assertIn("`codex-review` label", sanitized)
         self.assertIn("`/review`", sanitized)
+        self.assertNotIn("`codex-review` label", sanitized)
 
     def test_ci_sanitizer_includes_rerun_instructions(self) -> None:
         sanitized = codex_pr_assessment.sanitize_review_body(

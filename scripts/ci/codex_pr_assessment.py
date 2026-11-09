@@ -40,6 +40,11 @@ DIFF_PATCH_LIMIT = 120_000
 FAILED_LOG_RUN_LIMIT = 12
 MAX_REVIEW_BODY_CHARS = 60_000
 ALLOWED_LINK_HOSTS = {"github.com", "www.github.com", "sonarcloud.io", "www.sonarcloud.io"}
+RUNNER_WORKSPACE_RE = re.compile(r"(?:/home/runner/work|/__w)/[^/\s]+/[^/\s]+/")
+LOCAL_PATH_LINK_RE = re.compile(r"\[([^\]\n]*)\]\(\s*<?(?:file://)?(/(?!/)[^\s)>]*)>?\s*\)")
+LINE_SUFFIX_RE = re.compile(
+    r"(?::(?P<start>\d+)(?::\d+)?(?:-(?P<end>\d+))?|#L(?P<anchor_start>\d+)(?:-L(?P<anchor_end>\d+))?)$"
+)
 # gpt-5.6-* catalog entries send ChatGPT-backend Responses Lite / collaboration
 # tools that Azure rejects. See openai/codex#31882.
 AZURE_INCOMPATIBLE_MODEL_SLUGS = ("gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra")
@@ -1420,8 +1425,11 @@ def load_bundled_codex_catalog() -> dict[str, Any]:
     return catalog
 
 
-def sanitize_review_body(body: str, title: str) -> str:
+def sanitize_review_body(
+    body: str, title: str, *, repository: str | None = None, head_sha: str | None = None
+) -> str:
     body = "".join(char for char in body if char == "\n" or char == "\t" or ord(char) >= 32)
+    body = rewrite_local_path_links(body, repository, head_sha)
     body = redact_secret_references(body)
     body = strip_untrusted_links(body)
     body = defang_mentions(body)
@@ -1437,11 +1445,46 @@ def sanitize_review_body(body: str, title: str) -> str:
     return f"{header}\n{body}\n"
 
 
+def repository_relative_path(path: str) -> str | None:
+    workspace = os.environ.get("GITHUB_WORKSPACE", "").rstrip("/")
+    if workspace and path.startswith(workspace + "/"):
+        return path[len(workspace) + 1 :]
+    match = RUNNER_WORKSPACE_RE.match(path)
+    return path[match.end() :] if match else None
+
+
+def rewrite_local_path_links(text: str, repository: str | None, head_sha: str | None) -> str:
+    """Point Markdown links to absolute runner paths at the head SHA blob, or inline them as code.
+
+    The aggregator runs in the runner workspace, so Codex sometimes links findings to
+    ``/home/runner/work/<repo>/<repo>/<path>:<line>``, which is broken on GitHub.
+    """
+
+    def replace(match: re.Match[str]) -> str:
+        label, target = match.group(1), match.group(2)
+        suffix = LINE_SUFFIX_RE.search(target)
+        path = target[: suffix.start()] if suffix else target
+        start = suffix and (suffix["start"] or suffix["anchor_start"])
+        end = suffix and (suffix["end"] or suffix["anchor_end"])
+        relative = repository_relative_path(path)
+        if relative is None:
+            return f"`{label.strip('`')}`"
+        label = label.replace(path[: len(path) - len(relative)], "")
+        if repository and head_sha:
+            anchor = f"#L{start}" + (f"-L{end}" if end else "") if start else ""
+            url = f"https://github.com/{repository}/blob/{head_sha}/{quote(relative)}{anchor}"
+            return f"[{label}]({url})"
+        lines = f":{start}" + (f"-{end}" if end else "") if start else ""
+        return f"`{relative}{lines}`"
+
+    return LOCAL_PATH_LINK_RE.sub(replace, text)
+
+
 def review_trigger_note(title: str) -> str:
     if title == "Codex advisory code review":
         return (
-            "To opt in or rerun this code review, add the `codex-review` label "
-            "or comment `/review` as a trusted collaborator.\n"
+            "To rerun this review, comment `/review` as a trusted collaborator, or use the "
+            "trigger configured in this repository's Codex review workflow.\n"
         )
     if title == "Codex advisory CI analysis":
         return "To rerun CI analysis, comment `/codex-ci-assess` as a trusted collaborator.\n"
@@ -1669,8 +1712,14 @@ def add_prepare_azure_catalog_parser(subparsers: argparse._SubParsersAction) -> 
 
 def main_sanitize_review(args: argparse.Namespace) -> int:
     body = Path(args.input).read_text(encoding="utf-8")
+    context = load_json(args.context) if args.context else {}
     Path(args.output).write_text(
-        sanitize_review_body(body, args.title),
+        sanitize_review_body(
+            body,
+            args.title,
+            repository=context.get("repository"),
+            head_sha=(context.get("pr") or {}).get("head_sha"),
+        ),
         encoding="utf-8",
     )
     return 0
@@ -1681,6 +1730,9 @@ def add_sanitize_review_parser(subparsers: argparse._SubParsersAction) -> None:
     parser.add_argument("--input", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--title", required=True)
+    parser.add_argument(
+        "--context", help="review-context.json; links local paths to blobs at its head SHA"
+    )
     parser.set_defaults(func=main_sanitize_review)
 
 
