@@ -278,6 +278,37 @@ else
 fi
 echo "Secrets referenced by workflows and actions:"
 sed 's/^/  /' <<<"${referenced:-none}"
+echo "Clone keys: a secret passed to webfactory/ssh-agent or ssh-key:, the repositories its job clones over SSH"
+echo "(in the job, or the manifests and locks of its working directories), and each one's deploy keys (reference.md section 8):"
+clone_keys=""
+for file in "${tree}"/.github/workflows/*.y*ml; do
+  [[ -f "${file}" ]] || continue
+  lines=$(job_lines "${file}")
+  while read -r job; do
+    [[ -n "${job}" ]] || continue
+    clone_keys=1
+    text=$(awk -F'\t' -v j="${job}" '$1 == j { print $2 }' <<<"${lines}")
+    keys=$(grep -oE '(ssh-private-key|ssh-key):.*secrets\.[A-Za-z0-9_]+' <<<"${text}" | grep -oE '[A-Za-z0-9_]+$' | sort -u | paste -sd, -)
+    dirs=$(grep -oE 'working-directory: *[^ #]+' <<<"${text}" | sed -E "s/.*: *//; s/[\"']//g" | sort -u)
+    cloned=$( { echo "${text}"; for dir in ${dirs}; do
+        cat "${tree}/${dir}"/{pyproject.toml,uv.lock,package.json} "${tree}/${dir}"/requirements*.txt 2>/dev/null; done; } \
+      | grep -oE 'git@github\.com[:/][A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+' | sed -E 's/^git@github\.com[:/]//; s/\.git$//'
+      grep -oE 'repository: *[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+' <<<"${text}" | sed 's/.*: *//')
+    echo "  ${file#"${tree}/"}: job ${job} reads ${keys}"
+    while read -r cloned_repo; do
+      [[ -n "${cloned_repo}" ]] || continue
+      if deploy_keys=$(gh api "repos/${cloned_repo}/keys" --jq '.[]
+        | "      \(.title): read_only \(.read_only), added \(.created_at[:10])\(if .last_used then ", last used \(.last_used[:10])" else "" end)"' 2>/dev/null); then
+        echo "    ${cloned_repo} deploy keys:"
+        echo "${deploy_keys:-      none (the secret is not a deploy key: it reaches whatever its account can)}"
+      else
+        echo "    ${cloned_repo} deploy keys: unknown (needs admin on ${cloned_repo})"
+      fi
+    done < <(sort -u <<<"${cloned}")
+    [[ -n "${cloned}" ]] || echo "    no repository cloned over SSH found: read the job"
+  done < <(awk -F'\t' '$2 ~ /(ssh-private-key|ssh-key):.*secrets\./ { print $1 }' <<<"${lines}" | sort -u)
+done
+[[ -n "${clone_keys}" ]] || echo "  none"
 
 section "Pushes and publishing"
 echo "Pushes and releases (a push to ${branch} with github.token fails once a rule requires pull requests or checks):"

@@ -1,8 +1,12 @@
 """Create a dedicated GitHub App for one job, and store its key in an Environment.
 
-Replaces a personal access token or an over-broad App. The App is created
-through GitHub's manifest flow: GitHub returns the private key once, the wizard
-keeps it in memory and pipes it into an Environment secret, never to disk.
+Replaces a personal access token, a deploy key with write access or reaching
+several repositories, or an over-broad App. A read-only deploy key that clones
+one repository stays a deploy key (reference.md section 8). The Environment
+deploys from one branch only, so a pull request job that needs the App's key
+is a decision for the pull request. The App is created through GitHub's
+manifest flow: GitHub returns the private key once, the wizard keeps it in
+memory and pipes it into an Environment secret, never to disk.
 
 Every value is an option, so the command a skill run proposes can be pasted
 as-is; a missing value is asked for. Nothing changes before you confirm the
