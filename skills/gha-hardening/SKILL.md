@@ -60,6 +60,7 @@ Then apply every item below that the audit shows for this repository; the Gate d
 - **Job names**: required checks first. A job whose check the audit lists as "required check" takes that check's current name as `name:` (for a matrix, the name without the matrix values: `name: test` for `test (3.11)`). Every other job takes its key in sentence case (`build-docs` → `Build docs`), and the pull request lists the rename.
 - **Permissions**: every grant carries a comment saying what it reads or writes (`contents: read # checkout`); a grant no step uses is removed.
 - **Renovate**: the config extends `github>Giskard-AI/.github`, drops what that shared preset already sets (the audit lists the overlap) and keeps the repository's own rules ([§14](reference.md#14-renovate)). Without a config, add `renovate.json`: `{"$schema": "https://docs.renovatebot.com/renovate-schema.json", "extends": ["github>Giskard-AI/.github"]}`.
+- **Dependencies**: each project directory of the audit's "Dependencies" section managed by uv, pnpm or npm gets a committed lock, the one-week **Dependency cooldown** and a locked CI install; any other manager is reported, not converted ([§15](reference.md#15-dependency-lock-and-cooldown)).
 - **Dependabot version updates** (`.github/dependabot.yml`): remove them when the audit shows the `renovate` App covering this repository; otherwise keep them and add the Human Step "install Renovate, then remove `dependabot.yml`".
 - **The repository's own zizmor job** (the audit's "Own zizmor job on <default>" line): keep it while the audit shows "Gate ruleset: not active yet" (it must pass too); once the Gate is active, delete it.
 - **Push to a protected branch with `github.token`** (the audit lists it): the push fails today. Run the consumers check, then recommend **Tag version** when the version commit is the only push, **Release App** otherwise ([§12](reference.md#12-releases-that-push-to-a-protected-branch)).
@@ -77,19 +78,20 @@ It prints the **Workflow Contract** of each changed workflow before and after (t
 
 - `gate-scan.sh` exits 0 (counting step 4's proposed Exceptions, if any);
 - `workflow_contract.py` exits 0 (no broken reference, no new `actionlint` error), and every contract change is one you made on purpose;
-- `git diff` changes only `.github/`, `action.yml` files and the Renovate config, plus the files of a commit marked `(needs a decision)`.
+- `git diff` changes only `.github/`, `action.yml` files, the Renovate config, and the lock files, `.gitignore`, cooldown settings and CI install commands of the dependency commit, plus the files of a commit marked `(needs a decision)`.
 
 ### 4. Open a draft pull request
 
-Commits: `ci: pass the zizmor Gate` for the workflows, `chore(renovate): extend the shared preset` for Renovate and Dependabot, each `ci: fix <check> ...` from step 1. Proposals that change behaviour come last, one commit each, marked `(needs a decision)`: the recommended Exceptions (`ci: propose zizmor exceptions (needs a decision)`) and Tag version (`build: read the version from the release tag (needs a decision)`). Title `ci: pass the zizmor Gate`. Body sections, each omitted when empty:
+Commits: `ci: pass the zizmor Gate` for the workflows, `chore(renovate): extend the shared preset` for Renovate and Dependabot, `build: lock dependencies with a one-week cooldown`, each `ci: fix <check> ...` from step 1. Proposals that change behaviour come last, one commit each, marked `(needs a decision)`: the recommended Exceptions (`ci: propose zizmor exceptions (needs a decision)`) and Tag version (`build: read the version from the release tag (needs a decision)`). Title `ci: pass the zizmor Gate`. Body sections, each omitted when empty:
 
 1. **Fixed**: findings by rule, counts before → after, and the scan's first line (the giskard-actions ref) and summary line.
 2. **Workflow Contract**: the script's table for each changed workflow, with one line of why per change: renamed checks, removed grants, replaced actions, comments that went with their line.
 3. **Not run by CI**: each changed workflow the pull request's checks do not run (release, dispatch, schedule), and what to run after the merge to prove it still works; for a release change, the consumers and the version range each accepts.
 4. **Renovate**: what actually changes for this repository: the preset settings that now apply to it ([§14](reference.md#14-renovate)), the keys removed because the preset sets them, and each kept key that overrides the preset, with its reason.
-5. **Decisions needed**: each `(needs a decision)` commit (a release change named Tag version or Release App) and each remaining finding, with file:line, why zizmor flags it, the §13 checklist result for privileged triggers, and your recommendation. The pull request stays a draft until each is decided.
-6. **Checks already failing**: each failing check and each workflow shown failing in step 1 (saying it is not a check), with the fixing commit or the issue link.
-7. **Human Steps**, in order, each one a command to run:
+5. **Dependencies**: per project directory, the lock and cooldown rules applied, the security-fix procedure, and for a library that its consumers are unaffected; for any other manager, which one, whether it has a lock and a cooldown, and its native setting ([§15](reference.md#15-dependency-lock-and-cooldown)).
+6. **Decisions needed**: each `(needs a decision)` commit (a release change named Tag version or Release App) and each remaining finding, with file:line, why zizmor flags it, the §13 checklist result for privileged triggers, and your recommendation. The pull request stays a draft until each is decided.
+7. **Checks already failing**: each failing check and each workflow shown failing in step 1 (saying it is not a check), with the fixing commit or the issue link.
+8. **Human Steps**, in order, each one a command to run:
    1. Before merging: `python3 <skill>/scripts/migrate_secrets.py --repo OWNER/REPO --env <name>:<policy>:<SECRET>[,<SECRET>] ... [--delete <UNUSED_SECRET>]` (plan with `--dry-run`), then rerun the pull request's checks: green proves the migration.
    2. A personal access token, deploy key or App with more access than the job needs: `python3 <skill>/scripts/setup_github_app.py --dry-run ...` filled in (§8).
    3. Ruleset changes: required checks renamed, release tag creation reserved, an App bypass on an organization ruleset (org admin).

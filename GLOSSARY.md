@@ -82,6 +82,10 @@ _Avoid_: Manual step, follow-up, TODO
 What a workflow takes and gives: its triggers and inputs, the secrets, variables, permissions and Environments it uses, its outputs and what it publishes. A `gha-hardening` pull request shows each changed workflow's contract before and after.
 _Avoid_: Workflow interface, workflow signature
 
+**Dependency cooldown**:
+The age a release must reach before the package manager locks it: 7 days, the `minimumReleaseAge` of the shared Renovate preset, set as `exclude-newer` for uv, `minimumReleaseAge` for pnpm and `min-release-age` for npm. A security fix younger than that is exempted in the pull request that locks it.
+_Avoid_: Release age gate, quarantine, freeze window
+
 ### Release Notes Pipeline
 
 **Project Config**:

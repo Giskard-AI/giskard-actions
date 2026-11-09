@@ -687,6 +687,40 @@ Renovate reports config errors in its Dependency Dashboard issue. To check a con
 
 ---
 
+## 15. Dependency lock and cooldown
+
+A **Dependency cooldown** keeps a release out of the lock until it is 7 days old. The window is the shared preset's `minimumReleaseAge` (§14), its single source: change both together. Renovate's lock file maintenance has no release date to wait for, so the package manager enforces the window. Apply it to each project directory of the audit's "Dependencies" section (a monorepo has several), in the commit `build: lock dependencies with a one-week cooldown`:
+
+| Manager | Lock, committed and out of `.gitignore` | Cooldown | CI install |
+|---|---|---|---|
+| uv | `uv.lock` | `exclude-newer = "1 week"` under `[tool.uv]` in `pyproject.toml` | `uv sync --locked` |
+| pnpm | `pnpm-lock.yaml` | `minimumReleaseAge: 10080` (minutes) in `pnpm-workspace.yaml`, pnpm >= 10.16 | `pnpm install --frozen-lockfile` |
+| npm | `package-lock.json` | `min-release-age=7` (days) in `.npmrc`, npm >= 11.10.0 | `npm ci` |
+
+- **uv** stores the window in the lock (`exclude-newer-span = "P1W"`), so `--locked` stays valid as time passes; the cutoff moves only on a new resolution (`uv lock --upgrade`, lock file maintenance). A repository that already commits `uv.lock` gets the cooldown and `--locked` too.
+- **pnpm** 10 also reads `minimum-release-age=10080` from `.npmrc`; pnpm 11 reads only auth, registry and proxy settings there, and its default window is 1440 minutes. A `.npmrc` setting moves to `pnpm-workspace.yaml`.
+- **npm**: Renovate passes `--before` to `npm install` unless `.npmrc` sets `min-release-age`, so the `.npmrc` setting is the one that applies.
+
+**Security fixes.** Renovate opens vulnerability pull requests without waiting, but the package manager still applies its cooldown, so a fix uploaded less than 7 days ago cannot be locked ([renovatebot/renovate#45113](https://github.com/renovatebot/renovate/discussions/45113)). In that pull request, exempt the fix, and remove the exemption at the next lock file maintenance:
+
+- uv: `exclude-newer-package = { <package> = "<a timestamp just after the fix's upload>" }` under `[tool.uv]`.
+- pnpm: `minimumReleaseAgeExclude: [<package>@<version>]` in `pnpm-workspace.yaml` (a version needs pnpm >= 10.19). Renovate writes it for a pnpm security update when `pnpm-workspace.yaml` sets `minimumReleaseAge`; check it is there.
+- npm: `min-release-age-exclude[]=<package>` in `.npmrc`, npm >= 12. It exempts every version of the package. npm 11 has no exemption: the fix waits, or the pull request lowers `min-release-age` until the next lock file maintenance.
+
+**Any other manager** (pip requirements, Poetry, Yarn, Bun, Go, Cargo) is not converted. The pull request's Dependencies section says which manager the repository uses instead of uv, pnpm or npm, whether it has a lock and a cooldown, and its native setting:
+
+| Manager | Native cooldown | Exemption |
+|---|---|---|
+| Poetry | `poetry config --local solver.min-release-age 7` (days, writes `poetry.toml`), Poetry >= 2.4 | `solver.min-release-age-exclude` |
+| Yarn | `npmMinimalAgeGate: 7d` in `.yarnrc.yml`, Yarn >= 4.10 | `npmPreapprovedPackages` |
+| Bun | `minimumReleaseAge = 604800` (seconds) under `[install]` in `bunfig.toml` | `minimumReleaseAgeExcludes` |
+| pip | `--uploaded-prior-to P7D`, pip >= 26.1 (26.0 takes a date only) | none |
+| Go, Cargo | none | |
+
+Consumers of a library are unaffected: a package manager never reads a dependency's lock.
+
+---
+
 ## Sources
 
 - [Part 1: Preventing pwn requests](https://securitylab.github.com/resources/github-actions-preventing-pwn-requests/)
