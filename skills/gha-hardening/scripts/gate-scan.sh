@@ -9,6 +9,9 @@
 #   ZIZMOR_RUNNER  docker (default when Docker runs) or uvx.
 # Exit status: the scan's: 0 means the Gate passes.
 set -euo pipefail
+# `git rebase --exec` in a linked worktree exports GIT_DIR, which would point the
+# git calls below at the clone instead of the Gate's checkout.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
 
 repo="${1:?usage: gate-scan.sh OWNER/REPO CLONE_DIR}"
 clone=$(cd "${2:?usage: gate-scan.sh OWNER/REPO CLONE_DIR}" && pwd)
