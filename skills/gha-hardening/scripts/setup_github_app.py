@@ -110,7 +110,8 @@ def plan(args: argparse.Namespace) -> list[str]:
     permissions = ", ".join(f"{k}: {v}" for k, v in parse_permissions(args.permission).items())
     steps = [
         f"Create or update the Environment {args.environment} on {args.repo}, "
-        f"deployable from branch {args.branch} only.",
+        f"deployable from branch {args.branch} only (its other branch and tag policies are "
+        "deleted).",
         f"Create the private App {args.name} in {args.org} ({permissions}). No webhook, no events.",
         f"Store its client ID as variable {args.client_id_variable} and its private key as "
         f"secret {args.private_key_secret} in Environment {args.environment}. "
@@ -140,20 +141,7 @@ def run(args: argparse.Namespace) -> None:
     input("\n  Press Enter to start, Ctrl+C to stop.")
 
     _title(f"Environment {args.environment}")
-    env_path = f"repos/{args.repo}/environments/{args.environment}"
-    _gh(
-        "api", "-X", "PUT", env_path,
-        "-F", "deployment_branch_policy[protected_branches]=false",
-        "-F", "deployment_branch_policy[custom_branch_policies]=true",
-    )  # fmt: skip
-    names = json.loads(
-        _gh("api", f"{env_path}/deployment-branch-policies", "--jq", "[.branch_policies[].name]")
-    )
-    if args.branch not in names:
-        _gh(
-            "api", "-X", "POST", f"{env_path}/deployment-branch-policies",
-            "-f", f"name={args.branch}", "-f", "type=branch",
-        )  # fmt: skip
+    restrict_to_branch(args.repo, args.environment, args.branch)
     print(f"  ✓ {args.environment} deploys from {args.branch} only.")
 
     _title(f"Create {args.name}")
@@ -193,6 +181,31 @@ def run(args: argparse.Namespace) -> None:
     print(
         f"  on a job with environment: {args.environment}; downscope it with permission-* inputs."
     )
+
+
+def restrict_to_branch(repo: str, environment: str, branch: str) -> None:
+    """Create or update the Environment so that only `branch` deploys: other policies go."""
+    path = f"repos/{repo}/environments/{environment}"
+    _gh(
+        "api", "-X", "PUT", path,
+        "-F", "deployment_branch_policy[protected_branches]=false",
+        "-F", "deployment_branch_policy[custom_branch_policies]=true",
+    )  # fmt: skip
+    existing = json.loads(
+        _gh(
+            "api", f"{path}/deployment-branch-policies",
+            "--jq", "[.branch_policies[] | {id, name, type}]",
+        )
+    )  # fmt: skip
+    wanted = (branch, "branch")
+    for policy in existing:
+        if (policy["name"], policy.get("type") or "branch") != wanted:
+            _gh("api", "-X", "DELETE", f"{path}/deployment-branch-policies/{policy['id']}")
+    if not any((p["name"], p.get("type") or "branch") == wanted for p in existing):
+        _gh(
+            "api", "-X", "POST", f"{path}/deployment-branch-policies",
+            "-f", f"name={branch}", "-f", "type=branch",
+        )  # fmt: skip
 
 
 def _manifest_code(args: argparse.Namespace) -> str:

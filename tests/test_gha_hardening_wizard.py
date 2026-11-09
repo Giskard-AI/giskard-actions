@@ -127,6 +127,42 @@ def test_plan_names_every_change():
         assert text in steps
 
 
+POLICIES = "repos/Giskard-AI/svc/environments/release/deployment-branch-policies"
+
+
+@pytest.mark.parametrize(
+    ("existing", "deleted", "created"),
+    [
+        pytest.param([], [], True, id="new-environment-gets-the-branch"),
+        pytest.param([{"id": 1, "name": "main", "type": "branch"}], [], False,
+                     id="branch-already-alone-is-kept"),
+        pytest.param([{"id": 1, "name": "main", "type": None}], [], False,
+                     id="policy-without-type-is-a-branch"),
+        pytest.param(
+            [{"id": 1, "name": "main", "type": "branch"},
+             {"id": 2, "name": "dev", "type": "branch"},
+             {"id": 3, "name": "v*", "type": "tag"}],
+            [2, 3], False, id="other-branches-and-tags-are-deleted",
+        ),
+        pytest.param([{"id": 4, "name": "main", "type": "tag"}], [4], True,
+                     id="tag-of-the-same-name-is-replaced"),
+    ],
+)  # fmt: skip
+def test_restrict_to_branch(monkeypatch, existing, deleted, created):
+    calls = []
+
+    def gh(*argv, stdin=None):
+        calls.append(argv)
+        return wizard.json.dumps(existing) if argv[1] == POLICIES else ""
+
+    monkeypatch.setattr(wizard, "_gh", gh)
+    wizard.restrict_to_branch("Giskard-AI/svc", "release", "main")
+    assert [c[3] for c in calls if c[2] == "DELETE"] == [f"{POLICIES}/{i}" for i in deleted]
+    posts = [c for c in calls if c[2] == "POST"]
+    assert posts == ([("api", "-X", "POST", POLICIES, "-f", "name=main", "-f", "type=branch")]
+                     if created else [])  # fmt: skip
+
+
 def test_callback_rejects_a_foreign_state():
     with pytest.raises(wizard.WizardError, match="state"):
         wizard.callback_code({"state": ["other"], "code": ["abc"]}, "mine")
