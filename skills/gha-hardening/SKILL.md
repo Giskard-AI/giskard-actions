@@ -79,7 +79,7 @@ It prints the **Workflow Contract** of each changed workflow before and after (t
 - `gate-scan.sh` exits 0 (counting step 4's proposed Exceptions, if any);
 - `workflow_contract.py` exits 0 (no broken reference, no new `actionlint` error), and every contract change is one you made on purpose;
 - `git diff` changes only `.github/`, `action.yml` files, the Renovate config, and the lock files, `.gitignore`, cooldown settings and CI install commands of the dependency commit, plus the files of a commit marked `(needs a decision)`;
-- for each commit that changes files outside `.github/` (the dependency commit, a decision commit), the commands of the CI jobs the pull request triggers pass locally; the pull request reports them in that commit's section.
+- for the dependency commit and each decision commit that changes files outside `.github/`, the commands of the CI jobs the pull request triggers pass locally; the pull request reports them in that commit's section.
 
 ### 4. Open a draft pull request
 

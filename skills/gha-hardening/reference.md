@@ -57,7 +57,7 @@ Sections in this order, each omitted when empty except Human Steps. Commands mea
 1. **Fixed**: findings by rule, counts before → after, and the scan's first line (the giskard-actions ref) and summary line.
 2. **Workflow Contract**: the script's table for each changed workflow, with one line of why per change: renamed checks, removed grants, replaced actions, comments that went with their line.
 3. **Not run by CI**: each changed workflow the pull request's checks do not run (release, dispatch, schedule), and what to run after the merge to prove it still works; for a release change, the consumers and the version range each accepts (§12).
-4. **Renovate**: what actually changes for this repository: the preset settings that now apply to it (§14), the keys removed because the preset sets them, and each kept key that overrides the preset, with its reason.
+4. **Renovate**: what actually changes for this repository: the rows of the §14 table that change from its effective value, the keys removed because the preset sets them, and each kept key that overrides the preset, with its reason.
 5. **Dependencies**: per project directory, the lock and cooldown rules applied, the CI install command, the security-fix procedure with the open vulnerability pull requests the audit flags, and for a library that its consumers are unaffected; for any other manager, which one, whether it has a lock and a cooldown, and its native setting (§15).
 6. **Decisions needed**: each `(needs a decision)` commit (a release change named Tag version or Release App) and each remaining finding, with file:line, why zizmor flags it, the §13 checklist result for privileged triggers, and your recommendation.
 7. **Checks already failing**: each failing check and each workflow shown failing in step 1 (saying it is not a check), with the fixing commit or the issue link.
@@ -693,20 +693,28 @@ Run it on each workflow triggered by `pull_request_target`, `workflow_run` or `i
 
 ## 14. Renovate
 
-Every repository extends `github>Giskard-AI/.github`, the shared preset (`default.json` of `Giskard-AI/.github`). What it applies, which the pull request's Renovate section reports for the repository:
+Every repository extends `github>Giskard-AI/.github`, the shared preset (`default.json` of `Giskard-AI/.github`). What changes, from Renovate's defaults with `config:recommended` alone ([configuration options](https://docs.renovatebot.com/configuration-options/), [scheduling](https://docs.renovatebot.com/key-concepts/scheduling/)) to the shared preset:
 
-- updates and lock file maintenance on Monday 00:00-06:00, Europe/Paris time;
-- a 7-day wait (`minimumReleaseAge`) before proposing a new version; security fixes from GitHub alerts and OSV do not wait;
-- one pull request per package manager, lock file maintenance in its own;
-- the Python interpreter is never bumped; label `dependencies`; no hourly limit;
-- `config:recommended` and `helpers:pinGitHubActionDigests`.
+| Setting | Before, with `config:recommended` alone | With the shared preset |
+|---|---|---|
+| Schedule (`schedule`, `timezone`) | at any time, UTC | Monday 00:00-06:59 Europe/Paris (`* 0-6 * * 1`) |
+| Wait before proposing a new version (`minimumReleaseAge`) | none | 7 days; security fixes do not wait (they never did) |
+| Vulnerability sources | GitHub alerts | GitHub alerts and OSV (`osvVulnerabilityAlerts`) |
+| Grouping | one pull request per dependency, except the monorepos and groups of `group:recommended` | one pull request per package manager |
+| Lock file maintenance | off | on, in its own pull request, same schedule |
+| Hourly limit (`prHourlyLimit`) | 2 pull requests | none |
+| Python interpreter (`requires-python`, `.python-version`) | no rule | never bumped |
+| Labels | none | `dependencies` |
+| Action references | as written | pinned to digests (`helpers:pinGitHubActionDigests`) |
+
+The pull request's Renovate section reports the rows that change for the repository, starting from its effective value: the "before" column, or the repository's own setting where it has one (flare: `before 4am on Monday` in UTC, label `dependencies`).
 
 In the repository's config:
 
 - **Remove** what the preset already sets: `config:recommended` and `helpers:pinGitHubActionDigests` in `extends`, `schedule`, `timezone`, `labels`, `minimumReleaseAge`, `prHourlyLimit`, `lockFileMaintenance`, the rule disabling `python`, and the rules grouping by manager. The audit prints each setting the config shares with the preset (a repository rule beside the preset rule it duplicates), then the rest as "Kept (own rules)".
 - **Keep** the repository's own rules: `:pinOnlyDevDependencies`, `rangeStrategy: widen` for a library, `allowedVersions` blocks, groups that feed a lock refresh workflow. The pull request lists each kept key that overrides the preset (its own schedule, `minimumReleaseAge: "0 days"` for an internal action), with its reason.
 
-Renovate reports config errors in its Dependency Dashboard issue. To check a config before pushing (optional, about 20 s, its re2 warning is harmless): `npx --yes --package renovate -- renovate-config-validator renovate.json`.
+Renovate reports config errors in its Dependency Dashboard issue. To check a config before pushing (optional, up to 30 s): `npx --yes --package renovate@latest -- renovate-config-validator renovate.json 2>&1 | grep -v 'npm warn'`. It passes on `Config validated successfully`; the `Validating renovate.json as global config` line and an RE2 warning are expected.
 
 ---
 
