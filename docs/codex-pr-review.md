@@ -137,7 +137,7 @@ Without a reviewer map, the workflow selects only the three bundled reviewers: `
 
 ## What Codex sees
 
-Codex gets the pull request patches, title and body, unresolved review threads, issue comments and prior Codex reviews. Only comments whose author is an `OWNER`, `MEMBER` or `COLLABORATOR` are included, each labelled with that association; bot comments are dropped. Secret-looking values are redacted (GitHub expressions such as {% raw %}`${{ secrets.NAME }}`{% endraw %} are kept, since they are references, not values).
+Codex gets the pull request patches, title and body (first 20,000 characters), unresolved review threads, issue comments and prior Codex reviews. The body, and comments, are included only when their author is an `OWNER`, `MEMBER` or `COLLABORATOR`, each labelled with that association; bot comments are dropped. Secret-looking values are redacted (GitHub expressions such as {% raw %}`${{ secrets.NAME }}`{% endraw %} are kept, since they are references, not values).
 
 Before posting, the review body is sanitized: secret patterns are redacted, `@mentions` are defanged, images, raw HTML and bidirectional or zero-width characters are removed, and links are kept only for `github.com` and `sonarcloud.io` (any scheme case, protocol-relative `//host`, `www.` autolinks and HTML-entity-encoded URLs included). Links to runner workspace paths (`/home/runner/work/<repo>/<repo>/<path>:<line>`) become links to that file at the assessed head SHA; links to other absolute paths become inline code.
 

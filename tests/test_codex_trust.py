@@ -41,6 +41,41 @@ def test_issue_comments_keep_only_trusted_authors(
 
 
 @pytest.mark.parametrize(("association", "kept"), ASSOCIATION_CASES)
+def test_pr_body_kept_only_from_trusted_authors(association: str | None, kept: bool) -> None:
+    pr = {
+        "title": "Rename the Environment",
+        "body": "## Human Steps\n\nRun migrate_secrets.py before merging.",
+        "author_association": association,
+        "base": {"ref": "main", "sha": "base"},
+        "head": {"ref": "branch", "sha": "head"},
+        "user": {"login": "someone"},
+    }
+
+    metadata = codex_pr_assessment.pr_metadata(1, pr, REPO)
+
+    assert ("Human Steps" in metadata["pr"]["body"]) is kept
+    assert metadata["pr"]["author_association"] == (association or "")
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        pytest.param(None, "", id="empty-body"),
+        pytest.param("x" * 20_001, "x" * 20_000 + "\n...[truncated]", id="long-body-is-trimmed"),
+    ],
+)
+def test_pr_body_is_bounded(body: str | None, expected: str) -> None:
+    pr = {
+        "body": body,
+        "author_association": "MEMBER",
+        "base": {"ref": "main", "sha": "base"},
+        "head": {"ref": "branch", "sha": "head"},
+    }
+
+    assert codex_pr_assessment.pr_metadata(1, pr, REPO)["pr"]["body"] == expected
+
+
+@pytest.mark.parametrize(("association", "kept"), ASSOCIATION_CASES)
 def test_review_threads_keep_only_trusted_authors(
     monkeypatch: pytest.MonkeyPatch, association: str | None, kept: bool
 ) -> None:
