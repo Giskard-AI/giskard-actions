@@ -58,7 +58,7 @@ Sections in this order, each omitted when empty except Human Steps. Commands mea
 2. **Workflow Contract**: the script's table for each changed workflow, with one line of why per change: renamed checks, removed grants, replaced actions, comments that went with their line.
 3. **Not run by CI**: each changed workflow the pull request's checks do not run (release, dispatch, schedule), and what to run after the merge to prove it still works; for a release change, the consumers and the version range each accepts (§12).
 4. **Renovate**: what actually changes for this repository: the preset settings that now apply to it (§14), the keys removed because the preset sets them, and each kept key that overrides the preset, with its reason.
-5. **Dependencies**: per project directory, the lock and cooldown rules applied, the security-fix procedure, and for a library that its consumers are unaffected; for any other manager, which one, whether it has a lock and a cooldown, and its native setting (§15).
+5. **Dependencies**: per project directory, the lock and cooldown rules applied, the CI install command, the security-fix procedure with the open vulnerability pull requests the audit flags, and for a library that its consumers are unaffected; for any other manager, which one, whether it has a lock and a cooldown, and its native setting (§15).
 6. **Decisions needed**: each `(needs a decision)` commit (a release change named Tag version or Release App) and each remaining finding, with file:line, why zizmor flags it, the §13 checklist result for privileged triggers, and your recommendation.
 7. **Checks already failing**: each failing check and each workflow shown failing in step 1 (saying it is not a check), with the fixing commit or the issue link.
 8. **Human Steps**, in order, each one a command to run; when none applies, one line saying nothing changes in settings before merging:
@@ -712,15 +712,17 @@ A **Dependency cooldown** keeps a release out of the lock until it is 7 days old
 
 | Manager | Lock, committed and out of `.gitignore` | Cooldown | CI install |
 |---|---|---|---|
-| uv | `uv.lock` | `exclude-newer = "1 week"` under `[tool.uv]` in `pyproject.toml` | `uv sync --locked` |
+| uv | `uv.lock` | `exclude-newer = "1 week"` under `[tool.uv]` in `pyproject.toml`, uv >= 0.9.17 | `uv sync --locked` |
 | pnpm | `pnpm-lock.yaml` | `minimumReleaseAge: 10080` (minutes) in `pnpm-workspace.yaml`, pnpm >= 10.16 | `pnpm install --frozen-lockfile` |
 | npm | `package-lock.json` | `min-release-age=7` (days) in `.npmrc`, npm >= 11.10.0 | `npm ci` |
 
+- **Versions**: compare the minimum with the version CI pins (setup-uv `version:`, `packageManager`, `engines`), and run the lock check with that version: `uvx uv@<pinned> lock --check`.
+- **CI install** is the command the workflow step runs. When the step calls a Makefile or script target shared with developers (`make setup` running `uv sync`), the step runs the locked command instead and the target stays as is; the pull request says so.
 - **uv** stores the window in the lock (`exclude-newer-span = "P1W"`), so `--locked` stays valid as time passes; the cutoff moves only on a new resolution (`uv lock --upgrade`, lock file maintenance). A repository that already commits `uv.lock` gets the cooldown and `--locked` too.
 - **pnpm** 10 also reads `minimum-release-age=10080` from `.npmrc`; pnpm 11 reads only auth, registry and proxy settings there, and its default window is 1440 minutes. A `.npmrc` setting moves to `pnpm-workspace.yaml`.
 - **npm**: Renovate passes `--before` to `npm install` unless `.npmrc` sets `min-release-age`, so the `.npmrc` setting is the one that applies.
 
-**Security fixes.** Renovate opens vulnerability pull requests without waiting, but the package manager still applies its cooldown, so a fix uploaded less than 7 days ago cannot be locked ([renovatebot/renovate#45113](https://github.com/renovatebot/renovate/discussions/45113)). In that pull request, exempt the fix, and remove the exemption at the next lock file maintenance:
+**Security fixes.** Renovate opens vulnerability pull requests without waiting, but the package manager still applies its cooldown, so a fix uploaded less than 7 days ago cannot be locked ([renovatebot/renovate#45113](https://github.com/renovatebot/renovate/discussions/45113)). In that pull request, exempt the fix, and remove the exemption at the next lock file maintenance. The audit lists the open vulnerability pull requests and flags each version `YOUNGER THAN 7 DAYS`: the Dependencies section names each flagged one with the exemption it needs once the cooldown merges.
 
 - uv: `exclude-newer-package = { <package> = "<a timestamp just after the fix's upload>" }` under `[tool.uv]`.
 - pnpm: `minimumReleaseAgeExclude: [<package>@<version>]` in `pnpm-workspace.yaml` (a version needs pnpm >= 10.19). Renovate writes it for a pnpm security update when `pnpm-workspace.yaml` sets `minimumReleaseAge`; check it is there.

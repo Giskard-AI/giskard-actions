@@ -423,3 +423,26 @@ while read -r eco dir; do
   echo "  ${dir}: ${manager}; ${lock_state}; cooldown: ${cooldown:-none}"
 done <<<"${projects}"
 [[ -n "${projects}" ]] || echo "  none"
+echo "Open vulnerability pull requests, with the upload date of each proposed version (YOUNGER THAN 7 DAYS: exempt it from the cooldown in that pull request):"
+# shellcheck disable=SC2016 # jq variables
+# Renovate's body links an age badge per update: .../badges/age/<datasource>/<package>/<version>?...
+if vulnerable=$(gh pr list -R "${repo}" --state open --limit 100 --json number,title,labels,body --jq '.[]
+    | select((.title | contains("[SECURITY]")) or any(.labels[]; .name == "security"))
+    | ([.body | scan("badges/age/([^/]+)/([^?]+)/([^/?]+)\\?")] | if . == [] then [["-", "-", "-"]] else . end)[] as [$datasource, $package, $version]
+    | [.number, $datasource, ($package | gsub("%40"; "@") | gsub("%2[Ff]"; "/")), $version, .title] | @tsv' 2>/dev/null); then
+  while IFS=$'\t' read -r number datasource dependency version title; do
+    case "${datasource}" in
+      pypi) uploaded=$(curl -fsSL "https://pypi.org/pypi/${dependency}/${version}/json" 2>/dev/null \
+        | jq -r '[.urls[].upload_time_iso_8601] | min // empty') ;;
+      npm) uploaded=$(curl -fsSL "https://registry.npmjs.org/${dependency}" 2>/dev/null | jq -r --arg v "${version}" '.time[$v] // empty') ;;
+      "-") echo "  #${number} ${title}: no version found in its body, check by hand"; continue ;;
+      *) echo "  #${number} ${datasource} ${dependency} ${version}: upload date not checked"; continue ;;
+    esac
+    age=$(jq -nr --arg t "${uploaded}" 'if $t == "" then "upload date not found"
+      else "uploaded \($t[:10])\(if ($t | sub("\\.[0-9]+"; "") | fromdateiso8601) > now - 604800 then "; YOUNGER THAN 7 DAYS" else "" end)" end')
+    echo "  #${number} ${datasource} ${dependency} ${version}: ${age}"
+  done < <(sed '/^$/d' <<<"${vulnerable}")
+  [[ -n "${vulnerable}" ]] || echo "  none"
+else
+  echo "  $(unreadable "pull requests")"
+fi
