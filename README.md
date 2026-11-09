@@ -86,7 +86,7 @@ jobs:
       pull-requests: write
     uses: Giskard-AI/giskard-actions/.github/workflows/codex-pr-review.yml@<full-commit-sha> # vX.Y.Z
     with:
-      environment: ci # environment holding AZURE_AI_API_KEY and AZURE_AI_RESPONSES_BASE
+      environment: azure-codex-review # environment holding AZURE_AI_API_KEY and AZURE_AI_RESPONSES_BASE
     secrets:
       AZURE_AI_API_KEY: ${{ secrets.AZURE_AI_API_KEY }}
 ```
