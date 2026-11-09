@@ -668,6 +668,25 @@ Run it on each workflow triggered by `pull_request_target`, `workflow_run` or `i
 
 ---
 
+## 14. Renovate
+
+Every repository extends `github>Giskard-AI/.github`, the shared preset (`default.json` of `Giskard-AI/.github`). What it applies, which the pull request's Renovate section reports for the repository:
+
+- updates and lock file maintenance on Monday 00:00-06:00, Europe/Paris time;
+- a 7-day wait (`minimumReleaseAge`) before proposing a new version; security fixes from GitHub alerts and OSV do not wait;
+- one pull request per package manager, lock file maintenance in its own;
+- the Python interpreter is never bumped; label `dependencies`; no hourly limit;
+- `config:recommended` and `helpers:pinGitHubActionDigests`.
+
+In the repository's config:
+
+- **Remove** what the preset already sets: `config:recommended` and `helpers:pinGitHubActionDigests` in `extends`, `schedule`, `timezone`, `labels`, `minimumReleaseAge`, `prHourlyLimit`, `lockFileMaintenance`, the rule disabling `python`, and the rules grouping by manager. The audit prints each setting the config shares with the preset.
+- **Keep** the repository's own rules: `:pinOnlyDevDependencies`, `rangeStrategy: widen` for a library, `allowedVersions` blocks, groups that feed a lock refresh workflow. The pull request lists each kept key that overrides the preset (its own schedule, `minimumReleaseAge: "0 days"` for an internal action), with its reason.
+
+Renovate reports config errors in its Dependency Dashboard issue. To check a config before pushing (optional, about 20 s, its re2 warning is harmless): `npx --yes --package renovate -- renovate-config-validator renovate.json`.
+
+---
+
 ## Sources
 
 - [Part 1: Preventing pwn requests](https://securitylab.github.com/resources/github-actions-preventing-pwn-requests/)
