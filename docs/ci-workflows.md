@@ -218,7 +218,7 @@ Only this rule is a trustworthy gate: it pins the repository, path and SHA of th
 - **Emergency.** Organization admins are the ruleset's only bypass actors, in pull request mode: if the **Gate** itself breaks (GHCR or Actions outage), an admin merges the pull request anyway. Nobody can push to the default branch around it. A finding merged that way keeps failing every later pull request of the repository until it is fixed.
 - **Gated repositories drop their direct call.** Once the ruleset gates a repository, remove any `workflow_call` of `zizmor-scan.yml` and any zizmor job of its own, or the scan runs twice.
 - **zizmor upgrades are one admin step.** A ruleset bump reaches every code repository at once, so: approve the update on the Renovate Dependency Dashboard, cut the release, read the weekly bump report in repo-baseline (it scans every code repository with the candidate release and opens a `baseline/zizmor-bump` pull request), then merge that pull request and apply the new ruleset SHA.
-- **No `cancel-in-progress`.** GitHub does not allow it in a workflow required by a ruleset; runs of the same pull request queue instead.
+- **No `cancel-in-progress`.** GitHub does not allow it in a workflow required by a ruleset. A scan in progress on a pull request finishes; the next push waits as the one pending run of the group, and a later push cancels that pending run and takes its place, so only the latest commit waiting is scanned.
 
 ### Dependencies
 

@@ -144,7 +144,7 @@ git clone --depth 1 --branch vX.Y.Z https://github.com/Giskard-AI/giskard-action
 cp -r /tmp/giskard-actions/skills/gha-hardening ~/.cursor/skills/   # or ~/.claude/skills/
 ```
 
-Then ask the agent: `/gha-hardening Giskard-AI/<repo>` from a clone of the repository. It needs `gh` (logged in), `jq`, and Docker or `uv`.
+Then ask the agent: `/gha-hardening Giskard-AI/<repo>` from a clone of the repository. It needs `gh` (logged in), `jq`, and Docker; without Docker, `uv` runs the scan and the audit leaves its `uv.lock` checks undone.
 
 ## Pinning and versioning
 
