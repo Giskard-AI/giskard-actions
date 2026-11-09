@@ -248,10 +248,20 @@ def test_gate_workflow_has_no_image_of_its_own():
     assert "ZIZMOR_IMAGE" not in (WORKFLOWS_DIR / "zizmor-scan.yml").read_text()
 
 
-@pytest.mark.parametrize("path", ZIZMOR_IMAGE_FILES, ids=lambda p: p.name)
-def test_renovate_tracks_zizmor_image(path: Path):
+@pytest.mark.parametrize(
+    ("path", "image"),
+    [
+        *(pytest.param(p, "zizmorcore/zizmor", id=p.name) for p in ZIZMOR_IMAGE_FILES),
+        pytest.param(WORKFLOWS_DIR / "test.yml", "koalaman/shellcheck", id="shellcheck"),
+    ],
+)
+def test_renovate_tracks_docker_images(path: Path, image: str):
     config = json.loads((ROOT / "renovate.json").read_text())
-    (manager,) = [m for m in config["customManagers"] if m.get("datasourceTemplate") == "docker"]
+    (manager,) = [
+        m
+        for m in config["customManagers"]
+        if m.get("datasourceTemplate") == "docker" and image in m["matchStrings"][0]
+    ]
     assert any(
         re.search(p.strip("/"), path.relative_to(ROOT).as_posix())
         for p in manager["managerFilePatterns"]
