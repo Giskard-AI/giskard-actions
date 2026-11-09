@@ -699,7 +699,7 @@ Every repository extends `github>Giskard-AI/.github`, the shared preset (`defaul
 
 In the repository's config:
 
-- **Remove** what the preset already sets: `config:recommended` and `helpers:pinGitHubActionDigests` in `extends`, `schedule`, `timezone`, `labels`, `minimumReleaseAge`, `prHourlyLimit`, `lockFileMaintenance`, the rule disabling `python`, and the rules grouping by manager. The audit prints each setting the config shares with the preset.
+- **Remove** what the preset already sets: `config:recommended` and `helpers:pinGitHubActionDigests` in `extends`, `schedule`, `timezone`, `labels`, `minimumReleaseAge`, `prHourlyLimit`, `lockFileMaintenance`, the rule disabling `python`, and the rules grouping by manager. The audit prints each setting the config shares with the preset (a repository rule beside the preset rule it duplicates), then the rest as "Kept (own rules)".
 - **Keep** the repository's own rules: `:pinOnlyDevDependencies`, `rangeStrategy: widen` for a library, `allowedVersions` blocks, groups that feed a lock refresh workflow. The pull request lists each kept key that overrides the preset (its own schedule, `minimumReleaseAge: "0 days"` for an internal action), with its reason.
 
 Renovate reports config errors in its Dependency Dashboard issue. To check a config before pushing (optional, about 20 s, its re2 warning is harmless): `npx --yes --package renovate -- renovate-config-validator renovate.json`.

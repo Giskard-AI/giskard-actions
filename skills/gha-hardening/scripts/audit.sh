@@ -299,15 +299,35 @@ done
 if [[ -n "${config}" ]]; then
   echo "${config}:"
   sed 's/^/  /' "${tree}/${config}"
-  echo "Settings ${config} shares with the shared preset (${owner}/.github default.json):"
+  [[ -z $(tail -c1 "${tree}/${config}") ]] || echo
+  echo "Settings ${config} shares with the shared preset (${owner}/.github default.json), then the ones it keeps:"
   if ! preset=$(gh api "repos/${owner}/.github/contents/default.json" --jq .content 2>/dev/null | base64 -d 2>/dev/null) || [[ -z "${preset}" ]]; then
     unreadable "${owner}/.github default.json"
+  # A repository rule duplicates a preset rule when it sets a key of the preset rule to the
+  # same value and each matcher they both have selects a common value ("/^x$/" counts as x).
   elif ! jq -r --argjson p "${preset}" '
-      ((.extends // [])[] | select(. as $e | $p.extends | index($e)) | "  extends \(.): the preset extends it"),
-      (to_entries[] | select(.key | IN("$schema", "description", "extends", "packageRules") | not)
-        | select(.key as $k | $p | has($k)) | "  \(.key): \(.value | tojson) (preset: \($p[.key] | tojson))"),
-      ((.packageRules // [])[] | "  packageRules: \(tojson)"),
-      (if .packageRules then $p.packageRules[] | "    preset rule: \(del(.description) | tojson)" else empty end)
+      def norm: if type == "string" and test("^/\\^.*\\$/$") then .[2:-2] else . end;
+      def values: if type == "array" then map(norm) else [norm] end;
+      def overlap($a; $b): ($a | values) as $x | ($b | values) as $y
+        | any($x[], $y[]; . == "*") or any($x[]; . as $v | any($y[]; . == $v));
+      def effects: with_entries(select(.key | (startswith("match") or . == "description") | not));
+      def duplicates($rule):
+        (effects | to_entries | any(.[]; .key as $k | .value as $v | $rule | effects | has($k) and .[$k] == $v))
+        and (to_entries | all(.[] | select(.key | startswith("match")); .key as $k | .value as $v
+          | ($rule | has($k) | not) or overlap($v; $rule[$k])));
+      def own_keys: to_entries[] | select(.key | IN("$schema", "description", "extends", "packageRules") | not);
+      [((.extends // [])[] | select(. as $e | any($p.extends[]; . == $e)) | "  extends \(.): the preset extends it"),
+       (own_keys | select(.key as $k | $p | has($k)) | "  \(.key): \(.value | tojson) (preset: \($p[.key] | tojson))"),
+       ((.packageRules // [])[] | . as $r | [$p.packageRules[] | select(. as $q | $r | duplicates($q))]
+         | select(length > 0) | "  packageRules: \($r | tojson)",
+           (.[] | "    duplicates preset rule: \(del(.description) | tojson)"))] as $shared
+      | [((.extends // [])[] | select(. as $e | any($p.extends[]; . == $e) | not) | "  extends \(.)"),
+         (own_keys | select(.key as $k | $p | has($k) | not) | "  \(.key): \(.value | tojson)"),
+         ((.packageRules // [])[] | . as $r | select(any($p.packageRules[]; . as $q | $r | duplicates($q)) | not)
+           | "  packageRules: \(tojson)")] as $kept
+      | if $shared == [] then "  none" else $shared[] end,
+        "Kept (own rules):",
+        if $kept == [] then "  none" else $kept[] end
     ' "${tree}/${config}" 2>/dev/null; then
     echo "  (not plain JSON: compare by hand)"
   fi
