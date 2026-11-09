@@ -155,12 +155,14 @@ Both CI workflows and the zizmor scan only need `contents: read`. Grant it on th
 - **For a justified exception**, add `# zizmor: ignore[<rule>] -- <reason>` on the flagged line (see [Exceptions](#exceptions)). The scan flags it as a new ignore so your reviewers check the reason.
 - **Editing `.github/zizmor.yml` in your pull request has no effect.** The config is read from the base commit. A repository-wide change goes in its own pull request first; then push a commit or click **Update branch** (re-running the job reuses the old base commit).
 - **A symlinked action, workflow, YAML or `.github` file fails the scan.** Commit the file itself.
+- **A YAML path with a control character, a comma, a colon or `%` fails the scan.** zizmor prints paths unescaped in its annotations; rename the file or directory.
+- **"zizmor did not run"**: zizmor stopped before reporting findings. Its message is just above in the log: a file it cannot parse (move templates and fixtures out of `.github/`, or rename them so they no longer end in `.yml`), or a Docker or network failure (re-run the job).
 - **"differs from its committed bytes"**: a `.gitattributes` entry (`filter`, `eol`, `working-tree-encoding`) changes the file on checkout. Remove that attribute for the file: GitHub runs the committed bytes.
 - **`zizmor-pins` failed with `impostor-commit`**: a reference your pull request adds or changes points to a commit outside the action's own branches and tags (often a commit from a fork). Pin a release with its SHA. This finding cannot be ignored.
 
 ### How it runs
 
-`zizmor-scan.yml` runs [zizmor](https://docs.zizmor.sh/) from its container image, pinned by digest (`ghcr.io/zizmorcore/zizmor:<version>@sha256:...`), with the pedantic persona. Findings appear as annotations on the pull request and fail the `zizmor` job, which times out after 10 minutes.
+`zizmor-scan.yml` runs [zizmor](https://docs.zizmor.sh/) from its container image, pinned by digest (`ghcr.io/zizmorcore/zizmor:<version>@sha256:...`), with the auditor persona. Findings appear as annotations on the pull request and fail the `zizmor` job, which times out after 10 minutes.
 
 The scan itself is [`scripts/zizmor/scan.sh`](https://github.com/Giskard-AI/giskard-actions/blob/main/scripts/zizmor/scan.sh), the only place that sets the zizmor version and flags. The workflow checks this repository out at the commit that runs (`job.workflow_sha`: the ruleset's pinned SHA, or the ref a caller pinned) and runs the script from there, so the workflow and its script always match. The `gha-hardening` skill and the repo-baseline dashboard run the same script, so a repository that passes locally passes the **Gate**:
 
@@ -170,7 +172,7 @@ bash /tmp/giskard-actions/scripts/zizmor/scan.sh .   # ZIZMOR_RUNNER=uvx without
 ```
 
 - **PR content cannot touch the scanner.** The pull request is checked out into `src/` and mounted read-only into the container, which runs without network. The base commit's YAML files are checked out into a sibling `base/` directory, never inside `src/`.
-- **Pedantic persona.** The scan reports code-smell findings too, the same standard as a repository's own pedantic zizmor check. A repository cannot choose another persona.
+- **Auditor persona.** The scan reports every finding, including code smells and `secrets-outside-env` (a job that reads a secret without declaring an Environment; reusable workflows are not checked); see ADR 0005. A repository cannot choose another persona.
 - **No symlinked Actions files.** The runner follows a symlink when it loads a local action, but zizmor audits the target under its own name, or skips it when the target is outside the checkout. The job fails before scanning if a `.yml` or `.yaml` file, a `.github` directory or anything under one is a symlink.
 - **Committed bytes only.** GitHub runs the committed file, but checkout applies `.gitattributes` conversions (`filter`, `eol`, `working-tree-encoding`), which could show zizmor different bytes. In Actions, the scan fails if a tracked YAML file differs from its committed bytes.
 - **zizmor's errors cannot write annotations.** They quote values from the scanned files, so the scan prints them with workflow commands stopped.
@@ -251,4 +253,4 @@ jobs:
 
 Its `pull_request` and `merge_group` triggers are ignored when called; the caller's triggers apply, and the base commit is still read from the caller's event. Its concurrency group appends `zizmor-scan` to the caller's workflow name, so it does not collide with a workflow-level group on the caller.
 
-This repository's own `zizmor.yml` workflow (job `zizmor-pedantic`, so the `zizmor` check name stays unique) runs the same image with the pedantic persona and online audits. The online audits are the only thing it adds to the shared scan.
+This repository's own `zizmor.yml` workflow (job `zizmor-online`, so the `zizmor` check name stays unique) runs the same image with the auditor persona and online audits. The online audits are the only thing it adds to the shared scan.

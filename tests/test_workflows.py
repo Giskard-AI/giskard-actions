@@ -2,6 +2,7 @@
 
 import json
 import re
+import socket
 import subprocess
 import textwrap
 from pathlib import Path
@@ -265,7 +266,7 @@ def test_renovate_tracks_zizmor_image(path: Path):
     [
         pytest.param("--collect=all", id="audits-gitignored-files"),
         pytest.param("--strict-collection", id="fails-on-unparsable-files"),
-        pytest.param("--persona=pedantic", id="runs-the-pedantic-persona"),
+        pytest.param("--persona=auditor", id="runs-the-auditor-persona"),
         pytest.param("--offline", id="runs-offline"),
         pytest.param("--network none", id="container-has-no-network"),
         pytest.param('--volume "${src}:/src:ro"', id="pull-request-mounted-read-only"),
@@ -357,6 +358,8 @@ def run_scan(tmp_path: Path, *args: str, status: int = 0, **env: str):
         pytest.param(0, 0, "", id="clean-scan-passes"),
         pytest.param(3, 0, "No workflow, action", id="nothing-to-audit-passes"),
         pytest.param(13, 13, "zizmor-failed-on-my-pr", id="findings-fail-and-point-to-docs"),
+        pytest.param(1, 2, "zizmor did not run", id="zizmor-error-is-not-a-finding"),
+        pytest.param(125, 2, "zizmor did not run", id="docker-failure-is-not-a-finding"),
     ],
 )
 def test_zizmor_scan_exit_status(tmp_path: Path, status: int, expected: int, message: str):
@@ -364,6 +367,21 @@ def test_zizmor_scan_exit_status(tmp_path: Path, status: int, expected: int, mes
     result = run_scan(tmp_path, "src", status=status)
     assert result.returncode == expected
     assert message in result.stderr
+
+
+def test_zizmor_errors_reach_a_socket_stderr_outside_actions(tmp_path: Path):
+    (tmp_path / "src").mkdir()
+    env = fake_uvx(tmp_path, 0)
+    (tmp_path / "bin" / "uvx").write_text("#!/bin/bash\necho 'zizmor says hi' >&2\n")
+    reader, writer = socket.socketpair()
+    with reader, writer:
+        result = subprocess.run(
+            ["bash", str(SCAN_SH), "src"], cwd=tmp_path, stderr=writer, env=env, check=False
+        )
+        writer.shutdown(socket.SHUT_WR)
+        stderr = reader.makefile().read()
+    assert result.returncode == 0, stderr
+    assert "zizmor says hi" in stderr
 
 
 @pytest.mark.parametrize(
@@ -478,6 +496,29 @@ def test_zizmor_scan_rejects_symlinked_actions_files(
 
 
 @pytest.mark.parametrize(
+    ("path", "rejected"),
+    [
+        pytest.param("x/action.yml", False, id="plain-path-passes"),
+        pytest.param("x,title=ok/action.yml", True, id="comma-rejected"),
+        pytest.param("x::warning::y/action.yml", True, id="colon-rejected"),
+        pytest.param("a%0A/action.yml", True, id="percent-rejected"),
+        pytest.param("a\n::stop-commands::t/action.yml", True, id="newline-rejected"),
+        pytest.param("x,y/notes.txt", False, id="non-yaml-ignored"),
+    ],
+)
+def test_zizmor_scan_rejects_paths_annotations_cannot_carry(
+    tmp_path: Path, path: str, rejected: bool
+):
+    (tmp_path / path).parent.mkdir(parents=True)
+    (tmp_path / path).write_text(ACTION)
+    result = run_scan(tmp_path, ".")
+    assert result.returncode == (1 if rejected else 0)
+    error = [line for line in result.stderr.splitlines() if line.startswith("::error")]
+    assert len(error) == (1 if rejected else 0)
+    assert all("\n" not in line and "::stop-commands::" not in line for line in error)
+
+
+@pytest.mark.parametrize(
     ("in_actions", "edit", "rejected"),
     [
         pytest.param("true", True, True, id="working-tree-differs-in-actions"),
@@ -501,11 +542,19 @@ def test_zizmor_scan_requires_committed_bytes(
     assert ("differs from its committed bytes" in result.stderr) is rejected
 
 
-def test_zizmor_scan_quotes_zizmor_errors_in_actions(tmp_path: Path):
+@pytest.mark.parametrize(
+    ("write", "env"),
+    [
+        pytest.param("echo", {"GITHUB_ACTIONS": "true"}, id="in-actions"),
+        pytest.param("printf", {"GITHUB_ACTIONS": "true"}, id="no-trailing-newline"),
+        pytest.param("echo", {}, id="without-github-actions"),
+    ],
+)
+def test_zizmor_scan_quotes_zizmor_errors(tmp_path: Path, write: str, env: dict[str, str]):
     (tmp_path / "src").mkdir()
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    (bin_dir / "uvx").write_text("#!/bin/bash\necho '::error::injected' >&2\nexit 0\n")
+    (bin_dir / "uvx").write_text(f"#!/bin/bash\n{write} '::error::injected' >&2\nexit 0\n")
     (bin_dir / "uvx").chmod(0o755)
     result = subprocess.run(
         ["bash", str(SCAN_SH), "src"],
@@ -513,12 +562,12 @@ def test_zizmor_scan_quotes_zizmor_errors_in_actions(tmp_path: Path):
         capture_output=True,
         text=True,
         check=False,
-        env={"PATH": f"{bin_dir}:/usr/bin:/bin", "ZIZMOR_RUNNER": "uvx", "GITHUB_ACTIONS": "true"},
+        env={"PATH": f"{bin_dir}:/usr/bin:/bin", "ZIZMOR_RUNNER": "uvx", **env},
     )
     lines = result.stderr.splitlines()
     start = next(i for i, line in enumerate(lines) if line.startswith("::stop-commands::"))
     token = lines[start].split("::")[2]
-    assert lines[start + 1 :] == ["::error::injected", f"::{token}::"]
+    assert [line for line in lines[start + 1 :] if line] == ["::error::injected", f"::{token}::"]
 
 
 def test_zizmor_scan_failure_points_to_exception_docs():
@@ -547,7 +596,7 @@ def test_shared_ci_job_names(workflow: str):
         pytest.param(
             "zizmor-scan", ["zizmor", "zizmor-pins"], id="shared-scan-owns-the-zizmor-checks"
         ),
-        pytest.param("zizmor", ["zizmor-pedantic"], id="own-pedantic-scan-has-a-distinct-check"),
+        pytest.param("zizmor", ["zizmor-online"], id="own-online-scan-has-a-distinct-check"),
     ],
 )
 def test_zizmor_job_names(workflow: str, jobs: list[str]):

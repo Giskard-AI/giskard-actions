@@ -12,8 +12,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  zizmor-pedantic:
-    name: zizmor-pedantic
+  zizmor-online:
+    name: zizmor-online
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -36,4 +36,4 @@ jobs:
             --volume "${GITHUB_WORKSPACE}/src:/src:ro" \
             --workdir /src \
             "${ZIZMOR_IMAGE}" \
-            --persona=pedantic --format=github --collect=all --strict-collection --no-config .
+            --persona=auditor --format=github --collect=all --strict-collection --no-config .

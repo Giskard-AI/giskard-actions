@@ -213,6 +213,7 @@ def fake_zizmor(tmp_path: Path, monkeypatch, stdout: str, status: int) -> None:
     monkeypatch.setenv("ZIZMOR_RUNNER", "uvx")
     monkeypatch.setenv("GH_TOKEN", "t")
     monkeypatch.setenv("GITHUB_REPOSITORY_OWNER", "Giskard-AI")
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
 
 
 @pytest.mark.parametrize(
@@ -220,7 +221,7 @@ def fake_zizmor(tmp_path: Path, monkeypatch, stdout: str, status: int) -> None:
     [
         pytest.param([finding("impostor-commit", 6)], 14, 1, "::error file=", id="impostor-fails"),
         pytest.param([], 0, 0, "", id="clean-passes"),
-        pytest.param([], 1, 1, "stopped with status 1", id="zizmor-error-fails"),
+        pytest.param([], 1, 1, "did not run", id="zizmor-error-fails"),
     ],
 )
 def test_main(tmp_path: Path, monkeypatch, capsys, findings, status, expected, message):

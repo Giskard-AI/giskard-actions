@@ -209,13 +209,11 @@ def main(src: Path, base: Path) -> int:
             env={**os.environ, "ZIZMOR_ONLINE": "1", "ZIZMOR_FORMAT": "json-v1"},
         )
     print_quoted(result.stderr)
-    if result.returncode == 125:
-        print("::error title=zizmor-pins::Could not start the zizmor container. Re-run the job.")
-        return 1
     if result.returncode not in (0, 10, 11, 12, 13, 14):
         print(
-            f"::error title=zizmor-pins::zizmor stopped with status {result.returncode} "
-            "before checking the new action references; its message is in the log above."
+            "::error title=zizmor-pins::zizmor did not run before checking the new action "
+            "references; its message is in the log above. Re-run the job if Docker or the "
+            "network failed."
         )
         return 1
     try:
