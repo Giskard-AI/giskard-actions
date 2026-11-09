@@ -8,7 +8,7 @@ Reusable GitHub Actions automation from [Giskard](https://github.com/Giskard-AI)
 | **Codex PR review**: advisory pull request review by parallel [Codex](https://github.com/openai/codex-action) reviewer jobs plus an aggregator, posted as a PR review comment | Reusable workflow | `Giskard-AI/giskard-actions/.github/workflows/codex-pr-review.yml` |
 | **Python CI**: `lint` (ruff format check and lint) and `test` (pytest) jobs for uv projects, every command overridable | Reusable workflow | `Giskard-AI/giskard-actions/.github/workflows/python-ci.yml` |
 | **TypeScript CI**: `lint` (lint and prettier check) and `test` jobs for npm projects, every command overridable | Reusable workflow | `Giskard-AI/giskard-actions/.github/workflows/ts-ci.yml` |
-| **zizmor scan**: [zizmor](https://docs.zizmor.sh/) audit of every GitHub Actions file, offline, pedantic, from a digest-pinned image; exceptions are inline ignores with a reason, and the ones a pull request adds are flagged for review; the config comes from the pull request's base commit; passes when there are no such files | Reusable workflow, and required workflow for organization rulesets | `Giskard-AI/giskard-actions/.github/workflows/zizmor-scan.yml` |
+| **zizmor scan**: [zizmor](https://docs.zizmor.sh/) audit of every GitHub Actions file, offline, auditor persona, from a digest-pinned image; exceptions are inline ignores with a reason, and the ones a pull request adds are flagged for review; the config comes from the pull request's base commit; passes when there are no such files | Reusable workflow, and required workflow for organization rulesets | `Giskard-AI/giskard-actions/.github/workflows/zizmor-scan.yml` |
 
 Full documentation: <https://giskard-ai.github.io/giskard-actions/>
 

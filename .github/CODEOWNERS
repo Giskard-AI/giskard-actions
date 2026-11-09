@@ -5,3 +5,5 @@
 /.github/workflows/ @Hartorn @pierlj
 /.github/actions/ @Hartorn @pierlj
 /.github/CODEOWNERS @Hartorn @pierlj
+# The Gate runs these scripts on every code repository.
+/scripts/zizmor/ @Hartorn @pierlj
