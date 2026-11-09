@@ -288,8 +288,27 @@ def test_gate_annotates_findings():
 
 def test_gate_scripts_come_from_the_running_workflow_commit():
     text = gate_text()
-    assert text.count("repository: ${{ job.workflow_repository }}") == 2
+    assert text.count("repository: Giskard-AI/giskard-actions") == 2
     assert text.count("ref: ${{ job.workflow_sha }}") == 2
+
+
+@pytest.mark.parametrize("job", ["zizmor", "zizmor-pins"])
+def test_gate_commit_is_checked_before_its_checkout(job: str):
+    block = job_blocks(gate_text())[job]
+    guard = block.index("- name: Check the Gate commit")
+    assert guard < block.index("- name: Checkout the Gate scripts")
+    assert "WORKFLOW_SHA: ${{ job.workflow_sha }}" in block
+    assert '"${WORKFLOW_SHA}" =~ ^[0-9a-f]{40}$' in block
+    assert '"${WORKFLOW_REPOSITORY}" != Giskard-AI/giskard-actions' in block
+
+
+def test_pins_job_wiring():
+    block = job_blocks(gate_text())["zizmor-pins"]
+    assert re.search(r"permissions:\n\s+contents: read\n\s+env:", block)
+    assert "fetch-depth: 2" in block
+    assert "GH_TOKEN: ${{ github.token }}" in block
+    assert "python3 gate/scripts/zizmor/pins.py src base" in block
+    assert "github.event.pull_request.base.sha" in block
 
 
 def test_gate_does_not_cancel_in_progress_runs():
@@ -430,6 +449,18 @@ ACTION = "name: a\ndescription: a\nruns:\n  using: composite\n  steps: []\n"
             [],
             id="git-dir-ignored",
         ),
+        pytest.param(
+            {"hooks.txt": "repos: []\n"},
+            {".pre-commit-config.yaml": "hooks.txt"},
+            [".pre-commit-config.yaml"],
+            id="symlinked-yaml-anywhere-rejected",
+        ),
+        pytest.param(
+            {"notes.txt": ACTION},
+            {"x,y/action.yml": "../notes.txt"},
+            ["x%2Cy/action.yml"],
+            id="annotation-path-is-escaped",
+        ),
     ],
 )
 def test_zizmor_scan_rejects_symlinked_actions_files(
@@ -444,6 +475,50 @@ def test_zizmor_scan_rejects_symlinked_actions_files(
     result = run_scan(tmp_path, ".")
     assert result.returncode == (1 if rejected else 0)
     assert re.findall(r"^::error file=([^,]+),", result.stderr, re.MULTILINE) == rejected
+
+
+@pytest.mark.parametrize(
+    ("in_actions", "edit", "rejected"),
+    [
+        pytest.param("true", True, True, id="working-tree-differs-in-actions"),
+        pytest.param("true", False, False, id="clean-checkout-passes"),
+        pytest.param("", True, False, id="local-uncommitted-edits-are-scanned"),
+    ],
+)
+def test_zizmor_scan_requires_committed_bytes(
+    tmp_path: Path, in_actions: str, edit: bool, rejected: bool
+):
+    repo = tmp_path / "src"
+    (repo / ".github" / "workflows").mkdir(parents=True)
+    (repo / ".github" / "workflows" / "ci.yml").write_text("on: push\n")
+    for args in (["init", "-q"], ["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@t",
+                                                   "commit", "-qm", "c"]):  # fmt: skip
+        subprocess.run(["git", "-C", str(repo), *args], check=True)
+    if edit:
+        (repo / ".github" / "workflows" / "ci.yml").write_text("on: push\r\n")
+    result = run_scan(tmp_path, "src", GITHUB_ACTIONS=in_actions)
+    assert result.returncode == (1 if rejected else 0), result.stderr
+    assert ("differs from its committed bytes" in result.stderr) is rejected
+
+
+def test_zizmor_scan_quotes_zizmor_errors_in_actions(tmp_path: Path):
+    (tmp_path / "src").mkdir()
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "uvx").write_text("#!/bin/bash\necho '::error::injected' >&2\nexit 0\n")
+    (bin_dir / "uvx").chmod(0o755)
+    result = subprocess.run(
+        ["bash", str(SCAN_SH), "src"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+        env={"PATH": f"{bin_dir}:/usr/bin:/bin", "ZIZMOR_RUNNER": "uvx", "GITHUB_ACTIONS": "true"},
+    )
+    lines = result.stderr.splitlines()
+    start = next(i for i, line in enumerate(lines) if line.startswith("::stop-commands::"))
+    token = lines[start].split("::")[2]
+    assert lines[start + 1 :] == ["::error::injected", f"::{token}::"]
 
 
 def test_zizmor_scan_failure_points_to_exception_docs():
@@ -486,7 +561,7 @@ def test_zizmor_job_names(workflow: str, jobs: list[str]):
     ("job", "paths"),
     [
         pytest.param("zizmor", ["src", "base", "gate"], id="scan"),
-        pytest.param("zizmor-pins", ["src", "gate"], id="pins"),
+        pytest.param("zizmor-pins", ["src", "base", "gate"], id="pins"),
     ],
 )
 def test_zizmor_scan_checkouts_do_not_overlap(job: str, paths: list[str]):

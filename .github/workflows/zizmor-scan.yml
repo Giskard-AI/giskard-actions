@@ -52,10 +52,23 @@ jobs:
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
+      # Without the running commit, checkout would fall back to the pull
+      # request itself and run its scripts.
+      - name: Check the Gate commit
+        shell: bash
+        env:
+          WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
+        run: |
+          if [[ "${WORKFLOW_REPOSITORY}" != Giskard-AI/giskard-actions || ! "${WORKFLOW_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error title=zizmor::Cannot tell which giskard-actions commit runs (job.workflow_repository='${WORKFLOW_REPOSITORY}', job.workflow_sha='${WORKFLOW_SHA}')."
+            exit 1
+          fi
+
       - name: Checkout the Gate scripts
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: ${{ job.workflow_repository }}
+          repository: Giskard-AI/giskard-actions
           ref: ${{ job.workflow_sha }}
           path: gate
           sparse-checkout: scripts/zizmor
@@ -129,15 +142,19 @@ jobs:
           ZIZMOR_FORMAT: github
         run: bash gate/scripts/zizmor/scan.sh src base
 
-  # Pins are checked online only for the references a pull request adds, so a
-  # new advisory or an API outage cannot block unrelated pull requests.
+  # Pins are checked online only in the files a pull request changes, so a new
+  # advisory or an API outage cannot block unrelated pull requests.
   zizmor-pins:
     name: zizmor-pins
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: read
+    env:
+      BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.sha }}
     steps:
+      # HEAD^1 is the base on pull_request (merge commit) and the previous
+      # queue entry on merge_group.
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -145,10 +162,33 @@ jobs:
           fetch-depth: 2
           persist-credentials: false
 
+      - name: Checkout base commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.BASE_SHA }}
+          path: base
+          filter: blob:none
+          sparse-checkout: |
+            *.yml
+            *.yaml
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Check the Gate commit
+        shell: bash
+        env:
+          WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
+        run: |
+          if [[ "${WORKFLOW_REPOSITORY}" != Giskard-AI/giskard-actions || ! "${WORKFLOW_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error title=zizmor-pins::Cannot tell which giskard-actions commit runs (job.workflow_repository='${WORKFLOW_REPOSITORY}', job.workflow_sha='${WORKFLOW_SHA}')."
+            exit 1
+          fi
+
       - name: Checkout the Gate scripts
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: ${{ job.workflow_repository }}
+          repository: Giskard-AI/giskard-actions
           ref: ${{ job.workflow_sha }}
           path: gate
           sparse-checkout: scripts/zizmor
@@ -158,4 +198,4 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 gate/scripts/zizmor/pins.py src
+        run: python3 gate/scripts/zizmor/pins.py src base
