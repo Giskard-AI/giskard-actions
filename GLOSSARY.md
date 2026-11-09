@@ -61,8 +61,8 @@ _Avoid_: CI template, starter workflow
 _Avoid_: Org workflow, global zizmor, zizmor shim
 
 **zizmor Gate**:
-The `zizmor-gate` boolean custom property (defined in repo-baseline) that selects the repositories the organization ruleset requires the **Required Scan Workflow** on. Admins set it repository by repository once the repo-baseline dashboard shows the repository passing, until the ruleset targets every `kind=code` repository.
-_Avoid_: Evaluate mode, zizmor enforcement flag
+The organization ruleset rule that requires the **Required Scan Workflow** on the default branch of every `kind=code` repository. It is turned on once no code repository fails the scan, and applies to all of them: a repo-baseline exception does not exempt a repository. Its scan is `scripts/zizmor/scan.sh`, which the `gha-hardening` skill and the repo-baseline dashboard run too.
+_Avoid_: Evaluate mode, zizmor enforcement flag, `zizmor-gate` property
 
 **zizmor Exception**:
 An inline `# zizmor: ignore[<rule>] -- <reason>` comment on a flagged line, reviewed in the pull request that adds it. The **Required Scan Workflow** annotates each one a pull request adds. Repository-wide policy (a rule disabled or configured in `.github/zizmor.yml`) is not an exception: it is read from the base commit.

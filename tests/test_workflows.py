@@ -221,31 +221,38 @@ def test_tool_version_defaults(workflow: str, name: str, expected: str):
     assert input_default((WORKFLOWS_DIR / f"{workflow}.yml").read_text(), name) == expected
 
 
-ZIZMOR_WORKFLOW_FILES = [WORKFLOWS_DIR / f"{name}.yml" for name in ("zizmor", "zizmor-scan")]
+ROOT = WORKFLOWS_DIR.parents[1]
+SCAN_SH = ROOT / "scripts" / "zizmor" / "scan.sh"
+ZIZMOR_IMAGE_FILES = [WORKFLOWS_DIR / "zizmor.yml", SCAN_SH]
 ZIZMOR_IMAGE_RE = re.compile(
-    r"^      ZIZMOR_IMAGE: ghcr\.io/zizmorcore/zizmor:\d+\.\d+\.\d+@sha256:[0-9a-f]{64}$",
+    r"^\s*ZIZMOR_IMAGE(?:: |=\")ghcr\.io/zizmorcore/zizmor:\d+\.\d+\.\d+@sha256:[0-9a-f]{64}\"?$",
     re.MULTILINE,
 )
+ZIZMOR_IMAGE_TAG_RE = re.compile(r"zizmor:\d+\.\d+\.\d+@sha256:[0-9a-f]{64}")
 
 
-@pytest.mark.parametrize("path", ZIZMOR_WORKFLOW_FILES, ids=lambda p: p.stem)
+@pytest.mark.parametrize("path", ZIZMOR_IMAGE_FILES, ids=lambda p: p.name)
 def test_zizmor_image_is_digest_pinned(path: Path):
     text = path.read_text()
     assert len(ZIZMOR_IMAGE_RE.findall(text)) == 1
     assert "zizmorcore/zizmor-action" not in text
 
 
-def test_zizmor_workflows_share_one_image():
-    images = {ZIZMOR_IMAGE_RE.search(path.read_text())[0] for path in ZIZMOR_WORKFLOW_FILES}
+def test_zizmor_scans_share_one_image():
+    images = {ZIZMOR_IMAGE_TAG_RE.search(path.read_text())[0] for path in ZIZMOR_IMAGE_FILES}
     assert len(images) == 1
 
 
-@pytest.mark.parametrize("path", ZIZMOR_WORKFLOW_FILES, ids=lambda p: p.stem)
+def test_gate_workflow_has_no_image_of_its_own():
+    assert "ZIZMOR_IMAGE" not in (WORKFLOWS_DIR / "zizmor-scan.yml").read_text()
+
+
+@pytest.mark.parametrize("path", ZIZMOR_IMAGE_FILES, ids=lambda p: p.name)
 def test_renovate_tracks_zizmor_image(path: Path):
-    config = json.loads((WORKFLOWS_DIR.parents[1] / "renovate.json").read_text())
+    config = json.loads((ROOT / "renovate.json").read_text())
     (manager,) = [m for m in config["customManagers"] if m.get("datasourceTemplate") == "docker"]
     assert any(
-        re.search(p.strip("/"), f".github/workflows/{path.name}")
+        re.search(p.strip("/"), path.relative_to(ROOT).as_posix())
         for p in manager["managerFilePatterns"]
     )
     (pattern,) = manager["matchStrings"]
@@ -260,27 +267,115 @@ def test_renovate_tracks_zizmor_image(path: Path):
         pytest.param("--strict-collection", id="fails-on-unparsable-files"),
         pytest.param("--persona=pedantic", id="runs-the-pedantic-persona"),
         pytest.param("--offline", id="runs-offline"),
-        pytest.param("--format=github", id="annotates-findings"),
         pytest.param("--network none", id="container-has-no-network"),
-        pytest.param(
-            '--volume "${GITHUB_WORKSPACE}/src:/src:ro"', id="pull-request-mounted-read-only"
-        ),
+        pytest.param('--volume "${src}:/src:ro"', id="pull-request-mounted-read-only"),
         pytest.param("--config=/config/zizmor.yml", id="config-from-outside-the-checkout"),
     ],
 )
 def test_zizmor_scan_flags(flag: str):
-    assert flag in zizmor_scan_script("docker run")
+    assert flag in SCAN_SH.read_text()
 
 
 def test_zizmor_scan_honours_inline_ignores():
-    assert "--no-ignores" not in zizmor_scan_script("docker run")
+    assert "--no-ignores" not in SCAN_SH.read_text()
 
 
-def zizmor_scan_script(marker: str) -> str:
-    (script,) = [
-        s for s in run_scripts((WORKFLOWS_DIR / "zizmor-scan.yml").read_text()) if marker in s
-    ]
+def test_gate_annotates_findings():
+    (job,) = [b for name, b in job_blocks(gate_text()).items() if name == "zizmor"]
+    assert "ZIZMOR_FORMAT: github" in job
+    assert "bash gate/scripts/zizmor/scan.sh src base" in job
+
+
+def test_gate_scripts_come_from_the_running_workflow_commit():
+    text = gate_text()
+    assert text.count("repository: ${{ job.workflow_repository }}") == 2
+    assert text.count("ref: ${{ job.workflow_sha }}") == 2
+
+
+def test_gate_does_not_cancel_in_progress_runs():
+    assert not re.search(r"^\s+cancel-in-progress:", gate_text(), re.MULTILINE)
+
+
+def gate_text() -> str:
+    return (WORKFLOWS_DIR / "zizmor-scan.yml").read_text()
+
+
+def gate_script(marker: str) -> str:
+    (script,) = [s for s in run_scripts(gate_text()) if marker in s]
     return script
+
+
+def fake_uvx(tmp_path: Path, status: int) -> dict[str, str]:
+    """PATH with a uvx that records its arguments and the config it was given."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    (bin_dir / "uvx").write_text(
+        "#!/bin/bash\n"
+        f'echo "$@" > {tmp_path}/args\n'
+        'for a in "$@"; do\n'
+        f'  [[ $a == --config=* ]] && cp "${{a#--config=}}" {tmp_path}/config\n'
+        "done\n"
+        f"exit {status}\n"
+    )
+    (bin_dir / "uvx").chmod(0o755)
+    return {"PATH": f"{bin_dir}:/usr/bin:/bin", "ZIZMOR_RUNNER": "uvx"}
+
+
+def run_scan(tmp_path: Path, *args: str, status: int = 0, **env: str):
+    return subprocess.run(
+        ["bash", str(SCAN_SH), *args],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+        env={**fake_uvx(tmp_path, status), **env},
+    )
+
+
+@pytest.mark.parametrize(
+    ("status", "expected", "message"),
+    [
+        pytest.param(0, 0, "", id="clean-scan-passes"),
+        pytest.param(3, 0, "No workflow, action", id="nothing-to-audit-passes"),
+        pytest.param(13, 13, "zizmor-failed-on-my-pr", id="findings-fail-and-point-to-docs"),
+    ],
+)
+def test_zizmor_scan_exit_status(tmp_path: Path, status: int, expected: int, message: str):
+    (tmp_path / "src").mkdir()
+    result = run_scan(tmp_path, "src", status=status)
+    assert result.returncode == expected
+    assert message in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("base_files", "online", "expected_config", "offline"),
+    [
+        pytest.param({}, "0", "rules: {}\n", True, id="no-config-means-empty-rules"),
+        pytest.param(
+            {".github/zizmor.yml": "rules: {a: {disable: true}}\n", "zizmor.yml": "other\n"},
+            "0",
+            "rules: {a: {disable: true}}\n",
+            True,
+            id="config-follows-zizmor-discovery-order",
+        ),
+        pytest.param({}, "1", "rules: {}\n", False, id="online-mode-drops-offline"),
+    ],
+)
+def test_zizmor_scan_config_and_mode(
+    tmp_path: Path, base_files: dict[str, str], online: str, expected_config: str, offline: bool
+):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "zizmor.yml").write_text("from the pull request\n")
+    for name, content in base_files.items():
+        (tmp_path / "base" / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / "base" / name).write_text(content)
+    (tmp_path / "base").mkdir(exist_ok=True)
+    result = run_scan(tmp_path, "src", "base", ZIZMOR_ONLINE=online)
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "config").read_text() == expected_config
+    args = (tmp_path / "args").read_text()
+    assert ("--offline" in args) is offline
+    assert args.startswith("zizmor@1.")
 
 
 ACTION = "name: a\ndescription: a\nruns:\n  using: composite\n  steps: []\n"
@@ -346,21 +441,14 @@ def test_zizmor_scan_rejects_symlinked_actions_files(
     for name, target in links.items():
         (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / name).symlink_to(target)
-    result = subprocess.run(
-        ["bash", "-c", zizmor_scan_script("find . ")],
-        cwd=tmp_path,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    result = run_scan(tmp_path, ".")
     assert result.returncode == (1 if rejected else 0)
-    assert re.findall(r"^::error file=([^,]+),", result.stdout, re.MULTILINE) == rejected
+    assert re.findall(r"^::error file=([^,]+),", result.stderr, re.MULTILINE) == rejected
 
 
 def test_zizmor_scan_failure_points_to_exception_docs():
-    script = zizmor_scan_script("docker run")
-    assert "ci-workflows.html#zizmor-failed-on-my-pr" in script
-    docs = (WORKFLOWS_DIR.parents[1] / "docs" / "ci-workflows.md").read_text()
+    assert "ci-workflows.html#zizmor-failed-on-my-pr" in SCAN_SH.read_text()
+    docs = (ROOT / "docs" / "ci-workflows.md").read_text()
     assert "### zizmor failed on my PR?\n{: #zizmor-failed-on-my-pr }\n" in docs
 
 
@@ -379,22 +467,31 @@ def test_shared_ci_job_names(workflow: str):
 
 
 @pytest.mark.parametrize(
-    ("workflow", "job"),
+    ("workflow", "jobs"),
     [
-        pytest.param("zizmor-scan", "zizmor", id="shared-scan-owns-the-zizmor-check"),
-        pytest.param("zizmor", "zizmor-pedantic", id="own-pedantic-scan-has-a-distinct-check"),
+        pytest.param(
+            "zizmor-scan", ["zizmor", "zizmor-pins"], id="shared-scan-owns-the-zizmor-checks"
+        ),
+        pytest.param("zizmor", ["zizmor-pedantic"], id="own-pedantic-scan-has-a-distinct-check"),
     ],
 )
-def test_zizmor_job_names(workflow: str, job: str):
-    jobs = job_blocks((WORKFLOWS_DIR / f"{workflow}.yml").read_text())
-    assert list(jobs) == [job]
-    assert f"    name: {job}\n" in jobs[job] + "\n"
+def test_zizmor_job_names(workflow: str, jobs: list[str]):
+    blocks = job_blocks((WORKFLOWS_DIR / f"{workflow}.yml").read_text())
+    assert list(blocks) == jobs
+    for job in jobs:
+        assert f"    name: {job}\n" in blocks[job] + "\n"
 
 
-def test_zizmor_scan_checkouts_do_not_overlap():
-    steps = checkout_steps((WORKFLOWS_DIR / "zizmor-scan.yml").read_text())
-    paths = [re.search(r"^\s+path: (\S+)$", step, re.MULTILINE)[1] for step in steps]
-    assert paths == ["src", "base"]
+@pytest.mark.parametrize(
+    ("job", "paths"),
+    [
+        pytest.param("zizmor", ["src", "base", "gate"], id="scan"),
+        pytest.param("zizmor-pins", ["src", "gate"], id="pins"),
+    ],
+)
+def test_zizmor_scan_checkouts_do_not_overlap(job: str, paths: list[str]):
+    steps = checkout_steps(job_blocks(gate_text())[job])
+    assert [re.search(r"^\s+path: (\S+)$", step, re.MULTILINE)[1] for step in steps] == paths
 
 
 WORKFLOW = "on: push\njobs: {}\n"
@@ -458,7 +555,7 @@ def test_zizmor_scan_flags_new_ignores(
             (tmp_path / root / name).write_text(content)
     summary = tmp_path / "summary.md"
     result = subprocess.run(
-        ["bash", "-c", textwrap.dedent(zizmor_scan_script("New zizmor ignore"))],
+        ["bash", "-c", textwrap.dedent(gate_script("New zizmor ignore"))],
         cwd=tmp_path,
         capture_output=True,
         text=True,

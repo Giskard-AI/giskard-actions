@@ -4,6 +4,10 @@ name: zizmor scan
 # to pass") and callable as a reusable workflow. Callers must grant at least
 # contents: read. A pull_request_target caller would scan the base branch, not
 # the pull request.
+#
+# The scan itself is scripts/zizmor/scan.sh, checked out from this repository
+# at the commit that runs (job.workflow_sha): the ruleset's pinned SHA, or the
+# caller's pinned ref.
 
 on:
   pull_request:
@@ -12,9 +16,10 @@ on:
 
 permissions: {}
 
+# No cancel-in-progress: GitHub does not allow it in a workflow required by a
+# ruleset.
 concurrency:
   group: ${{ github.workflow }}-zizmor-scan-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   zizmor:
@@ -28,7 +33,6 @@ jobs:
       # requests and merge groups use the config of their base commit, and
       # compare their ignore comments with it.
       BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.sha }}
-      ZIZMOR_IMAGE: ghcr.io/zizmorcore/zizmor:1.32.0@sha256:3014cc8f68f663935f69b3c3e0e41f5ce102b268d97db13db0f62208747f860d
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -48,21 +52,14 @@ jobs:
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
-      # The runner follows symlinks when it loads a local action, but zizmor
-      # audits the link's target under its own name, or skips it when the
-      # target is outside the checkout.
-      - name: Reject symlinked Actions files
-        shell: bash
-        working-directory: src
-        run: |
-          mapfile -t links < <(find . -path ./.git -prune -o -type l \
-            \( -name action.yml -o -name action.yaml -o -name .github -o -path '*/.github/*' \) -print)
-          for link in "${links[@]}"; do
-            echo "::error file=${link#./},title=zizmor::${link#./} is a symlink. Commit the file itself: zizmor cannot audit what a symlinked action, workflow or .github file points to."
-          done
-          if (( ${#links[@]} )); then
-            exit 1
-          fi
+      - name: Checkout the Gate scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: gate
+          sparse-checkout: scripts/zizmor
+          persist-credentials: false
 
       # Inline ignores are honoured, so each one the pull request adds is
       # surfaced for its reviewers. This step never fails the job.
@@ -128,33 +125,37 @@ jobs:
 
       - name: Run zizmor
         shell: bash
-        run: |
-          config_dir="${RUNNER_TEMP}/zizmor-config"
-          mkdir -p "${config_dir}"
-          echo "rules: {}" > "${config_dir}/zizmor.yml"
-          # zizmor's own discovery order; the first file found wins.
-          for candidate in .github/zizmor.yml .github/zizmor.yaml zizmor.yml zizmor.yaml; do
-            if [[ -f "base/${candidate}" ]]; then
-              cp "base/${candidate}" "${config_dir}/zizmor.yml"
-              echo "Using ${candidate} from ${BASE_SHA}"
-              break
-            fi
-          done
+        env:
+          ZIZMOR_FORMAT: github
+        run: bash gate/scripts/zizmor/scan.sh src base
 
-          status=0
-          docker run --rm --network none --read-only \
-            --volume "${GITHUB_WORKSPACE}/src:/src:ro" \
-            --volume "${config_dir}:/config:ro" \
-            --workdir /src \
-            "${ZIZMOR_IMAGE}" \
-            --persona=pedantic --offline --format=github --collect=all --strict-collection \
-            --config=/config/zizmor.yml . || status=$?
+  # Pins are checked online only for the references a pull request adds, so a
+  # new advisory or an API outage cannot block unrelated pull requests.
+  zizmor-pins:
+    name: zizmor-pins
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: src
+          fetch-depth: 2
+          persist-credentials: false
 
-          if [[ "${status}" -eq 3 ]]; then
-            echo "::notice title=zizmor::No workflow, action, Dependabot or pre-commit files to audit."
-            exit 0
-          fi
-          if [[ "${status}" -ne 0 ]]; then
-            echo "::error title=zizmor failed::Fix the findings, or add '# zizmor: ignore[<rule>] -- <reason>' on the flagged line for your reviewers to check. See https://giskard-ai.github.io/giskard-actions/ci-workflows.html#zizmor-failed-on-my-pr"
-          fi
-          exit "${status}"
+      - name: Checkout the Gate scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: gate
+          sparse-checkout: scripts/zizmor
+          persist-credentials: false
+
+      - name: Check new action references online
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 gate/scripts/zizmor/pins.py src
