@@ -7,6 +7,7 @@
 #   are the "before" of the pull request.
 # Environment: GATE_REF and ZIZMOR_RUNNER, passed to gate-scan.sh;
 #   AUDIT_APPS=1 also lists the App installations on selected repositories.
+# Needs gh, jq and git; Docker to check uv locks (reported "not checked" without it).
 #
 # Prints, section by section: the Gate scan (the exact scan the org ruleset
 # runs) and the repository's own zizmor job, the checks on the default branch
@@ -21,8 +22,22 @@
 # with the installs outside the lock and the open vulnerability pull requests,
 # and the open pull requests that change files the hardening may change.
 # It changes nothing. A list with nothing in it prints "none"; one the token
-# cannot read says so.
+# cannot read says so. Titles, branch names, log lines and file contents come
+# from others: the output carries no control characters, so none of them can
+# move the cursor or hide text.
 set -uo pipefail
+# `git rebase --exec` exports GIT_DIR and friends, which would point every git
+# call below at the clone it runs in.
+# shellcheck disable=SC2046 # one variable name per word
+unset $(git rev-parse --local-env-vars)
+
+if [[ -z "${AUDIT_FILTERED:-}" ]]; then
+  AUDIT_FILTERED=1 bash "$0" "$@" | tr -d '\000-\010\013-\037\177'
+  exit "${PIPESTATUS[0]}"
+fi
+for tool in gh jq git; do
+  command -v "${tool}" >/dev/null || { echo "audit.sh needs ${tool} on PATH." >&2; exit 2; }
+done
 
 repo="${1:?usage: audit.sh OWNER/REPO CLONE_DIR}"
 clone=$(cd "${2:?usage: audit.sh OWNER/REPO CLONE_DIR}" && pwd)
@@ -167,15 +182,30 @@ runs_uv_in() {
   done
   return 1
 }
-# The state of a committed uv.lock: `uv lock --check` offline, then online when
-# deciding needs packages or git sources the uv cache does not have.
+# uv, with Python and git for build backends and git sources.
+UV_IMAGE=ghcr.io/astral-sh/uv:0.13.7-python3.13-trixie@sha256:6299696d13e91e9d58e910fca4e503e89f217229a2c4c840a11b367dc24816f4
+# uv in a container, on a copy of the audited tree, from project directory $1. Deciding
+# a lock can run the project's build backends (dynamic metadata, in-tree backends,
+# sdist-only or git dependencies): they get no credentials, no home directory and no
+# host cache. $2 is the network: none, or bridge.
+uv_isolated() {
+  if [[ ! -d "${cache}/src" ]]; then
+    mkdir "${cache}/src" && git -C "${tree}" archive HEAD | tar -x -C "${cache}/src"
+  fi
+  docker run --rm --network="$2" --read-only --tmpfs /tmp:exec --user "$(id -u):$(id -g)" \
+    --cap-drop=ALL --security-opt=no-new-privileges -e HOME=/tmp -e UV_CACHE_DIR=/tmp/uv-cache \
+    -e UV_PYTHON_DOWNLOADS="$([[ "$2" == none ]] && echo never || echo automatic)" \
+    -v "${cache}/src:/src" -w "/src/$1" "${UV_IMAGE}" uv "${@:3}"
+}
+# The state of a committed uv.lock in project directory $1: `uv lock --check` with no
+# network, then online when deciding needs packages, git sources or an interpreter.
 uv_lock_state() {
   local out online=""
-  command -v uv >/dev/null || { echo "uv lock --check not run: uv is not installed"; return; }
-  out=$(cd "$1" && UV_PYTHON_DOWNLOADS=never uv lock --check --offline 2>&1) && { echo "lock up to date"; return; }
-  if grep -qi 'network' <<<"${out}"; then
+  docker info >/dev/null 2>&1 || { echo "lock not checked (needs Docker)"; return; }
+  out=$(uv_isolated "$1" none lock --check --offline 2>&1) && { echo "lock up to date"; return; }
+  if ! grep -q 'needs to be updated' <<<"${out}"; then
     online=" (checked online)"
-    out=$(cd "$1" && UV_PYTHON_DOWNLOADS=never uv lock --check 2>&1) && { echo "lock up to date${online}"; return; }
+    out=$(uv_isolated "$1" bridge lock --check 2>&1) && { echo "lock up to date${online}"; return; }
   fi
   if grep -q 'needs to be updated' <<<"${out}"; then
     echo "lock out of date${online}"
@@ -589,7 +619,7 @@ while read -r eco dir; do
   elif has "${lock}"; then lock_state="${lock} committed"
   elif git -C "${tree}" check-ignore -q --no-index "${p}${lock}"; then lock_state="${lock} gitignored"
   else lock_state="no ${lock}"; fi
-  [[ "${lock_state}" == "uv.lock committed" ]] && lock_state+=", $(uv_lock_state "${tree}/${p:-.}")"
+  [[ "${lock_state}" == "uv.lock committed" ]] && lock_state+=", $(uv_lock_state "${p:-.}")"
   case "${manager}" in
     rye | poetry | pdm | pipenv | pip-tools | pip) convert="; convert to uv (reference.md section 15)" ;;
     *) convert="" ;;
