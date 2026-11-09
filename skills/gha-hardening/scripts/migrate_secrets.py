@@ -9,7 +9,10 @@ same names are deleted, as are the unused ones given with --delete.
 
 Run it just before merging the pull request whose jobs declare these
 Environments: until then, workflows on the default branch still read the
-repository secrets. A green run of the pull request proves the migration.
+repository secrets, and so do the pull request's jobs (the Environment GitHub
+creates on their first run is empty). Rerunning the pull request's checks
+proves the migration: the jobs that read the secrets pass, or fail with an
+error showing the secret arrived.
 
 With --rotate NAME, it finds every Environment of the given repositories that
 holds NAME, asks for the new value once and writes it to each.
@@ -187,7 +190,10 @@ def run_migration(args: argparse.Namespace) -> None:
         for secret in sorted(copied | (set(args.delete) & state.secrets)):
             _gh("secret", "delete", secret, "-R", repo)
             print(f"  ✓ Repository secret {secret} deleted.")
-    print("\nDone. Rerun the pull request's checks: a green run proves the migration.")
+    print(
+        "\nDone. Rerun the pull request's checks: the jobs that read these secrets pass,"
+        " or fail with an error showing the secret arrived."
+    )
 
 
 def run_rotation(args: argparse.Namespace) -> None:

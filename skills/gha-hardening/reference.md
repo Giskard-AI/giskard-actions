@@ -62,7 +62,10 @@ Sections in this order, each omitted when empty except Human Steps. Commands mea
 6. **Decisions needed**: each `(needs a decision)` commit (a release change named Tag version or Release App) and each remaining finding, with file:line, why zizmor flags it, the §13 checklist result for privileged triggers, and your recommendation.
 7. **Checks already failing**: each failing check and each workflow shown failing in step 1 (saying it is not a check), with the fixing commit or the issue link.
 8. **Human Steps**, in order, each one a command to run; when none applies, one line saying nothing changes in settings before merging:
-   1. Before merging: `python3 <scripts>/migrate_secrets.py --repo OWNER/REPO --env <name>:<policy>:<SECRET>[,<SECRET>] ... [--delete <UNUSED_SECRET>]` (plan with `--dry-run`), then rerun the pull request's checks: green proves the migration.
+   1. Before merging: `python3 <scripts>/migrate_secrets.py --repo OWNER/REPO --env <name>:<policy>:<SECRET>[,<SECRET>] ... [--delete <UNUSED_SECRET>]` (plan with `--dry-run`), then rerun the pull request's checks: the jobs that read the secrets passing proves the migration.
+      - A job that reads a secret and already fails (Checks already failing): the step names the error that proves the secret arrived (flare: 429 `credit_balance_exhausted`, not a missing or invalid key).
+      - The failure is the secret's value: the new value goes into the Environment through the migration (or `--rotate` after it), never into the repository secret first.
+      - The team replaces a dead secret with another (flare's OpenAI key, replaced by Azure AI keys): the job declares the Environment and nothing is migrated in this pull request. The step, for when the replacement lands: create the new Environment with the new secrets, then delete the old repository secret and the Environment GitHub created for this pull request.
    2. A personal access token, deploy key or App with more access than the job needs: `python3 <scripts>/setup_github_app.py --dry-run ...` filled in (§8; the release App's Environment is `github-release`).
    3. Ruleset changes: required checks renamed, release tag creation reserved, an App bypass on an organization ruleset (org admin).
    4. Registry-side OIDC trust; Renovate installed on this repository.
@@ -544,7 +547,7 @@ An organization ruleset blocks updating and deleting `v*` tags in every code rep
 Every secret of a code repository lives in a **Secret Environment** (repo-baseline ADR 0002); zizmor's `secrets-outside-env` checks that each job reading a secret declares one.
 
 - **Name**: `<service>-<usage>` when the job calls one service (`openai-tests`, `azure-codex-review`, `pypi-release`, `github-release` for a release App key), `<usage>` when it calls several (`e2e-tests`). An existing Environment off this convention is renamed when its repository is reworked: `migrate_secrets.py` creates the new one and asks for the values again (GitHub never returns them); deleting the old one is a Human Step once the pull request's run is green.
-- **Deployment branches follow the trigger** (`migrate_secrets.py` policy in brackets): pull request jobs, every branch (`all`); push, dispatch or schedule on the default branch, that branch (`branch=main`); a pushed release tag, the tags (`tag=v*`). An Environment that holds a release or App key and is deployable from every branch is restricted to its ref; when pull request jobs use it too, it splits in two.
+- **Deployment branches follow the trigger** (`migrate_secrets.py` policy in brackets): pull request jobs (any job that runs on `pull_request`, whatever else triggers it), every branch (`all`); push, dispatch or schedule on the default branch, that branch (`branch=main`); a pushed release tag, the tags (`tag=v*`). An Environment that holds a release or App key and is deployable from every branch is restricted to its ref; when pull request jobs use it too, it splits in two.
 - **A job that publishes through OIDC trusted publishing and reads no secret declares no Environment**, unless the trusted publisher config (PyPI, npm) already names one: the job must then keep that name.
 - **A secret two Environments need is copied into both**: the wizard asks for its value once and writes it to each. `--rotate NAME` rewrites every copy.
 - **Pull request jobs declare `deployment: false`**, so they read the secrets without recording a deployment on the pull request:
@@ -563,6 +566,7 @@ jobs:
         run: uv run pytest -m integration
 ```
 
+- **Before the Human Step, the pull request's checks behave as before the migration.** A job that names an Environment that does not exist yet makes GitHub create it on the first run, empty and with no protection rules ([Managing environments](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments)), and the job still reads the repository secret: repository secrets reach every job, and an Environment secret of the same name overrides it ([Secrets reference](https://docs.github.com/en/actions/reference/security/secrets)). `migrate_secrets.py` then applies the policy to that Environment and writes the secrets.
 - **Reusable workflows**: a job that calls one cannot declare `environment:`; the called job must. When the reusable workflow takes an `environment` input (`codex-pr-review.yml` does: pass `azure-codex-review`), pass it; the secret it still lists under `secrets:` arrives empty from the caller and the called job reads it from the Environment. Otherwise list it under "Decisions needed": adding the input changes its Workflow Contract.
 
 ---
