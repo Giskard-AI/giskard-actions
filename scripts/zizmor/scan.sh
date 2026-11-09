@@ -14,8 +14,6 @@
 #                  runs offline, so an advisory or an API outage cannot block
 #                  merges.
 #   ZIZMOR_RUNNER  docker (default) or uvx, on a machine without Docker.
-#   ZIZMOR_PERSONA pedantic (default, the Gate) or auditor, which adds
-#                  secrets-outside-env for the gha-hardening skill.
 # Exit status: 0 when clean or when there is nothing to audit, 1 when an
 # Actions file is a symlink or differs from its committed bytes, zizmor's own
 # status otherwise. Messages go to stderr, so stdout carries only zizmor's
@@ -73,12 +71,7 @@ for candidate in .github/zizmor.yml .github/zizmor.yaml zizmor.yml zizmor.yaml; 
   fi
 done
 
-persona="${ZIZMOR_PERSONA:-pedantic}"
-if [[ "${persona}" != pedantic && "${persona}" != auditor ]]; then
-  echo "ZIZMOR_PERSONA must be pedantic or auditor" >&2
-  exit 2
-fi
-flags=(--persona="${persona}" --format="${format}" --collect=all --strict-collection)
+flags=(--persona=pedantic --format="${format}" --collect=all --strict-collection)
 network=(--network none)
 if [[ "${ZIZMOR_ONLINE:-0}" == 1 ]]; then
   network=(--env GH_TOKEN)
