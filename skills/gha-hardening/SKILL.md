@@ -19,7 +19,7 @@ Threat models, fix samples and pitfalls: [reference.md](reference.md).
 - **Fix first.** A **zizmor Exception** (`# zizmor: ignore[<rule>] -- <reason>`) is a human decision, whatever the scan's message suggests: ask when a human is in the conversation; otherwise propose it as described in step 4.
 - **Every secret lives in a Secret Environment**: one per kind of job, declared by every job that reads one of its secrets, and passed only to the steps that use it ([reference.md §11](reference.md#11-secret-environments)).
 - **A comment follows the line it describes**; it goes only with that line, and the pull request lists each one that went.
-- **Read-only outside the branch.** Settings, secrets, rulesets and Apps change through Human Steps, never from this run. The one write outside the branch: an issue for a check already failing (step 1).
+- **Read-only outside the branch.** Settings, secrets, rulesets and Apps change through Human Steps, never from this run. The one write outside the branch: an issue for a check or workflow already failing (step 1).
 
 ## Steps
 
@@ -85,21 +85,6 @@ It prints the **Workflow Contract** of each changed workflow before and after (t
 
 Commits, in this order: each `ci: fix ...` from step 1; `ci: pass the zizmor Gate` for the workflows; `chore(renovate): extend the shared preset` for Renovate and Dependabot; `build: lock dependencies with a one-week cooldown`; then the proposals that change behaviour, one commit each, marked `(needs a decision)`: the recommended Exceptions (`ci: propose zizmor exceptions (needs a decision)`) and Tag version (`build: read the version from the release tag (needs a decision)`). The Gate commit keeps the current behaviour, including code a later decision commit removes: the Gate passes at every commit.
 
-Title `ci: pass the zizmor Gate`. Commands meant for a human run from a giskard-actions checkout: write `<scripts>` below as `giskard-actions/skills/gha-hardening/scripts`. Body sections, each omitted when empty:
-
-1. **Fixed**: findings by rule, counts before → after, and the scan's first line (the giskard-actions ref) and summary line.
-2. **Workflow Contract**: the script's table for each changed workflow, with one line of why per change: renamed checks, removed grants, replaced actions, comments that went with their line.
-3. **Not run by CI**: each changed workflow the pull request's checks do not run (release, dispatch, schedule), and what to run after the merge to prove it still works; for a release change, the consumers and the version range each accepts.
-4. **Renovate**: what actually changes for this repository: the preset settings that now apply to it ([§14](reference.md#14-renovate)), the keys removed because the preset sets them, and each kept key that overrides the preset, with its reason.
-5. **Dependencies**: per project directory, the lock and cooldown rules applied, the security-fix procedure, and for a library that its consumers are unaffected; for any other manager, which one, whether it has a lock and a cooldown, and its native setting ([§15](reference.md#15-dependency-lock-and-cooldown)).
-6. **Decisions needed**: each `(needs a decision)` commit (a release change named Tag version or Release App) and each remaining finding, with file:line, why zizmor flags it, the §13 checklist result for privileged triggers, and your recommendation. The pull request stays a draft until each is decided.
-7. **Checks already failing**: each failing check and each workflow shown failing in step 1 (saying it is not a check), with the fixing commit or the issue link.
-8. **Human Steps**, in order, each one a command to run; when none applies, one line saying nothing changes in settings before merging:
-   1. Before merging: `python3 <scripts>/migrate_secrets.py --repo OWNER/REPO --env <name>:<policy>:<SECRET>[,<SECRET>] ... [--delete <UNUSED_SECRET>]` (plan with `--dry-run`), then rerun the pull request's checks: green proves the migration.
-   2. A personal access token, deploy key or App with more access than the job needs: `python3 <scripts>/setup_github_app.py --dry-run ...` filled in (§8; the release App's Environment is `github-release`).
-   3. Ruleset changes: required checks renamed, release tag creation reserved, an App bypass on an organization ruleset (org admin).
-   4. Registry-side OIDC trust; Renovate installed on this repository.
-
-   Org-wide audit findings (`SENSITIVE` Apps, organization ruleset bypass) belong to the repo-baseline dashboard; leave them out.
+Title `ci: pass the zizmor Gate`. Write the body section by section as [reference.md](reference.md#pull-request-body) describes them: **Fixed**, **Workflow Contract**, **Not run by CI**, **Renovate**, **Dependencies**, **Decisions needed**, **Checks already failing**, **Human Steps** (kept when empty, with one line saying so). The pull request stays a draft until each decision is made.
 
 Done when the draft pull request is open and `gh pr checks <pr> --watch` shows every check passing except those listed under "Checks already failing".

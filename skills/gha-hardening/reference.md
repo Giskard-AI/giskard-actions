@@ -50,6 +50,25 @@ An existing release for the tag: softprops updates it and ncipollo fails unless 
 5. **Ruleset bypass actor IDs are the App's ID** (`gh api apps/<slug> --jq .id`), not its installation ID.
 6. **OIDC subject claims** contain `ref:`, which differs between branches and tags; some registries (Quay) need the claim customized (§9).
 
+## Pull request body
+
+Sections in this order, each omitted when empty except Human Steps. Commands meant for a human run from a giskard-actions checkout: `<scripts>` below is written `giskard-actions/skills/gha-hardening/scripts`.
+
+1. **Fixed**: findings by rule, counts before → after, and the scan's first line (the giskard-actions ref) and summary line.
+2. **Workflow Contract**: the script's table for each changed workflow, with one line of why per change: renamed checks, removed grants, replaced actions, comments that went with their line.
+3. **Not run by CI**: each changed workflow the pull request's checks do not run (release, dispatch, schedule), and what to run after the merge to prove it still works; for a release change, the consumers and the version range each accepts (§12).
+4. **Renovate**: what actually changes for this repository: the preset settings that now apply to it (§14), the keys removed because the preset sets them, and each kept key that overrides the preset, with its reason.
+5. **Dependencies**: per project directory, the lock and cooldown rules applied, the security-fix procedure, and for a library that its consumers are unaffected; for any other manager, which one, whether it has a lock and a cooldown, and its native setting (§15).
+6. **Decisions needed**: each `(needs a decision)` commit (a release change named Tag version or Release App) and each remaining finding, with file:line, why zizmor flags it, the §13 checklist result for privileged triggers, and your recommendation.
+7. **Checks already failing**: each failing check and each workflow shown failing in step 1 (saying it is not a check), with the fixing commit or the issue link.
+8. **Human Steps**, in order, each one a command to run; when none applies, one line saying nothing changes in settings before merging:
+   1. Before merging: `python3 <scripts>/migrate_secrets.py --repo OWNER/REPO --env <name>:<policy>:<SECRET>[,<SECRET>] ... [--delete <UNUSED_SECRET>]` (plan with `--dry-run`), then rerun the pull request's checks: green proves the migration.
+   2. A personal access token, deploy key or App with more access than the job needs: `python3 <scripts>/setup_github_app.py --dry-run ...` filled in (§8; the release App's Environment is `github-release`).
+   3. Ruleset changes: required checks renamed, release tag creation reserved, an App bypass on an organization ruleset (org admin).
+   4. Registry-side OIDC trust; Renovate installed on this repository.
+
+   Org-wide audit findings (`SENSITIVE` Apps, organization ruleset bypass) belong to the repo-baseline dashboard; leave them out.
+
 ---
 
 ## 1. `pull_request_target` — Privileged Code Execution
