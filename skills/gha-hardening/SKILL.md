@@ -9,7 +9,7 @@ description: >-
 
 # Harden a repository's GitHub Actions
 
-The **Gate** is the org ruleset that runs `zizmor-scan.yml` from `Giskard-AI/giskard-actions`, with the auditor persona, on every pull request of a code repository. This skill brings one repository to a passing Gate in one draft pull request, and lists the **Human Steps** (settings changes) a person applies before merging it. Terms are defined in `GLOSSARY.md` of `giskard-actions`.
+The **Gate** is the org ruleset that runs `zizmor-scan.yml` from `Giskard-AI/giskard-actions`, with the auditor persona, on every pull request of a code repository. This skill brings one repository to a passing Gate in one draft pull request, and lists the **Human Steps** a person applies: settings changes before merging it, and the fix of each check already failing for a cause outside the workflows. Terms are defined in `GLOSSARY.md` of `giskard-actions`.
 
 Threat models, fix samples and pitfalls: [reference.md](reference.md).
 
@@ -19,7 +19,7 @@ Threat models, fix samples and pitfalls: [reference.md](reference.md).
 - **Fix first.** A **zizmor Exception** (`# zizmor: ignore[<rule>] -- <reason>`) is a human decision, whatever the scan's message suggests: ask when a human is in the conversation; otherwise propose it as described in step 4.
 - **Every secret lives in a Secret Environment**: one per kind of job, declared by every job that reads one of its secrets, and passed only to the steps that use it ([reference.md §11](reference.md#11-secret-environments)).
 - **A comment follows the line it describes**; it goes only with that line, and the pull request lists each one that went.
-- **Read-only outside the branch.** Settings, secrets, rulesets and Apps change through Human Steps, never from this run. The one write outside the branch: an issue for a check or workflow already failing (step 1).
+- **Read-only outside the branch.** Settings, secrets, rulesets and Apps change through Human Steps, never from this run.
 
 ## Steps
 
@@ -33,10 +33,10 @@ It scans the default branch whatever the clone has checked out, so its counts ar
 
 Then find what already fails on the default branch, in two audit sections:
 
-- **Checks on <default> HEAD**: each check whose conclusion is not `success`, `neutral` or `skipped`. Under a failed Actions job the audit prints its failed step, its last error line and the same check's latest pull request run: the cause, and whether it fails everywhere.
+- **Checks on <default> HEAD**: each check whose conclusion is not `success`, `neutral` or `skipped`, and each check whose latest pull request runs by others fail for a cause no pull request brought (a `STALE` green run on <default> hides it): both are already failing. Under each Actions check the audit prints its pull request runs by actor and the failed step and last error line of each latest failed run. A check that fails only on `dependabot[bot]` runs lacks its secrets there ([§11](reference.md#11-secret-environments)).
 - **Workflows <default> does not run on push or pull request**: each one flagged `CHANGED SINCE ITS LAST RUN` or `NO RUN ON RECORD`, or whose last run failed. Read it for steps that cannot work today (a file it reads is missing or gitignored, a push the rules reject). When you can show why it fails, it is already failing, even though it is not a check.
 
-For each one, when the cause is in a workflow file, fix it in this pull request, in its own commit (`ci: fix <check or workflow>, already failing on <default>`); otherwise open a GitHub issue in the repository with the run linked, and keep its link. The issue takes label `ci` when `gh label list -R OWNER/REPO --search ci` lists it, no label otherwise; when the cause is a secret's value, it says the new value goes in through the migration ([Human Steps](reference.md#pull-request-body)). A fix that removes a step which cannot succeed today takes no `(needs a decision)`; the pull request says why the step could not succeed. Done when each failing check and each flagged workflow has a fix commit, an issue, or a line saying why it works.
+For each one, when the cause is in a workflow file, fix it in this pull request, in its own commit (`ci: fix <check or workflow>, already failing on <default>`); otherwise list the cause under "Checks already failing" and add the Human Step that fixes it: replace the retired model in `<config file>`, put a new key into the Environment through the migration or `--rotate` ([Human Steps](reference.md#pull-request-body)). A fix that removes a step which cannot succeed today takes no `(needs a decision)`; the pull request says why the step could not succeed. Done when each failing check and each flagged workflow has a fix commit, a Human Step, or a line saying why it works.
 
 ### 2. Fix the findings
 

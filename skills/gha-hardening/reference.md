@@ -60,8 +60,8 @@ Sections in this order, each omitted when empty except Human Steps. Commands mea
 4. **Renovate**: what actually changes for this repository: the rows of the §14 table that change from its effective value, the keys removed because the preset sets them, and each kept key that overrides the preset, with its reason.
 5. **Dependencies**: per project directory, the lock and cooldown rules applied, the CI install command, the security-fix procedure with the open vulnerability pull requests the audit flags, and for a library that its consumers are unaffected; for any other manager, which one, whether it has a lock and a cooldown, and its native setting (§15).
 6. **Decisions needed**: each `(needs a decision)` commit (a release change named Tag version or Release App) and each remaining finding, with file:line, why zizmor flags it, the §13 checklist result for privileged triggers, and your recommendation.
-7. **Checks already failing**: each failing check and each workflow shown failing in step 1 (saying it is not a check), with the fixing commit or the issue link.
-8. **Human Steps**, in order, each one a command to run; when none applies, one line saying nothing changes in settings before merging:
+7. **Checks already failing**: each failing check and each workflow shown failing in step 1 (saying it is not a check), with its cause, the run that shows it, and the fixing commit or the Human Step that fixes it.
+8. **Human Steps**, in order, each one a command to run or a change to make; when none applies, one line saying nothing changes in settings before merging:
    1. Before merging: `python3 <scripts>/migrate_secrets.py --repo OWNER/REPO --env <name>:<policy>:<SECRET>[,<SECRET>] ... [--delete <UNUSED_SECRET>]` (plan with `--dry-run`), then rerun the pull request's checks: the jobs that read the secrets passing proves the migration.
       - A job that reads a secret and already fails (Checks already failing): the step names the error that proves the secret arrived (flare: 429 `credit_balance_exhausted`, not a missing or invalid key).
       - The failure is the secret's value: the new value goes into the Environment through the migration (or `--rotate` after it), never into the repository secret first.
@@ -69,6 +69,8 @@ Sections in this order, each omitted when empty except Human Steps. Commands mea
    2. A personal access token, deploy key or App with more access than the job needs: `python3 <scripts>/setup_github_app.py --dry-run ...` filled in (§8; the release App's Environment is `github-release`).
    3. Ruleset changes: required checks renamed, release tag creation reserved, an App bypass on an organization ruleset (org admin).
    4. Registry-side OIDC trust; Renovate installed on this repository.
+   5. A job that reads secrets and runs on Dependabot pull requests: Dependabot security updates off, or the secrets added as Dependabot secrets (§11).
+   6. Each check already failing for a cause outside the workflows, with its fix: the retired model to replace in `<config file>`, the new key to put into the Environment (item 1), the credits to add.
 
    Org-wide audit findings (`SENSITIVE` Apps, organization ruleset bypass) belong to the repo-baseline dashboard; leave them out.
 
@@ -567,6 +569,7 @@ jobs:
 ```
 
 - **Before the Human Step, the pull request's checks behave as before the migration.** A job that names an Environment that does not exist yet makes GitHub create it on the first run, empty and with no protection rules ([Managing environments](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments)), and the job still reads the repository secret: repository secrets reach every job, and an Environment secret of the same name overrides it ([Secrets reference](https://docs.github.com/en/actions/reference/security/secrets)). `migrate_secrets.py` then applies the policy to that Environment and writes the secrets.
+- **Dependabot runs get no secrets.** A run Dependabot triggers reads only Dependabot secrets, never Actions or Environment secrets ([Dependabot on GitHub Actions](https://docs.github.com/en/code-security/dependabot/troubleshooting-dependabot/troubleshooting-dependabot-on-github-actions#accessing-secrets)), so a job that needs secrets fails on Dependabot pull requests whatever the hardening does; the audit splits each check's pull request runs by actor. The Human Step: when Renovate covers the repository, turn Dependabot security updates off (Settings, Advanced Security) and keep Dependabot alerts on, since Renovate reads them; otherwise add the secrets the job needs as Dependabot secrets, a separate store that only Dependabot runs read.
 - **Reusable workflows**: a job that calls one cannot declare `environment:`; the called job must. When the reusable workflow takes an `environment` input (`codex-pr-review.yml` does: pass `azure-codex-review`), pass it; the secret it still lists under `secrets:` arrives empty from the caller and the called job reads it from the Environment. Otherwise list it under "Decisions needed": adding the input changes its Workflow Contract.
 
 ---
@@ -707,7 +710,7 @@ Every repository extends `github>Giskard-AI/.github`, the shared preset (`defaul
 | Labels | none | `dependencies` |
 | Action references | as written | pinned to digests (`helpers:pinGitHubActionDigests`) |
 
-The pull request's Renovate section reports the rows that change for the repository, starting from its effective value: the "before" column, or the repository's own setting where it has one (flare: `before 4am on Monday` in UTC, label `dependencies`).
+The pull request's Renovate section reports the rows that change for the repository, starting from its effective value: the "before" column, or the repository's own setting where it has one (flare: `before 4am on Monday` in UTC, label `dependencies`). A repository with no Renovate config had no Renovate running, even when the App covers it: the section lists the preset's settings as what starts. Dependabot security updates overlap with Renovate's vulnerability pull requests (both act on Dependabot alerts); §11 says when to turn them off.
 
 In the repository's config:
 

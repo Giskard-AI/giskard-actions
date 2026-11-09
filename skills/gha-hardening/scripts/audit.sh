@@ -26,7 +26,19 @@ clone=$(cd "${2:?usage: audit.sh OWNER/REPO CLONE_DIR}" && pwd)
 owner="${repo%%/*}"
 
 section() { printf '\n## %s\n\n' "$1"; }
-unreadable() { echo "(not readable with this token: $1)"; }
+unreadable() { echo "(unreadable with this token: $1)"; }
+# jq: the first failed step of an Actions job; GitHub drops the steps of old jobs.
+failed_step='if (.steps // []) == [] then "unknown" else ([.steps[] | select(.conclusion | IN("failure", "timed_out")) | .name] | first // "none") end'
+# Each line under `jobs:` of a workflow file, as "<job key><TAB><line>".
+job_lines() {
+  awk '
+    /^jobs:/ { in_jobs = 1; next }
+    /^[^ #]/ { in_jobs = 0 }
+    in_jobs && /^ +[A-Za-z0-9_-]+:/ {
+      match($0, /^ +/); if (!indent) indent = RLENGTH
+      if (RLENGTH == indent) { job = $0; sub(/^ +/, "", job); sub(/:.*/, "", job) } }
+    in_jobs && job != "" { print job "\t" $0 }' "$1"
+}
 # Lines of workflow and action files matching an extended regex, as file:line: text.
 find_in_workflows() {
   local found
@@ -77,31 +89,50 @@ setting_in() {
     [[ -f "${tree}/${file}" ]] && grep -m1 -hE "$1" "${tree}/${file}" | sed "s|\$| (${file})|" && return
   done
 }
-# Why a failed Actions job failed: its failed step, the last error line of its log
-# before the post-job cleanup, and the same check on the latest pull request runs.
-check_cause() {
-  local job_id=$1 name=$2 job run_id step line workflow_id pr_runs pr_run pr_job=""
-  if ! job=$(gh api "repos/${repo}/actions/jobs/${job_id}" \
-    --jq '"\(.run_id)\t\([.steps[]? | select(.conclusion | IN("failure", "timed_out")) | .name] | first // "none")"' 2>/dev/null); then
-    echo "    $(unreadable "job ${job_id}")"
-    return
+# Why a failed Actions job failed: its failed step and the last error line of its
+# log before the post-job cleanup.
+job_cause() {
+  local run_id=$1 job_id=$2 step=$3 log line
+  if log=$(gh run view "${run_id}" -R "${repo}" --job "${job_id}" --log-failed 2>/dev/null); then
+    # The runner's closing "Process completed with exit code" line says nothing about the cause.
+    line=$(cut -f3- <<<"${log}" \
+      | sed -e '/Post job cleanup\./,$d' -e "s/"$'\x1b'"\[[0-9;]*m//g" -e 's/^[0-9-]*T[0-9:.]*Z //' \
+      | grep -E 'error|Error|timed out|exit code' | grep -v 'Process completed with exit code' | tail -1 | cut -c1-200)
+  else
+    line="log unavailable (expired or unreadable)"
   fi
-  run_id=${job%%$'\t'*}
-  step=${job#*$'\t'}
-  # The runner's closing "Process completed with exit code" line says nothing about the cause.
-  line=$(gh run view "${run_id}" -R "${repo}" --job "${job_id}" --log-failed 2>/dev/null | cut -f3- \
-    | sed -e '/Post job cleanup\./,$d' -e "s/"$'\x1b'"\[[0-9;]*m//g" -e 's/^[0-9-]*T[0-9:.]*Z //' \
-    | grep -E 'error|Error|timed out|exit code' | grep -v 'Process completed with exit code' | tail -1 | cut -c1-200)
-  echo "    failed step: ${step}; last error line: ${line:-none found}"
-  workflow_id=$(gh api "repos/${repo}/actions/runs/${run_id}" --jq .workflow_id 2>/dev/null)
-  pr_runs=$(gh api "repos/${repo}/actions/workflows/${workflow_id}/runs?event=pull_request&status=completed&per_page=5" \
-    --jq '.workflow_runs[].id' 2>/dev/null)
-  for pr_run in ${pr_runs}; do
-    pr_job=$(gh api "repos/${repo}/actions/runs/${pr_run}/jobs?per_page=100" 2>/dev/null | jq -r --arg name "${name}" \
-      'first(.jobs[] | select(.name == $name) | "\(.conclusion // .status), \((.completed_at // .started_at // "")[:10]), \(.html_url)")')
-    [[ -n "${pr_job}" ]] && break
+  echo "failed step: ${step}; last error line: ${line:-none found}"
+}
+# The jobs of the last 10 completed pull request runs of a workflow, newest first, as
+# "<name> <actor> <conclusion> <date> <url> <run id> <job id> <failed step>" (tab-separated).
+pr_jobs() {
+  local workflow_id=$1 run actor
+  if [[ ! -f "${cache}/${workflow_id}" ]]; then
+    gh api "repos/${repo}/actions/workflows/${workflow_id}/runs?event=pull_request&status=completed&per_page=10" \
+      --jq '.workflow_runs[] | "\(.id)\t\(.actor.login)"' 2>/dev/null | while IFS=$'\t' read -r run actor; do
+      gh api "repos/${repo}/actions/runs/${run}/jobs?per_page=100" 2>/dev/null | jq -r --arg actor "${actor}" ".jobs[]
+        | [.name, \$actor, .conclusion // .status, (.completed_at // .started_at // \"-\")[:10], .html_url, .run_id, .id,
+           (${failed_step})] | @tsv"
+    done >"${cache}/${workflow_id}"
+  fi
+  cat "${cache}/${workflow_id}"
+}
+# A check's pull request runs, split by actor, with the cause of the latest one when it failed.
+# Names match whatever their case: the pull request may rename `build` to `Build`.
+pr_runs_of() {
+  local name=$1 workflow_id=$2 runs actor subset counts conclusion date url run_id job_id step
+  runs=$(pr_jobs "${workflow_id}" | awk -F'\t' -v n="${name}" 'tolower($1) == tolower(n)')
+  for actor in others 'dependabot[bot]'; do
+    subset=$(awk -F'\t' -v a="${actor}" '(a == "others") == ($2 != "dependabot[bot]")' <<<"${runs}")
+    if [[ -z "${subset}" ]]; then
+      [[ "${actor}" == others ]] && echo "    pull request runs by others: none"
+      continue
+    fi
+    counts=$(cut -f3 <<<"${subset}" | sort | uniq -c | sort -rn | awk '{ printf "%s%d %s", sep, $1, $2; sep = ", " }')
+    IFS=$'\t' read -r _ _ conclusion date url run_id job_id step <<<"$(head -1 <<<"${subset}")"
+    echo "    pull request runs by ${actor}: ${counts}; latest: ${conclusion}, ${date}, ${url}"
+    [[ "${conclusion}" =~ ^(failure|timed_out)$ ]] && echo "      $(job_cause "${run_id}" "${job_id}" "${step}")"
   done
-  echo "    latest pull request run of ${name}: ${pr_job:-none in the last 5 pull request runs of its workflow}"
 }
 
 if ! branch=$(gh api "repos/${repo}" --jq .default_branch 2>&1) || [[ -z "${branch}" ]]; then
@@ -114,44 +145,59 @@ if ! git -C "${clone}" fetch -q origin "+refs/heads/${branch}:refs/remotes/origi
   exit 2
 fi
 tree=$(mktemp -d)
-trap 'git -C "${clone}" worktree remove --force "${tree}" 2>/dev/null; rm -rf "${tree}"' EXIT
+cache=$(mktemp -d)
+trap 'git -C "${clone}" worktree remove --force "${tree}" 2>/dev/null; rm -rf "${tree}" "${cache}"' EXIT
 git -C "${clone}" worktree add -q --detach "${tree}" "origin/${branch}" || exit 2
 head_sha=$(git -C "${tree}" rev-parse HEAD)
-rules=$(gh api "repos/${repo}/rules/branches/${branch}?per_page=100" 2>/dev/null || echo "[]")
 echo "Audited: ${repo}@${branch} (${head_sha:0:7}, committed $(git -C "${tree}" log -1 --format=%cs HEAD))"
 
 section "Gate scan"
 bash "$(dirname "$0")/gate-scan.sh" "${repo}" "${tree}" 2>&1 | grep -v ' INFO '
 echo "Gate scan exit status: ${PIPESTATUS[0]} (0 pass, 10-14 findings by highest severity, 1 or 2 scan error)"
 own_zizmor=$(cd "${tree}" && for file in .github/workflows/*.y*ml; do
-  [[ -f "${file}" ]] && awk -v f="${file}" '
-    /^jobs:/ { in_jobs = 1; next }
-    /^[^ #]/ { in_jobs = 0 }
-    in_jobs && /^ +[A-Za-z0-9_-]+:/ {
-      match($0, /^ +/); if (!indent) indent = RLENGTH
-      if (RLENGTH == indent) { job = $0; sub(/^ +/, "", job); sub(/:.*/, "", job) } }
-    in_jobs && job != "" { line = tolower($0); sub(/#.*/, "", line) }
-    in_jobs && job != "" && line ~ /zizmor/ && !seen[job]++ { print "  " f ": job " job }' "${file}"
+  [[ -f "${file}" ]] && job_lines "${file}" | awk -F'\t' -v f="${file}" '
+    { line = tolower($2); sub(/#.*/, "", line) }
+    line ~ /zizmor/ && !seen[$1]++ { print "  " f ": job " $1 }'
 done)
 echo "Own zizmor job on ${branch}:"
 echo "${own_zizmor:-  none}"
 
 section "Checks on ${branch} HEAD"
-echo "Check runs (the latest of each name; under a failed Actions job, its cause and the same check on pull requests):"
+echo "Check runs, the latest of each name (STALE: ${branch} last ran it more than 30 days ago). Under an Actions check:"
+echo "the last 10 pull request runs of its workflow by actor (a Dependabot run reads only Dependabot secrets,"
+echo "reference.md section 11), and the cause of each latest failed run:"
 if checks=$(gh api --paginate "repos/${repo}/commits/${head_sha}/check-runs?per_page=100" \
   --jq '.check_runs[] | [.started_at // "-", .name, .conclusion // .status, (.completed_at // .started_at // "-")[:10], .html_url, .id, .app.slug] | @tsv' 2>/dev/null); then
   while IFS=$'\t' read -r _ name conclusion date url id app; do
     echo "  ${name}: ${conclusion}, ${date}, ${url}"
-    [[ "${conclusion}" =~ ^(failure|timed_out)$ && "${app}" == github-actions ]] && check_cause "${id}" "${name}"
+    run_id="" step="" workflow_id="" event=""
+    if [[ "${app}" == github-actions ]]; then
+      if job=$(gh api "repos/${repo}/actions/jobs/${id}" \
+        --jq "[.run_id, (${failed_step})] | @tsv" 2>/dev/null); then
+        IFS=$'\t' read -r run_id step <<<"${job}"
+        IFS=$'\t' read -r workflow_id event < <(gh api "repos/${repo}/actions/runs/${run_id}" --jq '[.workflow_id, .event] | @tsv' 2>/dev/null)
+      else
+        echo "    $(unreadable "job ${id}")"
+      fi
+    fi
+    # Dependabot's own update jobs run outside commits and pull requests.
+    [[ "${event}" == dynamic ]] && continue
+    jq -ne --arg d "${date}" '($d | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")) and (($d + "T00:00:00Z" | fromdateiso8601) < now - 2592000)' >/dev/null \
+      && echo "    STALE: ${branch} has not run it since ${date}"
+    [[ "${conclusion}" =~ ^(failure|timed_out)$ && -n "${run_id}" ]] && echo "    $(job_cause "${run_id}" "${id}" "${step}")"
+    [[ -n "${workflow_id}" ]] && pr_runs_of "${name}" "${workflow_id}"
   done < <(sort -r <<<"${checks}" | awk -F'\t' 'NF == 7 && !seen[$2]++')
   [[ -n "${checks}" ]] || echo "  none"
 else
   echo "  $(unreadable "check runs")"
 fi
-statuses=$(gh api "repos/${repo}/commits/${head_sha}/status" \
-  --jq '.statuses[] | "  \(.context): \(.state), \(.updated_at[:10]), \(.target_url // "no link")"' 2>/dev/null)
 echo "Commit statuses:"
-echo "${statuses:-  none}"
+if statuses=$(gh api "repos/${repo}/commits/${head_sha}/status" \
+  --jq '.statuses[] | "  \(.context): \(.state), \(.updated_at[:10]), \(.target_url // "no link")"' 2>/dev/null); then
+  echo "${statuses:-  none}"
+else
+  echo "  $(unreadable "commit statuses")"
+fi
 
 section "Workflows ${branch} does not run on push or pull request"
 echo "Their last run and the last commit on ${branch} that changed the file; read each flagged one for steps that cannot work today:"
@@ -195,26 +241,41 @@ if repo_secrets=$(gh api "repos/${repo}/actions/secrets" --jq '.secrets[].name' 
   for name in ${repo_secrets}; do
     grep -qx "${name}" <<<"${referenced}" && echo "  ${name}" || echo "  ${name} (unused)"
   done
+  [[ -n "${repo_secrets}" ]] || echo "  none"
 else
-  unreadable "needs repository admin"
+  echo "  $(unreadable "needs repository admin")"
 fi
 echo "Organization secrets visible to this repository:"
-gh api "repos/${repo}/actions/organization-secrets" --jq '.secrets[] | "  \(.name)"' 2>/dev/null || unreadable "needs repository admin"
+if org_secrets=$(gh api "repos/${repo}/actions/organization-secrets" --jq '.secrets[] | "  \(.name)"' 2>/dev/null); then
+  echo "${org_secrets:-  none}"
+else
+  echo "  $(unreadable "needs repository admin")"
+fi
 echo "Environments (secrets of an Environment deployable from any branch are readable from any branch):"
-for env in $(gh api "repos/${repo}/environments" --jq '.environments[].name' 2>/dev/null); do
-  policy=$(gh api "repos/${repo}/environments/${env}" --jq '
-    if .deployment_branch_policy == null then "any branch"
-    elif .deployment_branch_policy.protected_branches then "protected branches"
-    else "custom branches" end')
-  branches=""
-  if [[ "${policy}" == "custom branches" ]]; then
-    branches=$(gh api "repos/${repo}/environments/${env}/deployment-branch-policies" \
-      --jq '[.branch_policies[] | "\(.type // "branch") \(.name)"] | join(", ")' 2>/dev/null)
-  fi
-  echo "  ${env} (deploys from: ${policy}${branches:+: ${branches}})"
-  gh api "repos/${repo}/environments/${env}/secrets" --jq '.secrets[] | "    secret \(.name)"' 2>/dev/null
-  gh api "repos/${repo}/environments/${env}/variables" --jq '.variables[] | "    variable \(.name)"' 2>/dev/null
-done
+if envs=$(gh api "repos/${repo}/environments" --jq '.environments[].name' 2>/dev/null); then
+  for env in ${envs}; do
+    policy=$(gh api "repos/${repo}/environments/${env}" --jq '
+      if .deployment_branch_policy == null then "any branch"
+      elif .deployment_branch_policy.protected_branches then "protected branches"
+      else "custom branches" end')
+    branches=""
+    if [[ "${policy}" == "custom branches" ]]; then
+      branches=$(gh api "repos/${repo}/environments/${env}/deployment-branch-policies" \
+        --jq '[.branch_policies[] | "\(.type // "branch") \(.name)"] | join(", ")' 2>/dev/null)
+    fi
+    echo "  ${env} (deploys from: ${policy}${branches:+: ${branches}})"
+    for kind in secrets variables; do
+      if names=$(gh api "repos/${repo}/environments/${env}/${kind}" --jq ".${kind}[].name" 2>/dev/null); then
+        echo "    ${kind}: $(paste -sd, - <<<"${names}" | sed 's/,/, /g; s/^$/none/')"
+      else
+        echo "    ${kind}: $(unreadable "needs repository admin")"
+      fi
+    done
+  done
+  [[ -n "${envs}" ]] || echo "  none"
+else
+  echo "  $(unreadable "environments")"
+fi
 echo "Secrets referenced by workflows and actions:"
 sed 's/^/  /' <<<"${referenced:-none}"
 
@@ -235,6 +296,12 @@ echo "Static passwords (move to OIDC, reference.md section 9):"
 find_in_workflows 'password:\s*\$\{\{\s*secrets\.|docker login .*(secrets\.|-p |--password)'
 
 section "Rules on ${branch}"
+if ! rules=$(gh api "repos/${repo}/rules/branches/${branch}?per_page=100" 2>/dev/null); then
+  echo "rulesets: $(unreadable "rules on ${branch}")"
+  rules="[]"
+elif [[ $(jq length <<<"${rules}") == 0 ]]; then
+  echo "rulesets: none"
+fi
 for id in $(jq -r '[.[].ruleset_id] | unique[]' <<<"${rules}"); do
   jq -r --argjson id "${id}" '[.[] | select(.ruleset_id == $id)]
     | "ruleset \($id) (\(.[0].ruleset_source_type) \(.[0].ruleset_source)): \([.[].type] | join(", "))",
@@ -265,12 +332,16 @@ else
 fi
 
 section "Rules on tags"
-tag_rulesets=$(gh api "repos/${repo}/rulesets?includes_parents=true&targets=tag&per_page=100" --jq '.[].id' 2>/dev/null)
-for id in ${tag_rulesets}; do
-  gh api "repos/${repo}/rulesets/${id}" --jq '"ruleset \(.id) \(.name) (\(.source_type) \(.source), \(.enforcement))",
-    "  refs: \(.conditions.ref_name.include | join(", ")); rules: \([.rules[].type] | join(", "))"' 2>/dev/null
-done
-[[ -n "${tag_rulesets}" ]] || echo "No ruleset protects tags."
+if tag_rulesets=$(gh api "repos/${repo}/rulesets?includes_parents=true&targets=tag&per_page=100" --jq '.[].id' 2>/dev/null); then
+  for id in ${tag_rulesets}; do
+    gh api "repos/${repo}/rulesets/${id}" --jq '"ruleset \(.id) \(.name) (\(.source_type) \(.source), \(.enforcement))",
+      "  refs: \(.conditions.ref_name.include | join(", ")); rules: \([.rules[].type] | join(", "))"' 2>/dev/null \
+      || echo "ruleset ${id}: $(unreadable "ruleset ${id}")"
+  done
+  [[ -n "${tag_rulesets}" ]] || echo "No ruleset protects tags."
+else
+  echo "Tag rulesets: $(unreadable "rulesets")"
+fi
 
 section "GitHub Apps installed on every repository"
 # Sensitive: write access that can change code, workflows, settings or secrets.
@@ -345,11 +416,12 @@ if [[ -f "${tree}/.github/dependabot.yml" || -f "${tree}/.github/dependabot.yaml
 else
   echo "Dependabot version updates: none"
 fi
-gh api "repos/${repo}" --jq '"Dependabot security updates: \(.security_and_analysis.dependabot_security_updates.status // "unknown")"' 2>/dev/null
+security_updates=$(gh api "repos/${repo}" --jq '.security_and_analysis.dependabot_security_updates.status // empty' 2>/dev/null)
+echo "Dependabot security updates (they overlap with Renovate's vulnerability pull requests, reference.md section 14): ${security_updates:-$(unreadable "needs repository admin")}"
 if gh api "repos/${repo}/vulnerability-alerts" --silent 2>/dev/null; then
   echo "Dependabot alerts: enabled"
 else
-  echo "Dependabot alerts: disabled, or not readable (needs repository admin)"
+  echo "Dependabot alerts: disabled, or $(unreadable "needs repository admin")"
 fi
 
 section "Dependencies"

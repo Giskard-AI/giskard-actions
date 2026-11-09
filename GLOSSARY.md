@@ -75,7 +75,7 @@ A GitHub Environment that holds the secrets of one kind of job, named `<service>
 _Avoid_: CI environment, deploy environment, repository secret
 
 **Human Step**:
-A settings change that a `gha-hardening` pull request lists for a person to apply, as one command or wizard run: a **Secret Environment**, a ruleset, a GitHub App. The agent never applies it.
+A change outside the pull request that a `gha-hardening` pull request lists for a person to apply: a settings change as one command or wizard run (a **Secret Environment**, a ruleset, a GitHub App), or the fix of a check already failing for a cause outside the workflows (a retired model, a dead key). The agent never applies it.
 _Avoid_: Manual step, follow-up, TODO
 
 **Workflow Contract**:
