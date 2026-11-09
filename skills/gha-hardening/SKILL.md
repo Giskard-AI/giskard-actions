@@ -31,10 +31,12 @@ bash <skill>/scripts/audit.sh OWNER/REPO <clone>
 
 It scans the default branch whatever the clone has checked out, so its counts are the "before" of the pull request. Done when it exits 0 and you have its full output (exit 2 means GitHub was unreachable: fix that first). A section the token cannot read is reported as such; carry it to the pull request as is.
 
-Then list the checks that fail on the default branch today (`gh run list -R OWNER/REPO --branch <default> --limit 10`). For each one, with the run that shows it:
+Then find what already fails on the default branch, in two audit sections:
 
-- the cause is in a workflow file: fix it in this pull request, in its own commit (`ci: fix <check>, already failing on <default>`);
-- otherwise: open a GitHub issue in the repository (label `ci`, the run linked) and keep its link for the pull request.
+- **Checks on <default> HEAD**: each check whose conclusion is not `success`, `neutral` or `skipped`.
+- **Workflows <default> does not run on push or pull request**: each one flagged `CHANGED SINCE ITS LAST RUN` or `NO RUN ON RECORD`, or whose last run failed. Read it for steps that cannot work today (a file it reads is missing or gitignored, a push the rules reject). When you can show why it fails, it is already failing, even though it is not a check.
+
+For each one, when the cause is in a workflow file, fix it in this pull request, in its own commit (`ci: fix <check or workflow>, already failing on <default>`); otherwise open a GitHub issue in the repository (label `ci`, the run linked) and keep its link. A fix that removes a step which cannot succeed today takes no `(needs a decision)`; the pull request says why the step could not succeed. Done when each failing check and each flagged workflow has a fix commit, an issue, or a line saying why it works.
 
 ### 2. Fix the findings
 
@@ -59,7 +61,7 @@ Then apply every item below that the audit shows for this repository; the Gate d
 - **Permissions**: every grant carries a comment saying what it reads or writes (`contents: read # checkout`); a grant no step uses is removed.
 - **Renovate**: the config extends `github>Giskard-AI/.github`, without the presets it already includes (`config:recommended`, `helpers:pinGitHubActionDigests`); other settings stay. Without a config, add `renovate.json`: `{"$schema": "https://docs.renovatebot.com/renovate-schema.json", "extends": ["github>Giskard-AI/.github"]}`.
 - **Dependabot version updates** (`.github/dependabot.yml`): remove them when the audit shows the `renovate` App covering this repository; otherwise keep them and add the Human Step "install Renovate, then remove `dependabot.yml`".
-- **The repository's own zizmor job**: keep it while the audit shows "Gate ruleset: not active yet" (it must pass too); once the Gate is active, delete it.
+- **The repository's own zizmor job** (the audit's "Own zizmor job on <default>" line): keep it while the audit shows "Gate ruleset: not active yet" (it must pass too); once the Gate is active, delete it.
 - **Push to a protected branch with `github.token`** (the audit lists it): the push fails today. Recommend reading the version from the tag when the only push is the version commit, a GitHub App with bypass otherwise ([§12](reference.md#12-releases-that-push-to-a-protected-branch)).
 - **Registry login with a static secret**: switch to OIDC ([§9](reference.md#9-oidc-federation-for-container-registries)); the registry-side trust is a Human Step.
 - **Privileged triggers** (`pull_request_target`, `workflow_run`, `issue_comment`): run the checklist of [§13](reference.md#13-privileged-triggers-checklist) on each such workflow before proposing any `dangerous-triggers` Exception.
@@ -86,7 +88,7 @@ Commits: `ci: pass the zizmor Gate` for the workflows, `chore(renovate): extend 
 3. **Not run by CI**: each changed workflow the pull request's checks do not run (release, dispatch, schedule), and what to run after the merge to prove it still works.
 4. **Renovate**: what the shared preset changes for this repository: schedule (Monday 00:00-06:00 Paris), 7-day wait before a new version (security fixes excepted), one pull request per package manager, lock file maintenance, Python never bumped.
 5. **Decisions needed**: each `(needs a decision)` commit and each remaining finding, with file:line, why zizmor flags it, the §13 checklist result for privileged triggers, and your recommendation. The pull request stays a draft until each is decided.
-6. **Checks already failing**: each one, with the fixing commit or the issue link.
+6. **Checks already failing**: each failing check and each workflow shown failing in step 1 (saying it is not a check), with the fixing commit or the issue link.
 7. **Human Steps**, in order, each one a command to run:
    1. Before merging: `python3 <skill>/scripts/migrate_secrets.py --repo OWNER/REPO --env <name>:<policy>:<SECRET>[,<SECRET>] ... [--delete <UNUSED_SECRET>]` (plan with `--dry-run`), then rerun the pull request's checks: green proves the migration.
    2. A personal access token, deploy key or App with more access than the job needs: `python3 <skill>/scripts/setup_github_app.py --dry-run ...` filled in (§8).
