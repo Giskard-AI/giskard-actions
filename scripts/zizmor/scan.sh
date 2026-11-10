@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The zizmor scan of the organization Gate: the only place that sets the zizmor
 # version and flags. The Gate workflow (zizmor-scan.yml), the gha-hardening
-# skill and the repo-baseline dashboard all run this script, so they agree.
+# skill and the organization dashboard all run this script, so they agree.
 #
 # Usage: scan.sh SRC [BASE]
 #   SRC   directory to scan.

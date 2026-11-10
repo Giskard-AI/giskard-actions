@@ -15,10 +15,10 @@ from release_notes.renderer import render_markdown
 from release_notes.sanitize import LINK_REMOVED, github_repo_link_filter, strip_untrusted_links
 
 EVIL = "evil.example"
-REPO = "Giskard-AI/repo-baseline"
+REPO = "octo-org/example-app"
 SHA = "a22733cfae5a41cbff59cc9af0a13c367797543b"
 BLOB = f"https://github.com/{REPO}/blob/{SHA}"
-RUNNER_WORKSPACE = "/home/runner/work/repo-baseline/repo-baseline"
+RUNNER_WORKSPACE = "/home/runner/work/example-app/example-app"
 
 
 @pytest.mark.parametrize(
@@ -97,12 +97,12 @@ def test_codex_sanitizer_keeps_allowed_content(body: str) -> None:
             id="file-scheme-runner-workspace-link",
         ),
         pytest.param(
-            "[a.py](/__w/repo-baseline/repo-baseline/src/a.py:7)",
+            "[a.py](/__w/example-app/example-app/src/a.py:7)",
             f"[a.py]({BLOB}/src/a.py#L7)",
             id="container-job-workspace-link",
         ),
         pytest.param(
-            "[a.py](/srv/actions/_work/repo-baseline/repo-baseline/src/a.py:7)",
+            "[a.py](/srv/actions/_work/example-app/example-app/src/a.py:7)",
             f"[a.py]({BLOB}/src/a.py#L7)",
             id="github-workspace-env-link",
         ),
@@ -131,7 +131,7 @@ def test_codex_sanitizer_keeps_allowed_content(body: str) -> None:
 def test_review_rewrites_local_path_links_to_blob_urls(
     monkeypatch: pytest.MonkeyPatch, body: str, expected: str
 ) -> None:
-    monkeypatch.setenv("GITHUB_WORKSPACE", "/srv/actions/_work/repo-baseline/repo-baseline")
+    monkeypatch.setenv("GITHUB_WORKSPACE", "/srv/actions/_work/example-app/example-app")
 
     sanitized = codex_pr_assessment.sanitize_review_body(
         body, "Codex advisory code review", repository=REPO, head_sha=SHA

@@ -57,9 +57,9 @@ def test_bad_env_is_rejected(text, message):
     ("repos", "envs", "deletes", "message"),
     [
         pytest.param([], [TESTS], [], "--repo", id="no-repo"),
-        pytest.param(["flare"], [TESTS], [], "OWNER/REPO", id="repo-without-owner"),
-        pytest.param(["G/flare"], [TESTS, TESTS], [], "once", id="environment-twice"),
-        pytest.param(["G/flare"], [TESTS], ["OPENAI_API_KEY"], "both copied and deleted",
+        pytest.param(["app"], [TESTS], [], "OWNER/REPO", id="repo-without-owner"),
+        pytest.param(["G/app"], [TESTS, TESTS], [], "once", id="environment-twice"),
+        pytest.param(["G/app"], [TESTS], ["OPENAI_API_KEY"], "both copied and deleted",
                      id="copied-and-deleted"),
     ],
 )  # fmt: skip
@@ -75,7 +75,7 @@ def test_validation(repos, envs, deletes, message):
             wizard.RepoState({"OPENAI_API_KEY"}),
             [],
             [
-                "Create Environment openai-tests on G/flare, deployable from every branch.",
+                "Create Environment openai-tests on G/app, deployable from every branch.",
                 "Write OPENAI_API_KEY to openai-tests, then check it is there.",
                 "Delete repository secret OPENAI_API_KEY, once every copy is checked.",
             ],
@@ -85,7 +85,7 @@ def test_validation(repos, envs, deletes, message):
             wizard.RepoState(set(), {"openai-tests": set()}),
             [],
             [
-                "Update Environment openai-tests on G/flare, deployable from every branch.",
+                "Update Environment openai-tests on G/app, deployable from every branch.",
                 "Write OPENAI_API_KEY to openai-tests (not a repository secret today), "
                 "then check it is there.",
             ],
@@ -95,11 +95,11 @@ def test_validation(repos, envs, deletes, message):
             wizard.RepoState({"OPENAI_API_KEY", "OLD_PAT", "OTHER"}),
             ["OLD_PAT", "GONE"],
             [
-                "Create Environment openai-tests on G/flare, deployable from every branch.",
+                "Create Environment openai-tests on G/app, deployable from every branch.",
                 "Write OPENAI_API_KEY to openai-tests, then check it is there.",
                 "Delete repository secret OPENAI_API_KEY, once every copy is checked.",
                 "Delete unused repository secret OLD_PAT.",
-                "Skip GONE: not a repository secret of G/flare.",
+                "Skip GONE: not a repository secret of G/app.",
                 "Left at repository level, not named above: OTHER.",
             ],
             id="delete-unused-and-report-the-rest",
@@ -107,12 +107,12 @@ def test_validation(repos, envs, deletes, message):
     ],
 )
 def test_migration_plan(state, deletes, expected):
-    assert wizard.migration_plan("G/flare", state, [TESTS], deletes) == expected
+    assert wizard.migration_plan("G/app", state, [TESTS], deletes) == expected
 
 
 def test_plan_describes_a_tag_policy():
-    steps = wizard.migration_plan("G/flare", wizard.RepoState(), [RELEASE], [])
-    assert steps[0] == "Create Environment pypi-release on G/flare, deployable from tag v* only."
+    steps = wizard.migration_plan("G/app", wizard.RepoState(), [RELEASE], [])
+    assert steps[0] == "Create Environment pypi-release on G/app, deployable from tag v* only."
 
 
 @pytest.mark.parametrize(
@@ -133,13 +133,13 @@ def test_environment_body(policy, expected):
 
 def test_rotation_finds_every_copy():
     states = {
-        "G/flare": wizard.RepoState(set(), {"openai-tests": {"OPENAI_API_KEY"}, "docs": {"X"}}),
+        "G/app": wizard.RepoState(set(), {"openai-tests": {"OPENAI_API_KEY"}, "docs": {"X"}}),
         "G/bench": wizard.RepoState(
             {"OPENAI_API_KEY"}, {"release": {"OPENAI_API_KEY"}, "e2e-tests": {"OPENAI_API_KEY"}}
         ),
     }
     assert wizard.rotation_targets("OPENAI_API_KEY", states) == [
-        ("G/flare", "openai-tests"),
+        ("G/app", "openai-tests"),
         ("G/bench", "e2e-tests"),
         ("G/bench", "release"),
     ]

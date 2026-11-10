@@ -74,7 +74,7 @@ Sections in this order, each omitted when empty except Human Steps. Commands mea
    6. The Dependabot handover when Renovate covers the repository (§14, its four steps after merging); otherwise, for a job that reads secrets on Dependabot pull requests, the secrets added as Dependabot secrets (§11).
    7. Each check already failing for a cause outside the workflows, with its fix: the retired model to replace in `<config file>`, the new key to put into the Environment (item 1), the credits to add.
 
-   Org-wide audit findings (`SENSITIVE` Apps, organization ruleset bypass) belong to the repo-baseline dashboard; leave them out.
+   Org-wide audit findings (`SENSITIVE` Apps, organization ruleset bypass) belong to the organization dashboard; leave them out.
 
 ---
 
@@ -398,7 +398,7 @@ A job that clones another private repository with a personal access token gets a
 
 A read-only deploy key that clones one repository stays a deploy key, in the job's Secret Environment, even when that Environment is deployable from every branch (pull request jobs): an App reading the same repository would not reduce what the key exposes. The audit's "Clone keys" lines print `read_only` for each repository a key clones (`gh api repos/<owner>/<cloned-repo>/keys`, which needs admin on that repository). When they say `unknown`, ask the human in the conversation; without an answer, treat the key as having write access and list it under "Decisions needed", with the command that settles it (admin on the cloned repository) and the App that would replace it. Replace the key with an App only when it has write access or reaches several repositories (the cloned repository has no deploy key: the secret is a user's SSH key). An App key keeps the rule of §11, an Environment restricted to its ref, so a pull request job that needs it is a decision.
 
-An App that must read every repository (the repo-baseline dashboard) stays installed on the whole org when three controls hold: its registered permissions are read-only (the App's settings page, Permissions), its key lives in an Environment restricted to the default branch, and that branch requires a reviewed pull request. Its token still reads every private repository the App is installed on. `permission-<name>: read` on `create-github-app-token` narrows one run's token, not what the key can mint. Its `github-app` Exception gives the three controls as its reason. With any write permission registered, it is replaced (Human Steps item 2).
+An App that must read every repository (the organization dashboard) stays installed on the whole org when three controls hold: its registered permissions are read-only (the App's settings page, Permissions), its key lives in an Environment restricted to the default branch, and that branch requires a reviewed pull request. Its token still reads every private repository the App is installed on. `permission-<name>: read` on `create-github-app-token` narrows one run's token, not what the key can mint. Its `github-app` Exception gives the three controls as its reason. With any write permission registered, it is replaced (Human Steps item 2).
 
 ---
 
@@ -550,7 +550,7 @@ An organization ruleset blocks updating and deleting `v*` tags in every code rep
 
 ### Squash merge message
 
-Every hardened repository squash-merges with the pull request title and body, so the commit on the default branch keeps the reviewed description (this skill's long body included) and `git log` explains the change. GitHub has no organization-level setting: it is set per repository, by an admin; the repo-baseline dashboard reports it as the informational rule `squash-uses-pr-body`. When the audit's `Squash merge` line says `set PR_TITLE / PR_BODY`, the Human Step is (the two values go together):
+Every hardened repository squash-merges with the pull request title and body, so the commit on the default branch keeps the reviewed description (this skill's long body included) and `git log` explains the change. GitHub has no organization-level setting: it is set per repository, by an admin; the organization dashboard reports it as the informational rule `squash-uses-pr-body`. When the audit's `Squash merge` line says `set PR_TITLE / PR_BODY`, the Human Step is (the two values go together):
 
 ```bash
 gh api -X PATCH repos/<owner>/<repo> -f squash_merge_commit_title=PR_TITLE -f squash_merge_commit_message=PR_BODY
@@ -560,7 +560,7 @@ gh api -X PATCH repos/<owner>/<repo> -f squash_merge_commit_title=PR_TITLE -f sq
 
 ## 11. Secret Environments
 
-Every secret of a code repository lives in a **Secret Environment** (repo-baseline ADR 0002); zizmor's `secrets-outside-env` checks that each job reading a secret declares one.
+Every secret of a code repository lives in a **Secret Environment**; zizmor's `secrets-outside-env` checks that each job reading a secret declares one.
 
 - **Name**: `<service>-<usage>` when the job calls one service (`openai-tests`, `azure-codex-review`, `pypi-release`, `github-release` for a release App key), `<usage>` when it calls several (`e2e-tests`; a job that uses an API key and a clone key: `benchmark-tests`). An existing Environment off this convention is renamed when its repository is reworked ([Rename an Environment](#rename-an-environment)).
 - **Deployment branches follow the trigger** (`migrate_secrets.py` policy in brackets): pull request jobs (any job that runs on `pull_request`, whatever else triggers it), every branch (`all`); push, dispatch or schedule on the default branch, that branch (`branch=main`); a pushed release tag, the tags (`tag=v*`). An Environment that holds a release or App key is restricted to its ref: when pull request jobs use it for other secrets, it splits in two, and a pull request job that needs the key itself is a decision. A read-only deploy key that clones one repository is not such a key: it stays in the pull request job's Environment, deployable from every branch (§8).
