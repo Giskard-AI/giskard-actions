@@ -18,7 +18,7 @@ The Gate runs zizmor with the auditor persona, offline. Each finding links its r
 | `anonymous-definition` | `name:` on the workflow and each job. A job `name:` renames its status check. |
 | `dangerous-triggers` | Replace `pull_request_target` / `workflow_run` with `pull_request` when no secret is needed; otherwise run the §13 checklist, fix what fails, and propose a zizmor Exception whose reason is the guard. |
 | `secrets-inherit`, `overprovisioned-secrets` | Pass each secret by name; `toJSON(secrets)` never. |
-| `cache-poisoning` | No cache restore in release or publish jobs (`enable-cache: false`, no `cache:` input) (§6). |
+| `cache-poisoning` | No dependency cache in CI, in any job (§6): `enable-cache: false` on `astral-sh/setup-uv` (its default, `auto`, turns the cache on), no `cache:` input on `actions/setup-python` and `actions/setup-node`, `package-manager-cache: false` on `actions/setup-node` v5 and later (it caches npm by default), no `actions/cache`. The pull request removes each cache it finds and lists it in the Workflow Contract. |
 | `use-trusted-publishing` | PyPI / npm publish through OIDC trusted publishing from a job in its release Environment (§11), then delete the token secret (Human Step). |
 | `github-env` | Write to `$GITHUB_ENV` / `$GITHUB_PATH` only values the workflow builds itself. |
 | `bot-conditions`, `unredacted-secrets`, `obfuscation`, `stale-action-refs`, other | Follow the rule's documentation; when the fix would change behaviour, it is a decision for the pull request. |
@@ -330,9 +330,7 @@ Even with `permissions: {}`, a workflow can write to the Actions cache. A `pull_
 
 ### Mitigations
 
-- Use immutable cache keys that include lockfile hashes.
-- Don't share cache namespaces between privileged and unprivileged workflows.
-- Consider `actions/cache/restore` (read-only) in privileged workflows instead of the full `actions/cache` action.
+No cache in CI, in any job. A dependency cache saves seconds to a minute per run; a poisoned entry runs in every job that restores it, including the ones that hold secrets, and cache scopes, keys and read-only restores are easy to get wrong. Each install starts from the lock file instead. The fix table's `cache-poisoning` row lists the inputs to set.
 
 ---
 
