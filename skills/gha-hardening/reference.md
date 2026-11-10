@@ -827,6 +827,12 @@ A **Dependency cooldown** keeps a release out of the lock until it is 7 days old
 - pnpm: `minimumReleaseAgeExclude: [<package>@<version>]` in `pnpm-workspace.yaml` (a version needs pnpm >= 10.19). Renovate writes it for a pnpm security update when `pnpm-workspace.yaml` sets `minimumReleaseAge`; check it is there.
 - npm: `min-release-age-exclude[]=<package>` in `.npmrc`, npm >= 11.17.0 (`min-release-age` itself needs 11.10.0). It exempts every version of the package.
 
+**A fix capped by a consumer.** When a locked package caps the vulnerable one below the fix (`litellm` 1.106.6 requires `filelock<4.0`, the fix is 4.2.1) and only a release younger than 7 days lifts the cap, the resolver moves that consumer back to an older release without the cap (flare#66: `litellm` 1.106.6 to 1.103.10). Read the vulnerability pull request's lock diff for every package besides the fixed one, downgrades first. The downgrade lasts until the lock file maintenance after the cap-lifting release turns 7 days old. The Dependencies section names the consumer, both versions and the choice:
+
+- merge, when the older release has no known vulnerability (`curl -s -X POST https://api.osv.dev/v1/query -d '{"package":{"name":"<package>","ecosystem":"PyPI"},"version":"<version>"}'` returns no `vulns`) and CI passes;
+- exempt the consumer with a timestamp just after the cap-lifting release, as above; a consumer with compromised releases in its history (`litellm` 1.82.7 and 1.82.8) takes the downgrade instead;
+- leave it open when exploiting the vulnerability needs access an attacker is not expected to have (another local user on the machine): the lock file maintenance takes the fix and Renovate closes the pull request.
+
 ### Convert a Python project to uv
 
 Each Python project the audit marks `convert to uv` (Poetry, Rye, PDM, Pipenv, pip-tools, requirements files) moves to uv in the commit `build: move <dirs> to uv`, cooldown included, after the dependency commit.
