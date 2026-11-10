@@ -175,7 +175,7 @@ The workflow references its own composites with the self-repository syntax (`use
 - The caller workflow does not change. Bump the pinned SHA and, optionally, set `max_parallel`.
 - The check names change: one **Codex reviewer (`<name>`)** check per reviewer, plus **Prepare Codex review** and **Codex review aggregator**. Do not make them required.
 - Personas and the reviewer map are now read from the **default branch HEAD**, not the pull request's base commit. A change to your reviewer map applies to open pull requests once it is merged.
-- Without a reviewer map, only the three bundled reviewers run (v1 selected llm-hub's reviewers).
+- Without a reviewer map, only the three bundled reviewers run (v1 selected the reviewers of its first consumer).
 - The `codex-pr-review` composite action is removed. The reusable workflow is the only supported interface; its composites (`codex-review-prepare`, `codex-review-pass`, `codex-post-review`) are internal.
 - Self-hosted runners need `allow_self_hosted: true`; see above.
 

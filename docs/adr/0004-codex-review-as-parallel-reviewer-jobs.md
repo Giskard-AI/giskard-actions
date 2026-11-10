@@ -16,7 +16,7 @@ v1 ran up to 12 reviewer passes and the aggregator one after another in one job,
 
 A first fix kept the single job and ran Codex as a separate unprivileged account (`unprivileged-user`). It needed two rounds of corrections, and a review found that giving that account the runner home's group put it in the `docker` group on `ubuntu-latest`, which is root through the Docker socket.
 
-A live probe showed `drop-sudo` with `:read-only` works on both `ubuntu-slim` and `ubuntu-latest`: Codex runs as the runner user with the `nogroup` group, no supplementary groups, no capabilities and `no_new_privs`; it cannot read the proxy's memory, the Docker socket is denied and `sudo` is gone for the rest of the job. lidar's standalone workflow already ran one reviewer per job this way.
+A live probe showed `drop-sudo` with `:read-only` works on both `ubuntu-slim` and `ubuntu-latest`: Codex runs as the runner user with the `nogroup` group, no supplementary groups, no capabilities and `no_new_privs`; it cannot read the proxy's memory, the Docker socket is denied and `sudo` is gone for the rest of the job. A consumer's standalone workflow already ran one reviewer per job this way.
 
 Reviews also found that config read from the pull request base commit can be chosen by the author, who can retarget the pull request to a branch they pushed, and that `.cursor/agents` was hard-coded although consumers may use Claude Code, Copilot or no agent tool at all.
 

@@ -40,9 +40,9 @@ UV_LOCK = (
     UV_LOCK_WITHOUT_GIT
     + """
 [[package]]
-name = "flare"
+name = "example-lib"
 version = "0.1.0"
-source = { git = "ssh://git@github.com/Giskard-AI/flare.git#75c36ee3aaaabbbbccccdddd" }
+source = { git = "ssh://git@github.com/octo-org/example-lib.git#75c36ee3aaaabbbbccccdddd" }
 """
 )
 COLORAMA_ADDED = "added    colorama 0.4.6 (platform-only: sys_platform == 'win32')"
@@ -57,12 +57,12 @@ optional = false
 colorama = {version = "*", markers = "platform_system == \\"Windows\\""}
 
 [[package]]
-name = "flare"
+name = "example-lib"
 version = "0.1.0"
 
 [package.source]
 type = "git"
-url = "https://github.com/Giskard-AI/flare.git"
+url = "https://github.com/octo-org/example-lib.git"
 reference = "main"
 resolved_reference = "6a24ee4db35ee1808f7ba264456a424b79200777"
 """
@@ -83,8 +83,8 @@ PIPFILE_LOCK = '{"_meta": {}, "default": {"click": {"version": "==8.1.8"}}, "dev
     ("text", "versions"),
     [
         pytest.param(UV_LOCK, {"click": {"8.1.8"}, "colorama": {"0.4.6"},
-                               "flare": {"0.1.0 (git 75c36ee3)"}}, id="uv-lock"),
-        pytest.param(POETRY_LOCK, {"click": {"8.1.8"}, "flare": {"0.1.0 (git 6a24ee4d)"}},
+                               "example-lib": {"0.1.0 (git 75c36ee3)"}}, id="uv-lock"),
+        pytest.param(POETRY_LOCK, {"click": {"8.1.8"}, "example-lib": {"0.1.0 (git 6a24ee4d)"}},
                      id="poetry-lock-git-and-case"),
         pytest.param(RYE_LOCK, {"click": {"8.1.8"}, "typing-extensions": {"4.12.2"},
                                 "uvicorn": {"0.34.0"}}, id="rye-requirements-lock"),
@@ -115,13 +115,13 @@ def test_parse_local_and_platform_only(text, local, platform_only):
         pytest.param("click==8.1.8\n", UV_LOCK_WITHOUT_GIT, [COLORAMA_ADDED], False,
                      id="only-a-platform-only-addition"),
         pytest.param("click==8.1.8\n", UV_LOCK,
-                     [COLORAMA_ADDED, "added    flare 0.1.0 (git 75c36ee3)"], True,
+                     [COLORAMA_ADDED, "added    example-lib 0.1.0 (git 75c36ee3)"], True,
                      id="platform-only-beside-a-real-addition"),
-        pytest.param("click==8.1.8\ncolorama==0.4.6\nflare==0.1.0\n", "click==8.1.8\n",
-                     ["removed  colorama 0.4.6", "removed  flare 0.1.0"], True, id="removed"),
+        pytest.param("click==8.1.8\ncolorama==0.4.6\nexample-lib==0.1.0\n", "click==8.1.8\n",
+                     ["removed  colorama 0.4.6", "removed  example-lib 0.1.0"], True, id="removed"),
         pytest.param(POETRY_LOCK, UV_LOCK,
                      [COLORAMA_ADDED,
-                      "changed  flare 0.1.0 (git 6a24ee4d) -> 0.1.0 (git 75c36ee3)"],
+                      "changed  example-lib 0.1.0 (git 6a24ee4d) -> 0.1.0 (git 75c36ee3)"],
                      True, id="git-commit-moved"),
     ],
 )  # fmt: skip

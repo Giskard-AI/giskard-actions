@@ -13,7 +13,7 @@ The Gate runs zizmor with the auditor persona, offline. Each finding links its r
 | `secrets-outside-env` | The job declares its Secret Environment (§11). zizmor only checks the declaration; the secret moves through `migrate_secrets.py`, a Human Step. |
 | `superfluous-actions` | Replace the action with the equivalent command (`gh release create`, `git`) when the result is the same ([release actions](#release-actions-to-gh-release-create)), and list the replacement in the Workflow Contract section of the pull request. |
 | `artipacked` | `persist-credentials: false` on every `actions/checkout`. A job that pushes passes its token to that one step (§8). |
-| `template-injection` | Move each `${{ }}` out of `run:` (and out of `script:` for `actions/github-script`) into step `env:`, then use `"$VAR"` (§2). `${{ env.X }}` is already an environment variable: it becomes `"$X"`, with no step `env:`. zizmor can report a repeated expression at the position of an earlier one in the same block (relais: the third `${{ env.VERSION_NAME }}` of a `run:` block, at line 101, reported at 99:27), so fix every `${{ }}` of a flagged block; per-rule counts follow zizmor's summary, repeats included. |
+| `template-injection` | Move each `${{ }}` out of `run:` (and out of `script:` for `actions/github-script`) into step `env:`, then use `"$VAR"` (§2). `${{ env.X }}` is already an environment variable: it becomes `"$X"`, with no step `env:`. zizmor can report a repeated expression at the position of an earlier one in the same block, so fix every `${{ }}` of a flagged block; per-rule counts follow zizmor's summary, repeats included. |
 | `concurrency-limits` | Workflow-level `concurrency:`, group on `${{ github.workflow }}-${{ github.event.pull_request.number \|\| github.ref }}` for a workflow triggered by `pull_request`, `${{ github.workflow }}-${{ github.ref }}` otherwise, `${{ github.workflow }}` alone for a release or deploy workflow (one at a time, whatever the ref). `cancel-in-progress: ${{ github.event_name == 'pull_request' }}` for a workflow triggered by `pull_request`, `false` otherwise and on release and deploy workflows: a cancelled run on <default> leaves that commit a failing check. Without cancelling, a group holds one run in progress and one pending, and a newer run cancels the pending one (`queue: single`, the default). `queue: max` keeps up to 100 pending runs in order (never with `cancel-in-progress: true`), which a release or deploy where every run matters wants, but actionlint does not accept it yet (§12 Tag version). A workflow required by a ruleset takes no `cancel-in-progress` at all (GitHub rejects it there). zizmor checks only that `concurrency:` is set. |
 | `anonymous-definition` | `name:` on the workflow and each job. A job `name:` renames its status check. |
 | `dangerous-triggers` | Replace `pull_request_target` / `workflow_run` with `pull_request` when no secret is needed; otherwise run the §13 checklist, fix what fails, and propose a zizmor Exception whose reason is the guard. |
@@ -64,9 +64,9 @@ Sections in this order, each omitted when empty except Human Steps. Commands mea
 8. **Open pull requests**: each other one the audit lists, with the files both change and whether `git merge-tree` finds a conflict; where both choose differently for the same thing (a job name, a `concurrency:` block), both choices, for the reviewer to keep one. Then a suggested merge order: a pull request ready to merge goes first and this one rebases on it, since it stays a draft until its decisions are made; one this pull request makes redundant (the same fix, an earlier attempt) is named for its author to close. Dependabot's pull requests, when the `renovate` App covers the repository, are listed and left to the Dependabot handover (§14).
 9. **Human Steps**, in order, each one a command to run or a change to make; when none applies, one line saying nothing changes in settings before merging:
    1. Before merging: `python3 <scripts>/migrate_secrets.py --repo OWNER/REPO --env <name>:<policy>:<SECRET>[,<SECRET>] ... [--delete <UNUSED_SECRET>]` (plan with `--dry-run`), then rerun the pull request's checks: the jobs that read the secrets passing proves the migration. A job that never runs on pull requests is proven by its first run after the merge (Not run by CI). An Environment rename takes the steps of [§11](#rename-an-environment) instead.
-      - A job that reads a secret and already fails (Checks already failing): the step names the error that proves the secret arrived (flare: 429 `credit_balance_exhausted`, not a missing or invalid key).
+      - A job that reads a secret and already fails (Checks already failing): the step names the error that proves the secret arrived (429 `credit_balance_exhausted`, not a missing or invalid key).
       - The failure is the secret's value: the new value goes into the Environment through the migration (or `--rotate` after it), never into the repository secret first.
-      - The team replaces a dead secret with another (flare's OpenAI key, replaced by Azure AI keys): the job declares the Environment and nothing is migrated in this pull request. The step, for when the replacement lands: create the new Environment with the new secrets, then delete the old repository secret and the Environment GitHub created for this pull request.
+      - The team replaces a dead secret with another (an exhausted OpenAI key, replaced by Azure AI keys): the job declares the Environment and nothing is migrated in this pull request. The step, for when the replacement lands: create the new Environment with the new secrets, then delete the old repository secret and the Environment GitHub created for this pull request.
    2. A personal access token, a deploy key with write access or reaching several repositories, or an App with more access than the job needs: `python3 <scripts>/setup_github_app.py --dry-run ...` filled in (§8; the release App's Environment is `github-release`). A read-only deploy key that clones one repository moves with the migration (item 1).
    3. Ruleset changes: required checks renamed, release tag creation reserved, an App bypass on an organization ruleset (org admin).
    4. Squash merge allowed but not set to the pull request title and body (the audit's `Squash merge` line): the §10 command, which needs admin. It does not block the merge; ideally set before merging, so this pull request's own squash commit keeps its body.
@@ -74,7 +74,7 @@ Sections in this order, each omitted when empty except Human Steps. Commands mea
    6. The Dependabot handover when Renovate covers the repository (§14, its four steps after merging); otherwise, for a job that reads secrets on Dependabot pull requests, the secrets added as Dependabot secrets (§11).
    7. Each check already failing for a cause outside the workflows, with its fix: the retired model to replace in `<config file>`, the new key to put into the Environment (item 1), the credits to add.
 
-   Org-wide audit findings (`SENSITIVE` Apps, organization ruleset bypass) belong to the repo-baseline dashboard; leave them out.
+   Org-wide audit findings (`SENSITIVE` Apps, organization ruleset bypass) belong to the organization dashboard; leave them out.
 
 ---
 
@@ -398,7 +398,7 @@ A job that clones another private repository with a personal access token gets a
 
 A read-only deploy key that clones one repository stays a deploy key, in the job's Secret Environment, even when that Environment is deployable from every branch (pull request jobs): an App reading the same repository would not reduce what the key exposes. The audit's "Clone keys" lines print `read_only` for each repository a key clones (`gh api repos/<owner>/<cloned-repo>/keys`, which needs admin on that repository). When they say `unknown`, ask the human in the conversation; without an answer, treat the key as having write access and list it under "Decisions needed", with the command that settles it (admin on the cloned repository) and the App that would replace it. Replace the key with an App only when it has write access or reaches several repositories (the cloned repository has no deploy key: the secret is a user's SSH key). An App key keeps the rule of §11, an Environment restricted to its ref, so a pull request job that needs it is a decision.
 
-An App that must read every repository (the repo-baseline dashboard) stays installed on the whole org when three controls hold: its registered permissions are read-only (the App's settings page, Permissions), its key lives in an Environment restricted to the default branch, and that branch requires a reviewed pull request. Its token still reads every private repository the App is installed on. `permission-<name>: read` on `create-github-app-token` narrows one run's token, not what the key can mint. Its `github-app` Exception gives the three controls as its reason. With any write permission registered, it is replaced (Human Steps item 2).
+An App that must read every repository (the organization dashboard) stays installed on the whole org when three controls hold: its registered permissions are read-only (the App's settings page, Permissions), its key lives in an Environment restricted to the default branch, and that branch requires a reviewed pull request. Its token still reads every private repository the App is installed on. `permission-<name>: read` on `create-github-app-token` narrows one run's token, not what the key can mint. Its `github-app` Exception gives the three controls as its reason. With any write permission registered, it is replaced (Human Steps item 2).
 
 ---
 
@@ -408,7 +408,7 @@ The principle is the same for all registries: exchange a short-lived GitHub OIDC
 
 All approaches require `id-token: write` permission on the job.
 
-A login with a static password (`docker/login-action` with `password: ${{ secrets.* }}`) moves to the exchange for its registry, as `llm-hub` does for Quay. The registry-side trust (a federated robot account, an IAM role) is a Human Step; the static secret is deleted after the first green run.
+A login with a static password (`docker/login-action` with `password: ${{ secrets.* }}`) moves to the exchange for its registry (a Quay robot account federated with GitHub OIDC, an AWS IAM role). The registry-side trust (a federated robot account, an IAM role) is a Human Step; the static secret is deleted after the first green run.
 
 ### AWS ECR
 
@@ -550,7 +550,7 @@ An organization ruleset blocks updating and deleting `v*` tags in every code rep
 
 ### Squash merge message
 
-Every hardened repository squash-merges with the pull request title and body, so the commit on the default branch keeps the reviewed description (this skill's long body included) and `git log` explains the change. GitHub has no organization-level setting: it is set per repository, by an admin; the repo-baseline dashboard reports it as the informational rule `squash-uses-pr-body`. When the audit's `Squash merge` line says `set PR_TITLE / PR_BODY`, the Human Step is (the two values go together):
+Every hardened repository squash-merges with the pull request title and body, so the commit on the default branch keeps the reviewed description (this skill's long body included) and `git log` explains the change. GitHub has no organization-level setting: it is set per repository, by an admin; the organization dashboard reports it as the informational rule `squash-uses-pr-body`. When the audit's `Squash merge` line says `set PR_TITLE / PR_BODY`, the Human Step is (the two values go together):
 
 ```bash
 gh api -X PATCH repos/<owner>/<repo> -f squash_merge_commit_title=PR_TITLE -f squash_merge_commit_message=PR_BODY
@@ -560,9 +560,9 @@ gh api -X PATCH repos/<owner>/<repo> -f squash_merge_commit_title=PR_TITLE -f sq
 
 ## 11. Secret Environments
 
-Every secret of a code repository lives in a **Secret Environment** (repo-baseline ADR 0002); zizmor's `secrets-outside-env` checks that each job reading a secret declares one.
+Every secret of a code repository lives in a **Secret Environment**; zizmor's `secrets-outside-env` checks that each job reading a secret declares one.
 
-- **Name**: `<service>-<usage>` when the job calls one service (`openai-tests`, `azure-codex-review`, `pypi-release`, `github-release` for a release App key), `<usage>` when it calls several (`e2e-tests`; a job that uses an API key and a clone key: `benchmark-tests` in safety-bench). An existing Environment off this convention is renamed when its repository is reworked ([Rename an Environment](#rename-an-environment)).
+- **Name**: `<service>-<usage>` when the job calls one service (`openai-tests`, `azure-codex-review`, `pypi-release`, `github-release` for a release App key), `<usage>` when it calls several (`e2e-tests`; a job that uses an API key and a clone key: `benchmark-tests`). An existing Environment off this convention is renamed when its repository is reworked ([Rename an Environment](#rename-an-environment)).
 - **Deployment branches follow the trigger** (`migrate_secrets.py` policy in brackets): pull request jobs (any job that runs on `pull_request`, whatever else triggers it), every branch (`all`); push, dispatch or schedule on the default branch, that branch (`branch=main`); a pushed release tag, the tags (`tag=v*`). An Environment that holds a release or App key is restricted to its ref: when pull request jobs use it for other secrets, it splits in two, and a pull request job that needs the key itself is a decision. A read-only deploy key that clones one repository is not such a key: it stays in the pull request job's Environment, deployable from every branch (§8).
 - **A job that publishes through OIDC trusted publishing declares its release Environment** (`pypi-release`, `npm-release`), restricted to the ref it publishes from, even though it reads no secret, and the trusted publisher config (PyPI, npm) names that Environment: a trusted publisher checks the repository and the workflow file, not the branch, so the Environment is what keeps other branches from publishing (§12 Tag version). When the config already names an Environment, the job keeps that name.
 - **A secret two Environments need is copied into both**: the wizard asks for its value once and writes it to each. `--rotate NAME` rewrites every copy.
@@ -629,7 +629,7 @@ dynamic = ["version"] # was: version = "1.4.0"
 source = "vcs"
 ```
 
-The release workflow, after relais' `create-release.yml`, splits into three jobs, each holding only what it uses:
+The release workflow splits into three jobs, each holding only what it uses:
 
 - **build** (`contents: read`): validate the version, check out every tag, fail if the tag exists, tag locally, `uv build`, upload `dist/`. The build backend and its unlocked build requirements run here, where no token can publish.
 - **publish** (`id-token: write`, Environment `pypi-release`): download `dist/` and publish through trusted publishing.
@@ -787,7 +787,7 @@ Every repository extends `github>Giskard-AI/.github`, the shared preset (`defaul
 | Labels | none | `dependencies` |
 | Action references | as written | pinned to digests (`helpers:pinGitHubActionDigests`) |
 
-The pull request's Renovate section reports the rows that change for the repository, starting from its effective value: the "before" column, or the repository's own setting where it has one (flare: `before 4am on Monday` in UTC, label `dependencies`). A repository with no Renovate config had no Renovate running, even when the App covers it: the section lists the preset's settings as what starts.
+The pull request's Renovate section reports the rows that change for the repository, starting from its effective value: the "before" column, or the repository's own setting where it has one (`before 4am on Monday` in UTC, label `dependencies`). A repository with no Renovate config had no Renovate running, even when the App covers it: the section lists the preset's settings as what starts.
 
 **Dependabot handover.** Dependabot security updates duplicate Renovate's vulnerability pull requests (both act on Dependabot alerts). When the `renovate` App covers the repository, Renovate takes over, and Dependabot closes its own pull requests once Renovate has brought their versions. The Human Steps, after merging, in order:
 
@@ -835,7 +835,7 @@ A **Dependency cooldown** keeps a release out of the lock until it is 7 days old
 - pnpm: `minimumReleaseAgeExclude: [<package>@<version>]` in `pnpm-workspace.yaml` (a version needs pnpm >= 10.19). Renovate writes it for a pnpm security update when `pnpm-workspace.yaml` sets `minimumReleaseAge`; check it is there.
 - npm: `min-release-age-exclude[]=<package>` in `.npmrc`, npm >= 11.17.0 (`min-release-age` itself needs 11.10.0). It exempts every version of the package.
 
-**A fix capped by a consumer.** When a locked package caps the vulnerable one below the fix (`litellm` 1.106.6 requires `filelock<4.0`, the fix is 4.2.1) and only a release younger than 7 days lifts the cap, the resolver moves that consumer back to an older release without the cap (flare#66: `litellm` 1.106.6 to 1.103.10). Read the vulnerability pull request's lock diff for every package besides the fixed one, downgrades first. The downgrade lasts until the lock file maintenance after the cap-lifting release turns 7 days old. The Dependencies section names the consumer, both versions and the choice:
+**A fix capped by a consumer.** When a locked package caps the vulnerable one below the fix (`litellm` 1.106.6 requires `filelock<4.0`, the fix is 4.2.1) and only a release younger than 7 days lifts the cap, the resolver moves that consumer back to an older release without the cap (`litellm` 1.106.6 back to 1.103.10). Read the vulnerability pull request's lock diff for every package besides the fixed one, downgrades first. The downgrade lasts until the lock file maintenance after the cap-lifting release turns 7 days old. The Dependencies section names the consumer, both versions and the choice:
 
 - merge, when the older release has no known vulnerability (`curl -s -X POST https://api.osv.dev/v1/query -d '{"package":{"name":"<package>","ecosystem":"PyPI"},"version":"<version>"}'` returns no `vulns`) and CI passes;
 - exempt the consumer with a timestamp just after the cap-lifting release, as above; a consumer with compromised releases in its history (`litellm` 1.82.7 and 1.82.8) takes the downgrade instead;

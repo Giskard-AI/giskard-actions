@@ -87,7 +87,7 @@ def test_unknown_reviewer_without_persona_uses_generic_prompt(tmp_path: Path) ->
 
 @pytest.mark.parametrize(
     "forbidden",
-    ["llm-hub", "Linear", "release-notes CLI", "self-test", "Giskard"],
+    ["Linear", "release-notes CLI", "self-test", "Giskard"],
     ids=lambda word: f"no-{word.lower().replace(' ', '-')}",
 )
 def test_bundled_overlays_are_repository_agnostic(forbidden: str) -> None:

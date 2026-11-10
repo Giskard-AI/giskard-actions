@@ -27,12 +27,12 @@ holds NAME, asks for the new value once and writes it to each.
 Nothing changes before you confirm the plan, and --dry-run only prints it.
 
 Examples:
-  python3 migrate_secrets.py --repo Giskard-AI/flare \\
+  python3 migrate_secrets.py --repo OWNER/REPO \\
     --env openai-tests:all:OPENAI_API_KEY \\
     --env pypi-release:tag=v*:PYPI_TOKEN --delete UNUSED_TOKEN --dry-run
   python3 migrate_secrets.py --rotate OPENAI_API_KEY \\
-    --repo Giskard-AI/flare --repo Giskard-AI/safety-bench
-  python3 migrate_secrets.py --repo Giskard-AI/repo-baseline \\
+    --repo OWNER/REPO --repo OWNER/OTHER_REPO
+  python3 migrate_secrets.py --repo OWNER/DASHBOARD_REPO \\
     --env github-dashboard:branch=main:BASELINE_APP_PRIVATE_KEY \\
     --from-file BASELINE_APP_PRIVATE_KEY=app.private-key.pem \\
     --variables github-dashboard:env=dashboard:BASELINE_APP_CLIENT_ID --dry-run

@@ -57,11 +57,11 @@ A `workflow_call` workflow (`.github/workflows/python-ci.yml` or `.github/workfl
 _Avoid_: CI template, starter workflow
 
 **Required Scan Workflow**:
-`.github/workflows/zizmor-scan.yml`, run on the pull requests and merge groups of code repositories by an organization ruleset ("Require workflows to pass before merging") that pins its repository, path and commit SHA, and also callable as a reusable workflow. It runs a digest-pinned zizmor image offline, with the auditor persona, on every Actions file of the pull request, honours each **zizmor Exception** and flags the ones the pull request adds, and reads the zizmor config from the pull request's base commit. Only that ruleset rule is a trustworthy gate: a required status check matched by the name `zizmor` can be satisfied by a job the pull request adds itself. The ruleset JSON lives in repo-baseline as code, so its SHA moves through a reviewed pull request there, which Renovate can propose.
+`.github/workflows/zizmor-scan.yml`, run on the pull requests and merge groups of code repositories by an organization ruleset ("Require workflows to pass before merging") that pins its repository, path and commit SHA, and also callable as a reusable workflow. It runs a digest-pinned zizmor image offline, with the auditor persona, on every Actions file of the pull request, honours each **zizmor Exception** and flags the ones the pull request adds, and reads the zizmor config from the pull request's base commit. Only that ruleset rule is a trustworthy gate: a required status check matched by the name `zizmor` can be satisfied by a job the pull request adds itself. The ruleset JSON lives as code in the organization dashboard's repository, so its SHA moves through a reviewed pull request there, which Renovate can propose.
 _Avoid_: Org workflow, global zizmor, zizmor shim
 
 **zizmor Gate**:
-The organization ruleset rule that requires the **Required Scan Workflow** on the default branch of every `kind=code` repository. It is turned on once no code repository fails the scan, and applies to all of them: a repo-baseline exception does not exempt a repository. Its scan is `scripts/zizmor/scan.sh`, which the `gha-hardening` skill and the repo-baseline dashboard run too.
+The organization ruleset rule that requires the **Required Scan Workflow** on the default branch of every `kind=code` repository. It is turned on once no code repository fails the scan, and applies to all of them: a dashboard exception does not exempt a repository. Its scan is `scripts/zizmor/scan.sh`, which the `gha-hardening` skill and the organization dashboard run too.
 _Avoid_: Evaluate mode, zizmor enforcement flag, `zizmor-gate` property
 
 **zizmor Exception**:

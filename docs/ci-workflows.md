@@ -164,7 +164,7 @@ Both CI workflows and the zizmor scan only need `contents: read`. Grant it on th
 
 `zizmor-scan.yml` runs [zizmor](https://docs.zizmor.sh/) from its container image, pinned by digest (`ghcr.io/zizmorcore/zizmor:<version>@sha256:...`), with the auditor persona. Findings appear as annotations on the pull request and fail the `zizmor` job, which times out after 10 minutes.
 
-The scan itself is [`scripts/zizmor/scan.sh`](https://github.com/Giskard-AI/giskard-actions/blob/main/scripts/zizmor/scan.sh), the only place that sets the zizmor version and flags. The workflow checks this repository out at the commit that runs (`job.workflow_sha`: the ruleset's pinned SHA, or the ref a caller pinned) and runs the script from there, so the workflow and its script always match. The `gha-hardening` skill and the repo-baseline dashboard run the same script, so a repository that passes locally passes the **Gate**:
+The scan itself is [`scripts/zizmor/scan.sh`](https://github.com/Giskard-AI/giskard-actions/blob/main/scripts/zizmor/scan.sh), the only place that sets the zizmor version and flags. The workflow checks this repository out at the commit that runs (`job.workflow_sha`: the ruleset's pinned SHA, or the ref a caller pinned) and runs the script from there, so the workflow and its script always match. The `gha-hardening` skill and the organization dashboard run the same script, so a repository that passes locally passes the **Gate**:
 
 ```bash
 git clone --depth 1 --branch <release> https://github.com/Giskard-AI/giskard-actions /tmp/giskard-actions
@@ -200,16 +200,16 @@ The scan flags every ignore comment the pull request adds, so reviewers see each
 
 Repository-wide policy (disabling a rule everywhere, or tuning options such as the `unpinned-uses` policies with `rules.<id>.config`) goes in `.github/zizmor.yml`, read from the base commit, so a pull request cannot loosen it for itself. Require code owner review on `.github/**` (a `CODEOWNERS` entry plus "Require review from Code Owners").
 
-Strict collection failures cannot be excepted: a file zizmor cannot parse (test fixtures, Jinja or copier templates, syntax zizmor does not support) fails the scan. The repo-baseline dashboard dry run surfaces them before the **Gate** is turned on or upgraded.
+Strict collection failures cannot be excepted: a file zizmor cannot parse (test fixtures, Jinja or copier templates, syntax zizmor does not support) fails the scan. The organization dashboard's dry run surfaces them before the **Gate** is turned on or upgraded.
 
 ### Rollout with an organization ruleset
 
 The workflow triggers on `pull_request` and `merge_group`, so an organization ruleset can run it on code repositories without a caller file. Rulesets have no Evaluate mode outside GitHub Enterprise, so:
 
-1. The repo-baseline dashboard reports which repositories would fail the scan, and lists their ignore comments. Every failing code repository is fixed first, with the `gha-hardening` skill.
+1. The organization dashboard reports which repositories would fail the scan, and lists their ignore comments. Every failing code repository is fixed first, with the `gha-hardening` skill.
 2. Once none fails, an organization ruleset with **Require workflows to pass before merging** requires `.github/workflows/zizmor-scan.yml` from `Giskard-AI/giskard-actions` at the full commit SHA of a release, on the default branch of every repository with `kind=code`, with **Do not enforce on create** so new repositories can be created.
 
-The ruleset JSON lives in repo-baseline as code (`rulesets/zizmor-gate.json`, repo-baseline ADR 0001) and changes through a reviewed pull request there; admins apply it.
+The ruleset JSON lives as code in the dashboard's repository (`rulesets/zizmor-gate.json`) and changes through a reviewed pull request there; admins apply it.
 
 Only this rule is a trustworthy gate: it pins the repository, path and SHA of the workflow that must pass. A required status check that matches the name `zizmor` can be satisfied by a job of the same name in a workflow the pull request itself adds or edits. The check shows as `zizmor` in the ruleset run and as `<caller job> / zizmor` when the workflow is called as a reusable workflow.
 
@@ -217,7 +217,7 @@ Only this rule is a trustworthy gate: it pins the repository, path and SHA of th
 
 - **Emergency.** Organization admins are the ruleset's only bypass actors, in pull request mode: if the **Gate** itself breaks (GHCR or Actions outage), an admin merges the pull request anyway. Nobody can push to the default branch around it. A finding merged that way keeps failing every later pull request of the repository until it is fixed.
 - **Gated repositories drop their direct call.** Once the ruleset gates a repository, remove any `workflow_call` of `zizmor-scan.yml` and any zizmor job of its own, or the scan runs twice.
-- **zizmor upgrades are one admin step.** A ruleset bump reaches every code repository at once, so: approve the update on the Renovate Dependency Dashboard, cut the release, read the weekly bump report in repo-baseline (it scans every code repository with the candidate release and opens a `baseline/zizmor-bump` pull request), then merge that pull request and apply the new ruleset SHA.
+- **zizmor upgrades are one admin step.** A ruleset bump reaches every code repository at once, so: approve the update on the Renovate Dependency Dashboard, cut the release, read the dashboard's weekly bump report (it scans every code repository with the candidate release and opens a `baseline/zizmor-bump` pull request), then merge that pull request and apply the new ruleset SHA.
 - **No `cancel-in-progress`.** GitHub does not allow it in a workflow required by a ruleset. A scan in progress on a pull request finishes; the next push waits as the one pending run of the group, and a later push cancels that pending run and takes its place, so only the latest commit waiting is scanned.
 
 ### Dependencies

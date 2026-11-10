@@ -480,7 +480,7 @@ if installs=$(gh api "orgs/${owner}/installations?per_page=100" 2>/dev/null); th
   [[ "${AUDIT_APPS:-}" == 1 ]] || jq -r '[.installations[] | select(.suspended_at == null and .repository_selection == "selected")] | length
     | "\(.) more installations cover selected repositories; this token cannot tell whether they include this one (AUDIT_APPS=1 lists them)."' <<<"${installs}"
 else
-  unreadable "listing app installations needs admin:org; see the Apps section of the repo-baseline dashboard"
+  unreadable "listing app installations needs admin:org; see the Apps section of the organization dashboard"
 fi
 
 section "Renovate and Dependabot"

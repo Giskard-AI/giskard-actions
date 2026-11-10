@@ -31,7 +31,7 @@ export GATE_REF=<sha>
 bash <skill>/scripts/audit.sh OWNER/REPO <clone>
 ```
 
-`GATE_REF` makes every scan of the run use the Gate's commit: the `sha` that `rulesets/zizmor-gate.json` of repo-baseline pins for `zizmor-scan.yml` (`a2a7f2cb123f66517025d6d19f7047b4707ad781` on 2026-11-09; the file is on the branch of repo-baseline#13 until it merges). When the audit's Gate scan shows `Gate ruleset: <sha>` (active), unset it: the scripts then read that SHA. The audit scans the default branch whatever the clone has checked out, so its counts are the "before" of the pull request. Done when it exits 0 and you have its full output (exit 2 means GitHub was unreachable: fix that first). A section the token cannot read is reported as such; carry it to the pull request as is.
+`GATE_REF` makes every scan of the run use the Gate's commit while the Gate ruleset is not active yet: the `sha` its definition pins for `zizmor-scan.yml`, which the person running the skill gives (without it, the scripts scan with the latest `giskard-actions` release). When the audit's Gate scan shows `Gate ruleset: <sha>` (active), unset it: the scripts then read that SHA. The audit scans the default branch whatever the clone has checked out, so its counts are the "before" of the pull request. Done when it exits 0 and you have its full output (exit 2 means GitHub was unreachable: fix that first). A section the token cannot read is reported as such; carry it to the pull request as is.
 
 Then find what already fails on the default branch, in two audit sections:
 
