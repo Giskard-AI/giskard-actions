@@ -526,11 +526,13 @@ if [[ -n "${config}" ]]; then
 else
   echo "No Renovate config."
 fi
+# A user token cannot list an App's selected repositories, so Renovate's own activity is the evidence.
 last=$(gh pr list -R "${repo}" --author app/renovate --state all --limit 1 --json createdAt --jq '.[0].createdAt // empty' 2>/dev/null)
+[[ -n "${last}" ]] || last=$(gh issue list -R "${repo}" --search 'author:app/renovate' --state all --limit 1 --json createdAt --jq '.[0].createdAt // empty' 2>/dev/null)
 if [[ -n "${last}" ]]; then
-  echo "renovate App covers this repository: yes (last pull request ${last%%T*})"
+  echo "renovate App covers this repository: yes (last pull request or issue ${last%%T*})"
 else
-  echo "renovate App covers this repository: no pull request from it yet"
+  echo "renovate App covers this repository: NOT SHOWN (no pull request or issue from it); an org owner checks or adds it in Settings, GitHub Apps, renovate, Repository access"
 fi
 if [[ -f "${tree}/.github/dependabot.yml" || -f "${tree}/.github/dependabot.yaml" ]]; then
   echo "Dependabot version updates: $(grep -hoE 'package-ecosystem:\s*\S+' "${tree}"/.github/dependabot.y*ml | awk '{print $2}' | tr -d '"'"'" | paste -sd, -)"
