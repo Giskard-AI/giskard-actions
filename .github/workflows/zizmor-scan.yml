@@ -7,7 +7,8 @@ name: zizmor scan
 #
 # The scan itself is scripts/zizmor/scan.sh, checked out from this repository
 # at the commit that runs (job.workflow_sha): the ruleset's pinned SHA, or the
-# caller's pinned ref.
+# caller's pinned ref. The skip-ci-markers job also fails a pull request whose
+# title or body would stop CI on the default branch after a squash merge.
 
 on:
   pull_request:
@@ -199,3 +200,81 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 gate/scripts/zizmor/pins.py src base
+
+  # The organization squash-merges with the pull request title and body as the
+  # commit message, and GitHub runs no push workflow for a commit whose message
+  # holds a skip instruction. This workflow is the one every code repository
+  # must pass, so the check lives here. Ruleset runs ignore `types:` (opened,
+  # synchronize and reopened only), so editing the text alone does not re-run
+  # it, and a re-run reads the old event payload. On merge_group it checks the
+  # commit the queue will push. The text is read from the event file: an
+  # environment variable is capped at 128 KiB, which a long body can exceed.
+  skip-ci-markers:
+    name: skip-ci-markers
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Check the pull request text for skip instructions
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import sys
+
+          # GitHub's skip instructions ("Skipping workflow runs"). GitHub reads
+          # the raw message, so backticks do not protect a marker. ASCII only:
+          # without it, IGNORECASE folds U+017F to "s" and \s matches Unicode
+          # spaces, which GitHub does not.
+          INSTRUCTION = re.compile(
+              r"\[(?:skip ci|ci skip|no ci|skip actions|actions skip)\]",
+              re.IGNORECASE | re.ASCII,
+          )
+          TRAILER = re.compile(r"skip-checks:\s*true", re.IGNORECASE | re.ASCII)
+          DOCS = "https://giskard-ai.github.io/giskard-actions/ci-workflows.html#skip-ci-markers-failed-on-my-pr"
+          PULL_REQUEST = (
+              "A squash merge copies the pull request title and body into the commit "
+              "message on the default branch, and GitHub then runs no push workflow "
+              "(CI, release) for that commit. Reword it, for example 'the skip-ci "
+              "marker', then push a commit, click Update branch (when offered), or "
+              "close and reopen the pull request: re-running this job reads the old text."
+          )
+          MERGE_GROUP = (
+              "The merge queue pushes this commit to the default branch, and GitHub "
+              "then runs no push workflow (CI, release) for it. Remove the pull "
+              "request from the queue, reword its title or body, for example 'the "
+              "skip-ci marker', and queue it again."
+          )
+
+          with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as event_file:
+              event = json.load(event_file)
+          pull_request = event.get("pull_request") or {}
+          head_commit = (event.get("merge_group") or {}).get("head_commit") or {}
+
+          found = 0
+          event_name = os.environ.get("GITHUB_EVENT_NAME")
+          if event_name == "merge_group" and head_commit.get("message") is None:
+              print(
+                  "::error title=Skip-CI marker::The merge queue event has no head commit message, "
+                  "so the commit the queue pushes cannot be checked. Re-queue the pull request."
+              )
+              found += 1
+          for where, text, numbered, hint in (
+              ("The pull request title", pull_request.get("title"), False, PULL_REQUEST),
+              ("The pull request body", pull_request.get("body"), True, PULL_REQUEST),
+              ("The merge queue commit message", head_commit.get("message"), True, MERGE_GROUP),
+          ):
+              for number, line in enumerate((text or "").splitlines(), 1):
+                  markers = INSTRUCTION.findall(line)
+                  if TRAILER.fullmatch(line.strip()):
+                      markers.append(line.strip())
+                  at = f" on line {number}" if numbered else ""
+                  for marker in markers:
+                      print(
+                          f"::error title=Skip-CI marker::{where} contains {marker}{at}. {hint} See {DOCS}"
+                      )
+                      found += 1
+          sys.exit(1 if found else 0)
+          PY

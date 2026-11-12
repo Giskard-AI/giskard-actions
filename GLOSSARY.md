@@ -57,7 +57,7 @@ A `workflow_call` workflow (`.github/workflows/python-ci.yml` or `.github/workfl
 _Avoid_: CI template, starter workflow
 
 **Required Scan Workflow**:
-`.github/workflows/zizmor-scan.yml`, run on the pull requests and merge groups of code repositories by an organization ruleset ("Require workflows to pass before merging") that pins its repository, path and commit SHA, and also callable as a reusable workflow. It runs a digest-pinned zizmor image offline, with the auditor persona, on every Actions file of the pull request, honours each **zizmor Exception** and flags the ones the pull request adds, and reads the zizmor config from the pull request's base commit. Only that ruleset rule is a trustworthy gate: a required status check matched by the name `zizmor` can be satisfied by a job the pull request adds itself. The ruleset JSON lives as code in the organization dashboard's repository, so its SHA moves through a reviewed pull request there, which Renovate can propose.
+`.github/workflows/zizmor-scan.yml`, run on the pull requests and merge groups of code repositories by an organization ruleset ("Require workflows to pass before merging") that pins its repository, path and commit SHA, and also callable as a reusable workflow. It runs a digest-pinned zizmor image offline, with the auditor persona, on every Actions file of the pull request, honours each **zizmor Exception** and flags the ones the pull request adds, and reads the zizmor config from the pull request's base commit. Its `skip-ci-markers` job fails a pull request whose title or body holds a **Skip-CI Marker**. Only that ruleset rule is a trustworthy gate: a required status check matched by the name `zizmor` can be satisfied by a job the pull request adds itself. The ruleset JSON lives as code in the organization dashboard's repository, so its SHA moves through a reviewed pull request there, which Renovate can propose.
 _Avoid_: Org workflow, global zizmor, zizmor shim
 
 **zizmor Gate**:
@@ -67,6 +67,10 @@ _Avoid_: Evaluate mode, zizmor enforcement flag, `zizmor-gate` property
 **zizmor Exception**:
 An inline `# zizmor: ignore[<rule>] -- <reason>` comment on a flagged line, reviewed in the pull request that adds it. The **Required Scan Workflow** annotates each one a pull request adds. Repository-wide policy (a rule disabled or configured in `.github/zizmor.yml`) is not an exception: it is read from the base commit.
 _Avoid_: Ignore, suppression, waiver, rule-wide exception
+
+**Skip-CI Marker**:
+A skip instruction GitHub honours in a commit message: `[skip ci]`, `[ci skip]`, `[no ci]`, `[skip actions]` or `[actions skip]`, or a `skip-checks: true` trailer. GitHub then runs no `push` workflow for that commit, and no `pull_request` workflow when it is a pull request's head commit. The organization squash-merges with the pull request title and body as the commit message, so the **Required Scan Workflow** fails a pull request whose text holds one, matched case-insensitively and inside backticks too. `skip-ci` and `[skip-ci]` are not markers.
+_Avoid_: Skip tag, CI skip flag
 
 ### Hardening
 
