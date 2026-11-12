@@ -703,6 +703,12 @@ def test_zizmor_scan_flags_new_ignores(
     assert summary.exists() == bool(warnings)
 
 
+def test_skip_markers_failure_points_to_docs():
+    assert "ci-workflows.html#skip-ci-markers-failed-on-my-pr" in gate_script("skip-checks")
+    docs = (ROOT / "docs" / "ci-workflows.md").read_text()
+    assert "### skip-ci-markers failed on my PR?\n{: #skip-ci-markers-failed-on-my-pr }\n" in docs
+
+
 def test_skip_markers_job_wiring():
     block = job_blocks(gate_text())["skip-ci-markers"]
     assert re.search(r"^    permissions: \{\}$", block, re.MULTILINE)

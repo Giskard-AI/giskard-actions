@@ -232,6 +232,7 @@ jobs:
               r"\[(?:skip ci|ci skip|no ci|skip actions|actions skip)\]", re.IGNORECASE
           )
           TRAILER = re.compile(r"skip-checks:\s*true", re.IGNORECASE)
+          DOCS = "https://giskard-ai.github.io/giskard-actions/ci-workflows.html#skip-ci-markers-failed-on-my-pr"
           PULL_REQUEST = (
               "A squash merge copies the pull request title and body into the commit "
               "message on the default branch, and GitHub then runs no push workflow "
@@ -258,7 +259,9 @@ jobs:
                       markers.append(line.strip())
                   at = "" if name == "PR_TITLE" else f" on line {number}"
                   for marker in markers:
-                      print(f"::error title=Skip-CI marker::{where} contains {marker}{at}. {hint}")
+                      print(
+                          f"::error title=Skip-CI marker::{where} contains {marker}{at}. {hint} See {DOCS}"
+                      )
                       found += 1
           sys.exit(1 if found else 0)
           PY

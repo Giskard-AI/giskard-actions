@@ -6,7 +6,7 @@ nav_order: 4
 # Shared CI workflows
 {: .no_toc }
 
-Three reusable workflows for the CI every Giskard code repository needs: lint, format check and tests for uv Python projects (`python-ci.yml`) and Node/TypeScript projects (`ts-ci.yml`), and a zizmor scan of GitHub Actions files (`zizmor-scan.yml`) that an organization ruleset can require on every pull request.
+Three reusable workflows for the CI every Giskard code repository needs: lint, format check and tests for uv Python projects (`python-ci.yml`) and Node/TypeScript projects (`ts-ci.yml`), and a zizmor scan of GitHub Actions files (`zizmor-scan.yml`) that an organization ruleset can require on every pull request, which also blocks pull request text that would stop CI on the default branch after a squash merge.
 
 The repository baseline requires a CI that lints, checks formatting and runs tests, not these workflows. Use them when their defaults fit; keep your own CI when they do not.
 
@@ -160,6 +160,15 @@ Both CI workflows and the zizmor scan only need `contents: read`. Grant it on th
 - **"differs from its committed bytes"**: a `.gitattributes` entry (`filter`, `eol`, `working-tree-encoding`) changes the file on checkout. Remove that attribute for the file: GitHub runs the committed bytes.
 - **`zizmor-pins` failed with `impostor-commit`**: a reference your pull request adds or changes points to a commit outside the action's own branches and tags (often a commit from a fork). Pin a release with its SHA. This finding cannot be ignored.
 
+### skip-ci-markers failed on my PR?
+{: #skip-ci-markers-failed-on-my-pr }
+
+The pull request title or body holds a **Skip-CI Marker**: `[skip ci]`, `[ci skip]`, `[no ci]`, `[skip actions]` or `[actions skip]` anywhere, in any case, backticks included, or a line that reads `skip-checks: true` or `skip-checks:true`. A squash merge copies the title and body into the commit message on the default branch, and GitHub runs no `push` workflow for a commit whose message holds one ([Skipping workflow runs](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/skip-workflow-runs)), so CI and release jobs would silently not run after the merge. A body that only quotes a bot's commit message is enough.
+
+- **Reword it.** Write "the skip-ci marker", or drop the brackets. The annotation names the marker and its line in the body.
+- **Then push a commit, click Update branch, or close and reopen the pull request.** The ruleset runs the **Gate** only when a pull request is opened, reopened or gets new commits, so editing the title or body does not re-run it, and re-running the job reads the text its run started with.
+- **In a merge queue**, the job checks the commit message the queue will push. Remove the pull request from the queue, reword it, and queue it again.
+
 ### How it runs
 
 `zizmor-scan.yml` runs [zizmor](https://docs.zizmor.sh/) from its container image, pinned by digest (`ghcr.io/zizmorcore/zizmor:<version>@sha256:...`), with the auditor persona. Findings appear as annotations on the pull request and fail the `zizmor` job, which times out after 10 minutes.
@@ -185,6 +194,8 @@ bash /tmp/giskard-actions/scripts/zizmor/scan.sh .   # ZIZMOR_RUNNER=uvx without
   - Called from a `push` workflow, the job compares the last commit with its parent.
   - Each online check costs GitHub API calls from the repository's hourly `GITHUB_TOKEN` quota; a pin to an unknown SHA in a repository with many tags costs the most.
 - **No files is a pass.** A repository with nothing to audit passes with a notice.
+- **Skip-CI Markers in the pull request text fail the `skip-ci-markers` job.** It reads the title and body from the event payload, never from the checkout, with no permissions, no token and no checkout, so it finishes in seconds. On `merge_group` the payload has no pull request body, so the job checks the group's head commit message instead: the commit the queue pushes to the default branch, which also catches a title or body edited after the pull request run. Called from a `push` workflow, it has nothing to check and passes. See [skip-ci-markers failed on my PR?](#skip-ci-markers-failed-on-my-pr)
+  - Known gap: without a merge queue, a title or body edited after the last run is not checked. A ruleset runs a required workflow only on the `opened`, `synchronize` and `reopened` activity types, whatever `types:` the workflow declares, so adding `edited` would change nothing in gated repositories.
 - **Never call it from `pull_request_target`.** That event checks out the base branch, so the scan would pass on code the pull request does not contain.
 
 ### Exceptions
@@ -211,7 +222,7 @@ The workflow triggers on `pull_request` and `merge_group`, so an organization ru
 
 The ruleset JSON lives as code in the dashboard's repository (`rulesets/zizmor-gate.json`) and changes through a reviewed pull request there; admins apply it.
 
-Only this rule is a trustworthy gate: it pins the repository, path and SHA of the workflow that must pass. A required status check that matches the name `zizmor` can be satisfied by a job of the same name in a workflow the pull request itself adds or edits. The check shows as `zizmor` in the ruleset run and as `<caller job> / zizmor` when the workflow is called as a reusable workflow.
+Only this rule is a trustworthy gate: it pins the repository, path and SHA of the workflow that must pass. A required status check that matches the name `zizmor` can be satisfied by a job of the same name in a workflow the pull request itself adds or edits. The check shows as `zizmor` in the ruleset run and as `<caller job> / zizmor` when the workflow is called as a reusable workflow; `zizmor-pins` and `skip-ci-markers` show the same way.
 
 ### Operations
 
