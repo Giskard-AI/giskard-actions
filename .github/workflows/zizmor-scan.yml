@@ -201,13 +201,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python3 gate/scripts/zizmor/pins.py src base
 
-  # A squash merge copies the pull request title and body into the commit on
-  # the default branch, and GitHub runs no push workflow for a commit whose
-  # message holds a skip instruction. This workflow is the one every code
-  # repository must pass, so the check lives here. Ruleset runs ignore
-  # `types:` (opened, synchronize and reopened only), so editing the text
-  # alone does not re-run it, and a re-run reads the old event payload. On
-  # merge_group it checks the commit the queue will push.
+  # The organization squash-merges with the pull request title and body as the
+  # commit message, and GitHub runs no push workflow for a commit whose message
+  # holds a skip instruction. This workflow is the one every code repository
+  # must pass, so the check lives here. Ruleset runs ignore `types:` (opened,
+  # synchronize and reopened only), so editing the text alone does not re-run
+  # it, and a re-run reads the old event payload. On merge_group it checks the
+  # commit the queue will push. The text is read from the event file: an
+  # environment variable is capped at 128 KiB, which a long body can exceed.
   skip-ci-markers:
     name: skip-ci-markers
     runs-on: ubuntu-latest
@@ -216,12 +217,9 @@ jobs:
     steps:
       - name: Check the pull request text for skip instructions
         shell: bash
-        env:
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_BODY: ${{ github.event.pull_request.body }}
-          MERGE_GROUP_MESSAGE: ${{ github.event.merge_group.head_commit.message }}
         run: |
           python3 - <<'PY'
+          import json
           import os
           import re
           import sys
@@ -237,8 +235,8 @@ jobs:
               "A squash merge copies the pull request title and body into the commit "
               "message on the default branch, and GitHub then runs no push workflow "
               "(CI, release) for that commit. Reword it, for example 'the skip-ci "
-              "marker', then push a commit, click Update branch, or close and reopen "
-              "the pull request: re-running this job reads the old text."
+              "marker', then push a commit, click Update branch (when offered), or "
+              "close and reopen the pull request: re-running this job reads the old text."
           )
           MERGE_GROUP = (
               "The merge queue pushes this commit to the default branch, and GitHub "
@@ -247,17 +245,22 @@ jobs:
               "skip-ci marker', and queue it again."
           )
 
+          with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as event_file:
+              event = json.load(event_file)
+          pull_request = event.get("pull_request") or {}
+          head_commit = (event.get("merge_group") or {}).get("head_commit") or {}
+
           found = 0
-          for where, name, hint in (
-              ("The pull request title", "PR_TITLE", PULL_REQUEST),
-              ("The pull request body", "PR_BODY", PULL_REQUEST),
-              ("The merge queue commit message", "MERGE_GROUP_MESSAGE", MERGE_GROUP),
+          for where, text, numbered, hint in (
+              ("The pull request title", pull_request.get("title"), False, PULL_REQUEST),
+              ("The pull request body", pull_request.get("body"), True, PULL_REQUEST),
+              ("The merge queue commit message", head_commit.get("message"), True, MERGE_GROUP),
           ):
-              for number, line in enumerate(os.environ.get(name, "").splitlines(), 1):
+              for number, line in enumerate((text or "").splitlines(), 1):
                   markers = INSTRUCTION.findall(line)
                   if TRAILER.fullmatch(line.strip()):
                       markers.append(line.strip())
-                  at = "" if name == "PR_TITLE" else f" on line {number}"
+                  at = f" on line {number}" if numbered else ""
                   for marker in markers:
                       print(
                           f"::error title=Skip-CI marker::{where} contains {marker}{at}. {hint} See {DOCS}"
