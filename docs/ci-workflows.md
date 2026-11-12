@@ -163,11 +163,27 @@ Both CI workflows and the zizmor scan only need `contents: read`. Grant it on th
 ### skip-ci-markers failed on my PR?
 {: #skip-ci-markers-failed-on-my-pr }
 
-The pull request title or body holds a **Skip-CI Marker**: `[skip ci]`, `[ci skip]`, `[no ci]`, `[skip actions]` or `[actions skip]` anywhere, in any case, backticks included, or a line that reads `skip-checks: true` or `skip-checks:true`. A squash merge copies the title and body into the commit message on the default branch, and GitHub runs no `push` workflow for a commit whose message holds one ([Skipping workflow runs](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/skip-workflow-runs)), so CI and release jobs would silently not run after the merge. A body that only quotes a bot's commit message is enough.
+The pull request title or body holds a **Skip-CI Marker**: `[skip ci]`, `[ci skip]`, `[no ci]`, `[skip actions]` or `[actions skip]` anywhere, in any case, backticks included, or a line that reads `skip-checks: true` or `skip-checks:true`. The organization squash-merges with the pull request title and body as the commit message, so the marker lands in the commit on the default branch, and GitHub runs no `push` workflow for a commit whose message holds one ([Skipping workflow runs](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/skip-workflow-runs)), so CI and release jobs would silently not run after the merge. A body that only quotes a bot's commit message is enough.
 
 - **Reword it.** Write "the skip-ci marker", or drop the brackets. The annotation names the marker and its line in the body.
-- **Then push a commit, click Update branch, or close and reopen the pull request.** The ruleset runs the **Gate** only when a pull request is opened, reopened or gets new commits, so editing the title or body does not re-run it, and re-running the job reads the text its run started with.
+- **Then push a commit, click Update branch (when offered), or close and reopen the pull request.** The ruleset runs the **Gate** only when a pull request is opened, reopened or gets new commits, so editing the title or body does not re-run it, and re-running the job reads the text its run started with.
 - **In a merge queue**, the job checks the commit message the queue will push. Remove the pull request from the queue, reword it, and queue it again.
+
+### skip-ci-markers failed on a Dependabot or Renovate PR?
+{: #skip-ci-markers-failed-on-a-bot-pr }
+
+Bot pull requests are not exempt: merged, their body still becomes the squash commit on the default branch. Rewording does not stick either, since the bot rewrites the body when it updates the pull request.
+
+- **Dependabot** lists the upstream commits in a "Commits" section, and release tooling often writes a marker in its version-bump commits. Dependabot has no option to leave that section out ([dependabot-core#4764](https://github.com/dependabot/dependabot-core/issues/4764), closed as not planned). Edit the body to remove the marker lines, then click Update branch (when offered) or close and reopen the pull request so the **Gate** reads the new body, and merge. If Dependabot updates the pull request again, it rewrites the body and the **Gate** runs again.
+- **Renovate** quotes release notes, not commit messages, so markers are rare there. When a package's release notes hold one, stop fetching them for that package in the repository's Renovate config ([`fetchChangeLogs`](https://docs.renovatebot.com/configuration-options/#fetchchangelogs)); Renovate drops the release notes from the body on its next run:
+
+  ```json
+  {
+    "packageRules": [
+      { "matchPackageNames": ["<package>"], "fetchChangeLogs": "off" }
+    ]
+  }
+  ```
 
 ### How it runs
 
@@ -194,7 +210,8 @@ bash /tmp/giskard-actions/scripts/zizmor/scan.sh .   # ZIZMOR_RUNNER=uvx without
   - Called from a `push` workflow, the job compares the last commit with its parent.
   - Each online check costs GitHub API calls from the repository's hourly `GITHUB_TOKEN` quota; a pin to an unknown SHA in a repository with many tags costs the most.
 - **No files is a pass.** A repository with nothing to audit passes with a notice.
-- **Skip-CI Markers in the pull request text fail the `skip-ci-markers` job.** It reads the title and body from the event payload, never from the checkout, with no permissions, no token and no checkout, so it finishes in seconds. On `merge_group` the payload has no pull request body, so the job checks the group's head commit message instead: the commit the queue pushes to the default branch, which also catches a title or body edited after the pull request run. Called from a `push` workflow, it has nothing to check and passes. See [skip-ci-markers failed on my PR?](#skip-ci-markers-failed-on-my-pr)
+- **Skip-CI Markers in the pull request text fail the `skip-ci-markers` job.** It reads the title and body from the event file (`GITHUB_EVENT_PATH`), never from the checkout or an environment variable (Linux caps one at 128 KiB, which a long body can exceed), with no permissions, no token and no checkout, so it finishes in seconds. On `merge_group` the payload has no pull request body, so the job checks the group's head commit message instead: the commit the queue pushes to the default branch, which also catches a title or body edited after the pull request run. Called from a `push` workflow, it has nothing to check and passes. See [skip-ci-markers failed on my PR?](#skip-ci-markers-failed-on-my-pr)
+  - It covers the organization's merge settings: squash merges with the pull request title and body (`squash_merge_commit_title=PR_TITLE`, `squash_merge_commit_message=PR_BODY`, set on its code repositories and audited by the organization dashboard), and merge commits, whose message holds the title. A squash merge that uses the branch's commit messages, or a rebase merge, keeps commit messages the job does not read, by design. In a merge queue it reads the queued commit itself, whatever the merge method.
   - Known gap: without a merge queue, a title or body edited after the last run is not checked. A ruleset runs a required workflow only on the `opened`, `synchronize` and `reopened` activity types, whatever `types:` the workflow declares, so adding `edited` would change nothing in gated repositories.
 - **Never call it from `pull_request_target`.** That event checks out the base branch, so the scan would pass on code the pull request does not contain.
 

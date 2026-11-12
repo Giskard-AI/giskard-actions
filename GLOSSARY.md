@@ -69,7 +69,7 @@ An inline `# zizmor: ignore[<rule>] -- <reason>` comment on a flagged line, revi
 _Avoid_: Ignore, suppression, waiver, rule-wide exception
 
 **Skip-CI Marker**:
-A skip instruction GitHub honours in a commit message: `[skip ci]`, `[ci skip]`, `[no ci]`, `[skip actions]` or `[actions skip]`, or a `skip-checks: true` trailer. A `push` or `pull_request` whose head commit holds one triggers no workflow. A squash merge copies the pull request title and body into the commit message, so the **Required Scan Workflow** fails a pull request whose text holds one, matched case-insensitively and inside backticks too. `skip-ci` and `[skip-ci]` are not markers.
+A skip instruction GitHub honours in a commit message: `[skip ci]`, `[ci skip]`, `[no ci]`, `[skip actions]` or `[actions skip]`, or a `skip-checks: true` trailer. GitHub then runs no `push` workflow for that commit, and no `pull_request` workflow when it is a pull request's head commit. The organization squash-merges with the pull request title and body as the commit message, so the **Required Scan Workflow** fails a pull request whose text holds one, matched case-insensitively and inside backticks too. `skip-ci` and `[skip-ci]` are not markers.
 _Avoid_: Skip tag, CI skip flag
 
 ### Hardening
