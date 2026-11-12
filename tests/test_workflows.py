@@ -184,30 +184,30 @@ def input_default(text: str, name: str) -> str:
 
 
 @pytest.mark.parametrize(
-    ("workflow", "cache_input", "off_value", "step_line"),
+    ("workflow", "step_line", "removed_inputs"),
     [
         pytest.param(
             "python-ci",
-            "enable-cache",
-            "false",
-            "enable-cache: ${{ inputs.enable-cache }}",
+            "enable-cache: false",
+            ["enable-cache"],
             id="python-ci-setup-uv-cache-off",
         ),
         pytest.param(
             "ts-ci",
-            "cache",
-            '""',
-            "cache: ${{ inputs.cache }}",
+            "package-manager-cache: false",
+            ["cache", "cache-dependency-path"],
             id="ts-ci-setup-node-cache-off",
         ),
     ],
 )
-def test_dependency_cache_is_off_by_default(
-    workflow: str, cache_input: str, off_value: str, step_line: str
-):
+def test_dependency_cache_is_always_off(workflow: str, step_line: str, removed_inputs: list[str]):
     text = (WORKFLOWS_DIR / f"{workflow}.yml").read_text()
-    assert input_default(text, cache_input) == off_value
-    assert text.count(f"          {step_line}\n") == len(job_blocks(text))
+    lines = text.splitlines()
+    assert lines.count(f"          {step_line}") == len(job_blocks(text))
+    for name in removed_inputs:
+        assert f"      {name}:" not in lines, name
+        assert f"inputs.{name}" not in text, name
+    assert not any(line.strip().startswith("cache:") for line in lines)
 
 
 @pytest.mark.parametrize(

@@ -34,10 +34,6 @@ on:
         description: Shell command of the test job
         type: string
         default: "uv run pytest"
-      enable-cache:
-        description: Opt in to setup-uv's GitHub Actions cache of uv downloads; leave off in workflows that publish or hold secrets
-        type: boolean
-        default: false
       timeout-minutes:
         description: Timeout of each job in minutes
         type: number
@@ -71,7 +67,7 @@ jobs:
           version: ${{ inputs.uv-version }}
           python-version: ${{ inputs.python-version }}
           working-directory: ${{ inputs.working-directory }}
-          enable-cache: ${{ inputs.enable-cache }}
+          enable-cache: false
 
       - name: Sync dependencies
         env:
@@ -110,7 +106,7 @@ jobs:
           version: ${{ inputs.uv-version }}
           python-version: ${{ inputs.python-version }}
           working-directory: ${{ inputs.working-directory }}
-          enable-cache: ${{ inputs.enable-cache }}
+          enable-cache: false
 
       - name: Sync dependencies
         env:
