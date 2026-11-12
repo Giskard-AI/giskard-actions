@@ -76,7 +76,6 @@ The checks appear as `python / lint` and `python / test` (calling job name, then
 | `sync-args` | string | `--locked --all-groups` | Arguments of `uv sync`, split on whitespace |
 | `lint-command` | string | `uv run ruff format --check . && uv run ruff check .` | Command of the `lint` job |
 | `test-command` | string | `uv run pytest` | Command of the `test` job |
-| `enable-cache` | boolean | `false` | Opt in to setup-uv's GitHub Actions cache of uv downloads; see [Caching](#caching) |
 | `timeout-minutes` | number | `30` | Timeout of each job |
 
 `--locked` fails when `uv.lock` is out of date with `pyproject.toml`; `--all-groups` installs every dependency group, so the default commands need `ruff` and `pytest` in one of them.
@@ -116,8 +115,6 @@ jobs:
 | `node-version` | string | `26` | Node.js version spec; 26 is the Active LTS line since 2026-10-28 |
 | `working-directory` | string | `.` | Directory holding `package.json`; every command runs there |
 | `runner` | string | `ubuntu-latest` | Runner label for both jobs |
-| `cache` | string | `''` | Set to `npm` or `yarn` to opt in to `actions/setup-node`'s dependency cache; empty is off. See [Caching](#caching) |
-| `cache-dependency-path` | string | `''` | Lockfile(s) keying the cache when `cache` is set, relative to the repository root; empty means `<working-directory>/package-lock.json` |
 | `install-command` | string | `npm ci` | Install command, run in both jobs |
 | `lint-command` | string | `npm run lint` | Lint step of the `lint` job |
 | `format-command` | string | `npx --no prettier --check .` | Format check step of the `lint` job; `--no` fails when prettier is not installed instead of downloading it |
@@ -126,15 +123,14 @@ jobs:
 
 Package managers:
 
-- **npm workspaces**: when caching, point the cache at the root lockfile with `cache-dependency-path: package-lock.json` if `working-directory` is a workspace package.
-- **Yarn 1**: set the `yarn ...` commands, and to cache, `cache: yarn` with `cache-dependency-path: <dir>/yarn.lock`. The runner image's Yarn 1.22 is used.
+- **Yarn 1**: set the `yarn ...` commands. The runner image's Yarn 1.22 is used.
 - **pnpm is not supported yet.** The pnpm binary would have to be installed inside the called job (a caller cannot add `pnpm/action-setup` to it), and Node.js 25 and later no longer ship Corepack.
 
 ## Caching
 
-Dependency caching is off by default in both CI workflows. GitHub Actions caches written on the default branch are restored by every other ref, including tag pushes and release runs, so anything that can write that cache (a compromised dependency or build step, a workflow that runs untrusted code) can poison what a later release or secret-holding run restores. Callers may run these workflows on release, tag or `workflow_run` events. Prebuilt wheels and npm tarballs re-download quickly, so leaving the cache off costs little.
+Neither CI workflow restores or saves a dependency cache, and no input turns one on: every `setup-uv` step sets `enable-cache: false` and every `setup-node` step `package-manager-cache: false`. GitHub Actions caches written on the default branch are restored by every other ref, including tag pushes and release runs, so anything that can write that cache (a compromised dependency or build step, a workflow that runs untrusted code) can poison what a later release or secret-holding run restores. Callers may run these workflows on release, tag or `workflow_run` events. Prebuilt wheels and npm tarballs re-download quickly, so installing from the lock file in every job costs little.
 
-Opt in with `enable-cache: true` (Python CI) or `cache: npm` / `cache: yarn` (TypeScript CI), only in workflows that run on pull requests and pushes and never in a workflow that publishes, releases or receives secrets.
+Releases up to v2 had opt-in inputs (`enable-cache` in Python CI, `cache` and `cache-dependency-path` in TypeScript CI). GitHub rejects a call that passes an input the workflow does not declare, so remove them from your `with:` when you bump past v2.
 
 ## Command inputs
 

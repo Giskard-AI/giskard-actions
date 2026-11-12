@@ -18,14 +18,6 @@ on:
         description: Runner label for both jobs
         type: string
         default: ubuntu-latest
-      cache:
-        description: Set to npm or yarn to opt in to setup-node's dependency cache; leave empty (off) in workflows that publish or hold secrets
-        type: string
-        default: ""
-      cache-dependency-path:
-        description: Lockfile(s) keying the cache, relative to the repository root. Empty means <working-directory>/package-lock.json.
-        type: string
-        default: ""
       install-command:
         description: Shell command that installs dependencies
         type: string
@@ -70,8 +62,6 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ inputs.node-version }}
-          cache: ${{ inputs.cache }}
-          cache-dependency-path: ${{ inputs.cache-dependency-path || format('{0}/package-lock.json', inputs.working-directory) }}
           package-manager-cache: false
 
       - name: Install dependencies
@@ -109,8 +99,6 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ inputs.node-version }}
-          cache: ${{ inputs.cache }}
-          cache-dependency-path: ${{ inputs.cache-dependency-path || format('{0}/package-lock.json', inputs.working-directory) }}
           package-manager-cache: false
 
       - name: Install dependencies
