@@ -7,7 +7,8 @@ name: zizmor scan
 #
 # The scan itself is scripts/zizmor/scan.sh, checked out from this repository
 # at the commit that runs (job.workflow_sha): the ruleset's pinned SHA, or the
-# caller's pinned ref.
+# caller's pinned ref. The skip-ci-markers job also fails a pull request whose
+# title or body would stop CI on the default branch after a squash merge.
 
 on:
   pull_request:
@@ -199,3 +200,65 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 gate/scripts/zizmor/pins.py src base
+
+  # A squash merge copies the pull request title and body into the commit on
+  # the default branch, and GitHub runs no push workflow for a commit whose
+  # message holds a skip instruction. This workflow is the one every code
+  # repository must pass, so the check lives here. Ruleset runs ignore
+  # `types:` (opened, synchronize and reopened only), so editing the text
+  # alone does not re-run it, and a re-run reads the old event payload. On
+  # merge_group it checks the commit the queue will push.
+  skip-ci-markers:
+    name: skip-ci-markers
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Check the pull request text for skip instructions
+        shell: bash
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          MERGE_GROUP_MESSAGE: ${{ github.event.merge_group.head_commit.message }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          import sys
+
+          # GitHub's skip instructions ("Skipping workflow runs"). GitHub reads
+          # the raw message, so backticks do not protect a marker.
+          INSTRUCTION = re.compile(
+              r"\[(?:skip ci|ci skip|no ci|skip actions|actions skip)\]", re.IGNORECASE
+          )
+          TRAILER = re.compile(r"skip-checks:\s*true", re.IGNORECASE)
+          PULL_REQUEST = (
+              "A squash merge copies the pull request title and body into the commit "
+              "message on the default branch, and GitHub then runs no push workflow "
+              "(CI, release) for that commit. Reword it, for example 'the skip-ci "
+              "marker', then push a commit, click Update branch, or close and reopen "
+              "the pull request: re-running this job reads the old text."
+          )
+          MERGE_GROUP = (
+              "The merge queue pushes this commit to the default branch, and GitHub "
+              "then runs no push workflow (CI, release) for it. Remove the pull "
+              "request from the queue, reword its title or body, for example 'the "
+              "skip-ci marker', and queue it again."
+          )
+
+          found = 0
+          for where, name, hint in (
+              ("The pull request title", "PR_TITLE", PULL_REQUEST),
+              ("The pull request body", "PR_BODY", PULL_REQUEST),
+              ("The merge queue commit message", "MERGE_GROUP_MESSAGE", MERGE_GROUP),
+          ):
+              for number, line in enumerate(os.environ.get(name, "").splitlines(), 1):
+                  markers = INSTRUCTION.findall(line)
+                  if TRAILER.fullmatch(line.strip()):
+                      markers.append(line.strip())
+                  at = "" if name == "PR_TITLE" else f" on line {number}"
+                  for marker in markers:
+                      print(f"::error title=Skip-CI marker::{where} contains {marker}{at}. {hint}")
+                      found += 1
+          sys.exit(1 if found else 0)
+          PY

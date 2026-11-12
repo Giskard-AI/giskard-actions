@@ -604,7 +604,9 @@ def test_shared_ci_job_names(workflow: str):
     ("workflow", "jobs"),
     [
         pytest.param(
-            "zizmor-scan", ["zizmor", "zizmor-pins"], id="shared-scan-owns-the-zizmor-checks"
+            "zizmor-scan",
+            ["zizmor", "zizmor-pins", "skip-ci-markers"],
+            id="shared-scan-owns-the-zizmor-checks",
         ),
         pytest.param("zizmor", ["zizmor-online"], id="own-online-scan-has-a-distinct-check"),
     ],
@@ -699,3 +701,97 @@ def test_zizmor_scan_flags_new_ignores(
     found = re.findall(r"^::warning file=([^,]+),line=(\d+),", result.stdout, re.MULTILINE)
     assert [f"{name}:{line}" for name, line in found] == warnings
     assert summary.exists() == bool(warnings)
+
+
+def test_skip_markers_job_wiring():
+    block = job_blocks(gate_text())["skip-ci-markers"]
+    assert re.search(r"^    permissions: \{\}$", block, re.MULTILINE)
+    assert "PR_TITLE: ${{ github.event.pull_request.title }}" in block
+    assert "PR_BODY: ${{ github.event.pull_request.body }}" in block
+    assert "MERGE_GROUP_MESSAGE: ${{ github.event.merge_group.head_commit.message }}" in block
+    assert "uses:" not in block and "token" not in block
+
+
+BODY = "Bumps a dependency.\n\n"
+
+
+@pytest.mark.parametrize(
+    ("env", "errors"),
+    [
+        *(
+            pytest.param(
+                {"PR_BODY": BODY + f"chore: release {marker}\n"},
+                [f"The pull request body contains {marker} on line 3"],
+                id=f"body-{marker.strip('[]').replace(' ', '-')}-fails",
+            )
+            for marker in ("[skip ci]", "[ci skip]", "[no ci]", "[skip actions]", "[actions skip]")
+        ),
+        pytest.param(
+            {"PR_BODY": "[Skip CI]"},
+            ["The pull request body contains [Skip CI] on line 1"],
+            id="mixed-case-fails",
+        ),
+        pytest.param(
+            {"PR_BODY": "Quoted: `chore: release [skip ci]`"},
+            ["The pull request body contains [skip ci] on line 1"],
+            id="inside-backticks-fails",
+        ),
+        pytest.param(
+            {"PR_TITLE": "chore: release 1.2.0 [ci skip]"},
+            ["The pull request title contains [ci skip]"],
+            id="title-fails-without-line",
+        ),
+        pytest.param(
+            {"PR_BODY": BODY + "skip-checks: true"},
+            ["The pull request body contains skip-checks: true on line 3"],
+            id="trailer-fails",
+        ),
+        pytest.param(
+            {"PR_BODY": BODY + "skip-checks:true\n"},
+            ["The pull request body contains skip-checks:true on line 3"],
+            id="trailer-without-space-fails",
+        ),
+        pytest.param(
+            {"PR_BODY": "Notes\r\n\r\n  Skip-Checks: TRUE \r\n"},
+            ["The pull request body contains Skip-Checks: TRUE on line 3"],
+            id="trailer-crlf-mixed-case-indented-fails",
+        ),
+        pytest.param(
+            {"PR_TITLE": "[no ci] x", "PR_BODY": "[skip ci] and [ci skip]"},
+            [
+                "The pull request title contains [no ci]",
+                "The pull request body contains [skip ci] on line 1",
+                "The pull request body contains [ci skip] on line 1",
+            ],
+            id="every-marker-is-reported",
+        ),
+        pytest.param(
+            {"MERGE_GROUP_MESSAGE": "Bump x (#12)\n\n[skip actions]"},
+            ["The merge queue commit message contains [skip actions] on line 3"],
+            id="merge-queue-commit-message-fails",
+        ),
+        pytest.param({"PR_BODY": "Renames the skip-ci job."}, [], id="bare-skip-ci-passes"),
+        pytest.param({"PR_BODY": "Use [skip-ci] instead."}, [], id="hyphenated-brackets-pass"),
+        pytest.param({"PR_BODY": "We skip ci on docs."}, [], id="unbracketed-words-pass"),
+        pytest.param({"PR_BODY": "[skipci] [ci-skip]"}, [], id="other-spellings-pass"),
+        pytest.param(
+            {"PR_BODY": "Never add `skip-checks: true` to a commit."},
+            [],
+            id="trailer-mid-sentence-passes",
+        ),
+        pytest.param({"PR_BODY": "skip-checks: false"}, [], id="trailer-false-passes"),
+        pytest.param({"PR_TITLE": "feat: x", "PR_BODY": ""}, [], id="empty-body-passes"),
+        pytest.param({"PR_TITLE": "feat: x"}, [], id="null-body-passes"),
+        pytest.param({}, [], id="no-pull-request-or-merge-group-passes"),
+    ],
+)
+def test_skip_markers(env: dict[str, str], errors: list[str]):
+    result = subprocess.run(
+        ["bash", "-c", textwrap.dedent(gate_script("skip-checks"))],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={"PATH": "/usr/bin:/bin", **env},
+    )
+    assert result.returncode == (1 if errors else 0), result.stderr
+    assert re.findall(r"^::error title=Skip-CI marker::([^.]*)\.", result.stdout, re.M) == errors
