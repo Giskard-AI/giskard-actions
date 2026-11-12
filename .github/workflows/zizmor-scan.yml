@@ -225,11 +225,14 @@ jobs:
           import sys
 
           # GitHub's skip instructions ("Skipping workflow runs"). GitHub reads
-          # the raw message, so backticks do not protect a marker.
+          # the raw message, so backticks do not protect a marker. ASCII only:
+          # without it, IGNORECASE folds U+017F to "s" and \s matches Unicode
+          # spaces, which GitHub does not.
           INSTRUCTION = re.compile(
-              r"\[(?:skip ci|ci skip|no ci|skip actions|actions skip)\]", re.IGNORECASE
+              r"\[(?:skip ci|ci skip|no ci|skip actions|actions skip)\]",
+              re.IGNORECASE | re.ASCII,
           )
-          TRAILER = re.compile(r"skip-checks:\s*true", re.IGNORECASE)
+          TRAILER = re.compile(r"skip-checks:\s*true", re.IGNORECASE | re.ASCII)
           DOCS = "https://giskard-ai.github.io/giskard-actions/ci-workflows.html#skip-ci-markers-failed-on-my-pr"
           PULL_REQUEST = (
               "A squash merge copies the pull request title and body into the commit "
@@ -251,6 +254,13 @@ jobs:
           head_commit = (event.get("merge_group") or {}).get("head_commit") or {}
 
           found = 0
+          event_name = os.environ.get("GITHUB_EVENT_NAME")
+          if event_name == "merge_group" and head_commit.get("message") is None:
+              print(
+                  "::error title=Skip-CI marker::The merge queue event has no head commit message, "
+                  "so the commit the queue pushes cannot be checked. Re-queue the pull request."
+              )
+              found += 1
           for where, text, numbered, hint in (
               ("The pull request title", pull_request.get("title"), False, PULL_REQUEST),
               ("The pull request body", pull_request.get("body"), True, PULL_REQUEST),

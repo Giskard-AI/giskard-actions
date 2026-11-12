@@ -715,6 +715,7 @@ def test_skip_markers_job_wiring():
     assert 'open(os.environ["GITHUB_EVENT_PATH"]' in block
     for absent in ("${{", "uses:", "token", "env:"):
         assert absent not in block, absent
+    assert not re.search(r"^\s+(?:needs|if|continue-on-error):", block, re.MULTILINE)
 
 
 def pr(title: str = "feat: x", body: str | None = "") -> dict:
@@ -727,16 +728,25 @@ def queue(message: str) -> dict:
 
 def run_skip_markers(tmp_path: Path, event: dict) -> subprocess.CompletedProcess:
     (tmp_path / "event.json").write_text(json.dumps(event), encoding="utf-8")
+    name = next((n for n in ("merge_group", "pull_request") if n in event), "push")
     return subprocess.run(
         ["bash", "-c", textwrap.dedent(gate_script("skip-checks"))],
         capture_output=True,
         text=True,
         check=False,
-        env={"PATH": "/usr/bin:/bin", "GITHUB_EVENT_PATH": str(tmp_path / "event.json")},
+        env={
+            "PATH": "/usr/bin:/bin",
+            "GITHUB_EVENT_NAME": name,
+            "GITHUB_EVENT_PATH": str(tmp_path / "event.json"),
+        },
     )
 
 
 BODY = "Bumps a dependency.\n\n"
+NO_HEAD_COMMIT = (
+    "The merge queue event has no head commit message, "
+    "so the commit the queue pushes cannot be checked"
+)
 # Linux caps one environment string at 128 KiB; the event file has no such cap.
 LONG_BODY = "\u20ac" * 65_000 + "\n[skip ci]"
 
@@ -811,6 +821,23 @@ LONG_BODY = "\u20ac" * 65_000 + "\n[skip ci]"
             id="trailer-mid-sentence-passes",
         ),
         pytest.param(pr(body="skip-checks: false"), [], id="trailer-false-passes"),
+        pytest.param(pr(body="[\u017fkip ci]"), [], id="long-s-is-not-folded-to-s"),
+        pytest.param(pr(body="[s\u212aip ci]"), [], id="kelvin-sign-is-not-folded-to-k"),
+        pytest.param(pr(body="[skip\u3000ci]"), [], id="full-width-space-in-brackets-passes"),
+        pytest.param(
+            pr(body="skip-checks:\u3000true"), [], id="full-width-space-in-trailer-passes"
+        ),
+        pytest.param(
+            {"merge_group": {"head_commit": None}},
+            [NO_HEAD_COMMIT],
+            id="merge-queue-without-head-commit-fails-closed",
+        ),
+        pytest.param(
+            {"merge_group": {"head_commit": {"message": None}}},
+            [NO_HEAD_COMMIT],
+            id="merge-queue-null-message-fails-closed",
+        ),
+        pytest.param(queue(""), [], id="merge-queue-empty-message-passes"),
         pytest.param(pr(body=""), [], id="empty-body-passes"),
         pytest.param(pr(body=None), [], id="null-body-passes"),
         pytest.param(
