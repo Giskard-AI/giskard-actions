@@ -27,7 +27,7 @@ inputs:
   codex_version:
     description: Codex CLI version pin
     required: false
-    default: "0.164.0"
+    default: "0.166.0"
 
 runs:
   using: composite
