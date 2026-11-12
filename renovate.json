@@ -1,31 +1,11 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "schedule": ["before 4am on Monday"],
-  "minimumReleaseAge": "7 days",
-  "osvVulnerabilityAlerts": true,
-  "labels": ["dependencies"],
-  "lockFileMaintenance": {
-    "enabled": true
-  },
   "extends": [
-    "config:recommended",
+    "github>Giskard-AI/.github",
     ":semanticCommits",
-    "helpers:pinGitHubActionDigests",
     ":pinAllExceptPeerDependencies"
   ],
   "packageRules": [
-    {
-      "matchManagers": ["pep621", "pyenv"],
-      "description": "Disable python versions from updating",
-      "enabled": false,
-      "matchPackageNames": ["/^python$/"]
-    },
-    {
-      "groupName": "{{manager}} dependencies",
-      "groupSlug": "{{manager}}-deps",
-      "matchUpdateTypes": ["*"],
-      "matchPackageNames": ["*"]
-    },
     {
       "description": "Group pep621 Python updates into one PR.",
       "matchManagers": ["pep621"],
