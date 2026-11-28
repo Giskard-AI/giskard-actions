@@ -135,7 +135,7 @@ runs:
     - name: Set up Node for Codex sandbox preflight
       uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
       with:
-        node-version: "26.13.0"
+        node-version: "26.13.1"
         package-manager-cache: false
 
     - name: Preflight Codex sandbox
@@ -177,7 +177,7 @@ runs:
 
     # drop-sudo removes sudo for the rest of the job, so every step that needs it runs above.
     - name: Run Codex
-      uses: openai/codex-action@bdf19a4a223ec2549a3e2274a0cf61556bc07675 # v1.13
+      uses: openai/codex-action@306c6a196a99dcc6582530c396a19d2672d5e9ec # v1.14
       with:
         openai-api-key: ${{ inputs.azure_ai_api_key }}
         responses-api-endpoint: ${{ steps.endpoint.outputs.responses_endpoint }}
